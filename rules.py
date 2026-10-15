@@ -66,6 +66,9 @@ RESELLERS = {"retailers", "wholesalers / distributors"}
 INPUT_BUYERS = {"manufacturers / processors"}
 RESELLER_LEVELS = {"retail", "wholesale / distribution"}
 INPUT_SELLER_LEVELS = {"raw materials", "intermediate products"}
+# A resale link needs a reseller: Form CO (25)(f) requires activity in the downstream market, and selling one's
+# own products to retailers is not itself retail or wholesale. "other" is kept because it cannot be told.
+RESELLER_OR_UNCLEAR_LEVELS = {"retail", "wholesale / distribution", "other"}
 
 # =============================================================== thresholds (to calibrate)
 # Cosine similarity of text-embedding-3-large vectors. Placeholders until test_compare.py has
@@ -73,7 +76,8 @@ INPUT_SELLER_LEVELS = {"raw materials", "intermediate products"}
 # is lost (over-inclusive by design).
 SIMILARITY_UNCLEAR = 0.50   # AI says "different product", but the descriptions are this close -> unclear
 INPUT_MATCH = 0.50          # A's product is this close to one of B's listed inputs -> input signal
-RESALE_MATCH = 0.40         # A's product is this close to B's retail / wholesale range -> resale signal
+RESALE_MATCH = 0.50         # A's product is this close to B's retail / wholesale range -> resale signal
+                            # (TC1, 15 Oct: real resale pairs 0.68 and 0.82; wrong links to merchandise shops 0.41-0.46)
 
 
 # =============================================================== anonymisation
@@ -215,6 +219,13 @@ def is_reseller(activity):
     return activity.get("value_chain_level") in RESELLER_LEVELS
 
 
+def captive_only(activity):
+    """Produced only for the group's own use: not active on the merchant market (Draft Merger Guidelines
+    para 103(i)). Shown as a flag on every pair with this activity, never used to screen a pair out."""
+    customers = set(activity.get("direct_customers") or []) - {"not stated"}
+    return customers == {"internal use (captive)"}
+
+
 def code_vertical_signals(a, b, sims):
     """
     Vertical links that follow from the facts alone, independent of the AI comparison.
@@ -239,16 +250,41 @@ def code_vertical_signals(a, b, sims):
     return signals
 
 
+def check_ai_links(ai_links, a, b):
+    """
+    Applies the one condition of the vertical definition that the structured facts can check: a resale link
+    needs a reseller. An AI resale link whose reseller side is not at retail or wholesale level is disregarded,
+    and the reason is recorded. Input links are left to the AI (any product, by-product or service may be an
+    input, Draft Merger Guidelines para 250), so code does not second-guess them.
+    Returns (valid links, [(disregarded link, reason)]).
+    """
+    valid, disregarded = set(), []
+    for link in ai_links:
+        reseller = b if link == "A could be resold by B" else a if link == "B could be resold by A" else None
+        if reseller is not None and reseller.get("value_chain_level") not in RESELLER_OR_UNCLEAR_LEVELS:
+            side = "B" if reseller is b else "A"
+            disregarded.append((link, f"{side} is not active in wholesale or retail "
+                                      f"(level: {reseller.get('value_chain_level')})"))
+        else:
+            valid.add(link)
+    return valid, disregarded
+
+
 # =============================================================== decision rule (if/then)
-def decide(comparison, code_signals, similarity):
+def decide(comparison, code_signals, similarity, a=None, b=None):
     """
     Combines the AI comparison of one anonymised pair with the code signals.
     The AI can put a pair on the list on its own, but never take one off on its own:
     a pair is screened out only if the AI finds a different product and no vertical link,
     the code finds no vertical link, and the descriptions are not close.
+    If the two activities are passed, AI resale links are checked against the reseller condition
+    (check_ai_links); a disregarded link is recorded in the rule text, never silently dropped.
     """
     relation = comparison["product_relation"]
     ai_links = set(comparison.get("vertical_links") or [])
+    disregarded = []
+    if a is not None and b is not None:
+        ai_links, disregarded = check_ai_links(ai_links, a, b)
     rule_links = {link for link, _ in code_signals}
     links = [link for link in VERTICAL_LINKS if link in ai_links | rule_links]
     found_by = {
@@ -274,8 +310,10 @@ def decide(comparison, code_signals, similarity):
         status = "screened out"
         rule = (f"Screened out: AI found a different product and no vertical link, no vertical signal in code, "
                 f"descriptions not close ({similarity:.2f} < {SIMILARITY_UNCLEAR})")
+    if disregarded:
+        rule += " | AI link disregarded: " + "; ".join(f"{link} ({why})" for link, why in disregarded)
     return {"status": status, "horizontal": horizontal, "vertical_links": links,
-            "found_by": found_by, "rule": rule}
+            "found_by": found_by, "disregarded": disregarded, "rule": rule}
 
 
 # =============================================================== EEA
@@ -344,5 +382,8 @@ if __name__ == "__main__":
     print("decision:", decide(ai, signals, sims["product"]))
     print("decision without signals, close texts:", decide(ai, [], 0.55)["rule"])
     print("decision without signals, distant texts:", decide(ai, [], 0.20)["rule"])
+    ai_resale = {"product_relation": "different product", "vertical_links": ["B could be resold by A"]}
+    print("AI says the paint maker resells the store's goods:",
+          decide(ai_resale, [], 0.20, a=paint_maker, b=hardware_store)["rule"])
     print("EEA:", eea_status(paint_maker["countries_of_sale"]), "|", eea_status(["Switzerland"]), "|",
           eea_status(["more than 100 countries"]))

@@ -58,15 +58,17 @@ Fields:
 - sector: the broad sector in plain words (e.g. "food", "frozen food", "real estate"). Only for sorting the overview.
 - entity: the group company or brand the activity belongs to.
 - brands: brand names used for this activity. Brand names go ONLY here.
-- product, description, intended_use: generic words, NO company or brand names. Describe what the product is,
-  its key characteristics and, if stated, its price positioning; and what the direct customers use it for.
+- product, description, intended_use, customer_details, sales_channels: generic words, NO company or brand names,
+  including the names of customers, suppliers, partners or retailers (write "a biscuit manufacturer", not its name).
+  Describe what the product is, its key characteristics and, if stated, its price positioning; and what the direct
+  customers use it for.
 - main_inputs: the main raw materials or inputs, if stated or obvious from the description, else ["not stated"].
 - value_chain_level: the company's own level of trade for this activity:
   {"; ".join(f"{k} = {v}" for k, v in VALUE_CHAIN_LEVELS.items())}.
 - direct_customers: who buys directly FROM THE COMPANY, at its own level of trade (not the end consumer of a
   product sold through shops): {"; ".join(f"{k} = {v}" for k, v in DIRECT_CUSTOMER_TYPES.items())}.
 - customer_details: specifics the list cannot express (e.g. "bakeries and confectioners", "travel retail",
-  "hotels and restaurants"), else "not stated".
+  "hotels and restaurants"), without naming individual customers, else "not stated".
 - end_users, sales_channels, countries_of_sale ("not stated" if the sources give none), status.
 - source_numbers: only numbers from the numbered source list; evidence: a short quote or paraphrase.
 - group_companies: subsidiaries and brands of the group named in the notes.
@@ -113,6 +115,7 @@ def extraction_input(company, notes, sources):
 COMPARISON_INSTRUCTIONS = """You support a competition lawyer with the first, factual step of an overlap screen.
 You receive two business activities, A and B, described without company names. Compare them on the facts only.
 Do not define markets and do not cite decisions; that is done in a later step.
+An activity whose status is "in development" (a pipeline product) is compared like a product on the market.
 
 1. product_relation: compare WHAT the products are, from the point of view of the customers who buy them:
    characteristics, intended use (function) and price positioning. Ignore who the direct customers are and at
@@ -120,17 +123,35 @@ Do not define markets and do not cite decisions; that is done in a later step.
    - "same product": the same type of product or service, even if sold at a different level of trade,
      in a different form (e.g. in bulk v in consumer packs) or to different customers.
    - "similar product, possibly substitutable": a different product that customers could plausibly use for the
-     same purpose or switch to, even if only partly or only in one direction.
+     same specific purpose or switch to, even if only partly or only in one direction.
    - "different product": customers would not use one instead of the other.
    - "not enough information": the descriptions do not allow a comparison.
-   If in doubt between two labels, choose the one closer to "same product".
-2. vertical_links: every link that is plausible on the facts (empty list if none):
-   - "A could be an input for B": B's product could be made using A's product.
+   Belonging to the same broad category (e.g. both are food, both are consumer goods, both are services) is not
+   enough for "similar product". If in doubt between two labels, choose the one closer to "same product".
+2. vertical_links: two activities are vertically related when one is active in a market upstream or downstream of
+   the market of the other: it supplies an input for the other's type of product, or it distributes or resells the
+   other's type of product. Judge this at the level of the TYPE of product or service, not the actual relationship
+   between the two businesses: a link exists even if B does not buy from A today. "Product" includes services and
+   technologies. Return an empty list if no link is supported.
+   - "A could be an input for B": A's good or service is used to make or supply products or services of B's type,
+     e.g. a raw material, ingredient, component, semi-finished product, by-product or recycled material, packaging,
+     manufacturing or processing carried out for others, logistics, software, data, or rights and technology needed
+     to make B's product. Supported if A's product appears among B's main inputs, if products of B's type are made
+     or supplied with it, or if A's product would do the same job as one of B's main inputs. Links over several
+     levels of the value chain count too; call them "indirect" in vertical_reason.
+     Rights (e.g. brand or technology licences) and general business services (e.g. consulting, advice,
+     administration, financing, property) are inputs only if the descriptions show that products of B's type are
+     made or sold with them (e.g. B makes products under licence); that any business could use them is not enough.
    - "B could be an input for A": the reverse.
-   - "A could be resold by B": B resells products made by others (wholesale or retail) and its range could
-     include A's product.
+   - "A could be resold by B": B is active in wholesale, distribution or retail of goods of A's type, including
+     shops that sell only their own goods of that type.
    - "B could be resold by A": the reverse.
-3. product_reason and vertical_reason: one or two factual sentences each.
+   Not vertical links: products used together or bought together by the same customers (complements, ranges);
+   a shared broad category; selling one's own products to retailers or wholesalers, which is not itself wholesale
+   or retail activity; a connection that is merely theoretical, i.e. supported neither by the descriptions nor by
+   how products of that type are made, supplied or distributed.
+3. product_reason and vertical_reason: one or two factual sentences each. In vertical_reason, name the part of
+   the descriptions (main inputs, product, range) that supports each link, or say why there is none.
 Never mention a company or brand, even if you think you recognise the business."""
 
 

@@ -2,20 +2,28 @@
 test_compare.py - tests the generic activity overview (stages 1-2) and the factual comparison (stage 3)
 on one test case, outside Streamlit. Needs rules.py and schemas.py in the same folder.
 
-Run in the Codespace terminal:   python test_compare.py
-Choose the test case and the models in SETTINGS below.
+Run in the Codespace terminal:
+  python test_compare.py                          TC1, Luna everywhere, saved Sol searches of 14 Oct
+  python test_compare.py TC2                      another test case
+  python test_compare.py TC1 --judge gpt-6.1-sol  the same pairs judged by Sol (search + extraction from cache)
+  python test_compare.py TC1 --search gpt-6-luna  new web searches instead of the saved ones
+The defaults are in SETTINGS below.
 
 What it does:
-  1. Activity overview: one web search and one extraction call per company (one company per call, in parallel).
+  1. Activity overview: one search and one extraction call per company (one company per call, in parallel).
+     By default the search is NOT re-run: the Sol searches of 14 Oct (test_results/search_*.json) are reused,
+     so the test isolates the extraction and the comparison and costs no search fees.
   2. Anonymisation in code: names and brands removed; every text is checked before it is sent.
   3. Embeddings of the anonymised products and inputs (one request per company).
   4. Factual comparison: every target activity x every portco activity, ONE anonymised pair per AI call.
   5. Decision rule in code (rules.decide): the AI can keep a pair alone, but never screen one out alone.
+  6. Benchmark check (benchmark.py): the expert benchmark of spec section 13, checked automatically.
 
 Everything is cached in cache/, so re-running costs nothing; changing a model or a prompt only re-runs
 the calls affected. Output: test_results/compare_<TC>_<judge model>_<time>.md and .json
-Cost with Luna everywhere: a few cents. A Sol search costs about USD 0.15-0.35 per company (paid once).
+Cost with Luna everywhere: a few cents. A new Sol search costs about USD 0.15-0.35 per company (paid once).
 """
+import argparse
 import concurrent.futures as cf
 import hashlib
 import json
@@ -27,14 +35,17 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+import benchmark
 import rules
 import schemas
 
 load_dotenv()
 
-# =============================================================== SETTINGS
+# =============================================================== SETTINGS (defaults; the command line overrides them)
 TEST_CASE = "TC1"                # TC1 Lindt & Sprüngli, TC2 Planet A Foods, TC3 Koa
-SEARCH_MODEL = "gpt-6-luna"      # "gpt-6.1-sol" for the checkpoint run
+SEARCH_MODEL = "saved"           # "saved" = reuse SAVED_SEARCH_FILE; or "gpt-6-luna" / "gpt-6.1-sol" for new searches
+SAVED_SEARCH_FILE = Path("test_results/search_20261014-0130.json")
+SAVED_SEARCH_MODEL = "gpt-6.1-sol"   # the final search model (spec section 8); the file also has Luna searches
 EXTRACT_MODEL = "gpt-6-luna"
 JUDGE_MODEL = "gpt-6-luna"       # then the same pairs with "gpt-6.1-sol" to compare
 EMBED_MODEL = "text-embedding-3-large"
@@ -149,7 +160,22 @@ def cited_sources(resp):
 
 
 # =============================================================== stage 1-2: activity overview
+def saved_search(company):
+    """The Sol search of 14 Oct for this company, in the same format as search() returns. No API call."""
+    entries = json.loads(SAVED_SEARCH_FILE.read_text(encoding="utf-8"))
+    for e in entries:
+        if e["company"] == company and e["search_model"] == SAVED_SEARCH_MODEL:
+            log_call("search", SAVED_SEARCH_MODEL, 0, 0, 0, f"{company} (saved)", cached=True)
+            sources = [{"n": s["number"], "url": clean_url(s["url"]), "title": s.get("title") or s["url"],
+                        "type": s.get("type", "")} for s in e["sources"]]
+            return {"company": company, "model": f"{SAVED_SEARCH_MODEL} (saved {SAVED_SEARCH_FILE.name})",
+                    "date": "2026-10-14", "notes": e["notes"], "sources": sources}
+    raise RuntimeError(f"No saved {SAVED_SEARCH_MODEL} search for {company} in {SAVED_SEARCH_FILE}")
+
+
 def search(company):
+    if SEARCH_MODEL == "saved":
+        return saved_search(company)
     prompt = schemas.search_prompt(company, COMPANIES[company]["hint"])
     guard(prompt, allowed_company=company)
     path, hit = cache_lookup("search", [SEARCH_MODEL, prompt])
@@ -178,6 +204,8 @@ def extract(company, found):
     resp = with_retry(client().responses.parse, model=EXTRACT_MODEL, instructions=schemas.EXTRACTION_INSTRUCTIONS,
                       input=text, text_format=schemas.ActivityList, **reasoning(EXTRACT_MODEL))
     log_call("extract", EXTRACT_MODEL, *usage(resp), time.time() - t, company)
+    if resp.output_parsed is None:  # refusal or invalid structured output: stop with a clear message
+        raise RuntimeError(f"Extraction for {company} returned no valid activity list: {resp.output_text[:300]}")
     data = resp.output_parsed.model_dump()
     valid = {s["n"] for s in found["sources"]}
     for act in data["activities"]:  # code check: only source numbers the search actually returned
@@ -243,6 +271,9 @@ def compare(prompt):
         return {"product_relation": "not enough information", "product_reason": f"Call failed: {e}",
                 "vertical_links": [], "vertical_reason": "", "error": True}
     log_call("compare", JUDGE_MODEL, *usage(resp), time.time() - t)
+    if resp.output_parsed is None:  # never screen out on an error: treated as "not enough information"
+        return {"product_relation": "not enough information", "product_reason": "No valid answer from the model",
+                "vertical_links": [], "vertical_reason": "", "error": True}
     data = resp.output_parsed.model_dump()
     cache_store(path, data)
     return data
@@ -268,12 +299,13 @@ def assess(pair):
     prompt = schemas.comparison_input(pair["abstract_a"], pair["abstract_b"])
     comparison = compare(prompt)
     signals = rules.code_vertical_signals(pair["a"], pair["b"], pair["sims"])
-    decision = rules.decide(comparison, signals, pair["sims"]["product"])
+    decision = rules.decide(comparison, signals, pair["sims"]["product"], pair["a"], pair["b"])
     customers = rules.customer_overlap(pair["a"]["direct_customers"], pair["b"]["direct_customers"])
     eea = [rules.eea_status(pair["a"]["countries_of_sale"]), rules.eea_status(pair["b"]["countries_of_sale"])]
+    flags = (["no EEA overlap"] if "outside the EEA only" in eea else []) + \
+        (["captive (not on the merchant market)"] if rules.captive_only(pair["a"]) or rules.captive_only(pair["b"]) else [])
     return {**pair, "prompt": prompt, "comparison": comparison, "code_signals": signals, "decision": decision,
-            "customers": customers if decision["horizontal"] else "",
-            "eea_flag": "no EEA overlap" if "outside the EEA only" in eea else ""}
+            "customers": customers if decision["horizontal"] else "", "flags": "; ".join(flags)}
 
 
 # =============================================================== report
@@ -282,11 +314,30 @@ def short(text, n=60):
     return text if len(text) <= n else text[:n - 1] + "…"
 
 
-def write_report(target, portcos, profiles, mapped, results, stamp):
+def benchmark_lines(checks):
+    marks = {m: sum(c["mark"] == m for c in checks) for m in ("✔", "◐", "✖", "∅", "⚠")}
+    L = ["## Benchmark check (spec section 13)", "",
+         f"{marks['✔']} ✔ as expected · {marks['◐']} ◐ kept in another form · "
+         f"**{marks['✖']} ✖ missed by the comparison** · {marks['∅']} ∅ activity not found · "
+         f"{marks['⚠']} ⚠ false positives in a control row", "",
+         "Checkpoint Wed 21 Oct: no ✖. A ∅ is a search or extraction gap (or the keywords in benchmark.py "
+         "need adjusting: compare with the activity overview below).", "",
+         "| Check | Portco | Pair | Expected | Result | Pairs | Detail |", "|---|---|---|---|---|---|---|"]
+    for c in checks:
+        labels = ", ".join(c["labels"][:4]) + (f" (+{len(c['labels']) - 4})" if len(c["labels"]) > 4 else "")
+        L.append(f"| {c['id']} | {c['portco']} | {short(c['what'], 70)} | {c['expect']} | {c['mark']} | "
+                 f"{labels} | {short(c['detail'], 160)} |")
+    return L + [""]
+
+
+def write_report(target, portcos, profiles, mapped, results, checks, stamp):
     L = [f"# Factual comparison {TEST_CASE}: {target} ({stamp})", "",
-         f"Models: search {SEARCH_MODEL} · extraction {EXTRACT_MODEL} · comparison {JUDGE_MODEL} · {EMBED_MODEL}  ",
+         f"Models: search {SEARCH_MODEL if SEARCH_MODEL != 'saved' else 'saved ' + SAVED_SEARCH_MODEL} · "
+         f"extraction {EXTRACT_MODEL} · comparison {JUDGE_MODEL} · {EMBED_MODEL}  ",
          f"Thresholds: unclear ≥ {rules.SIMILARITY_UNCLEAR} · input match ≥ {rules.INPUT_MATCH} · "
-         f"resale ≥ {rules.RESALE_MATCH}", "", "## Activity overview (stages ①–②)"]
+         f"resale ≥ {rules.RESALE_MATCH}", ""]
+    L += benchmark_lines(checks)
+    L += ["## Activity overview (stages ①–②)"]
     for company in [target] + portcos:
         role = "Target" if company == target else f"Portco {portcos.index(company) + 1}"
         m = mapped[company]
@@ -312,15 +363,16 @@ def write_report(target, portcos, profiles, mapped, results, stamp):
         kept = [r for r in rows if r["decision"]["status"] != "screened out"]
         out = [r for r in rows if r["decision"]["status"] == "screened out"]
         L += ["", f"### {portco}", "",
-              "| Target | Portco | Result | Product (AI) | Cust. | Vertical (found by) | Sim. | Reason (AI) | EEA |",
+              "| Target | Portco | Result | Product (AI) | Cust. | Vertical (found by) | Sim. | Reason (AI) | Flags |",
               "|---|---|---|---|---|---|---|---|---|"]
         for r in sorted(kept, key=lambda r: (r["decision"]["status"] != "candidate", -r["sims"]["product"])):
             d = r["decision"]
-            vertical = "; ".join(f"{v} ({d['found_by'][v]})" for v in d["vertical_links"])
+            vertical = "; ".join([f"{v} ({d['found_by'][v]})" for v in d["vertical_links"]]
+                                 + [f"✗ {v} (AI, disregarded: {why})" for v, why in d.get("disregarded", [])])
             L.append(f"| {r['label_a']} {short(r['a']['product'], 30)} | {r['label_b']} {short(r['b']['product'], 30)} | "
                      f"{d['status']} | {r['comparison']['product_relation']} | {r['customers']} | {vertical} | "
-                     f"{r['sims']['product']:.2f} | {short(r['comparison']['product_reason'] + ' ' + r['comparison']['vertical_reason'], 120)} | "
-                     f"{r['eea_flag']} |")
+                     f"{r['sims']['product']:.2f} | {short(r['comparison']['product_reason'] + ' ' + r['comparison']['vertical_reason'], 160)} | "
+                     f"{r['flags']} |")
         if out:
             L += ["", f"<details><summary>{len(out)} pairs screened out</summary>", ""]
             L += [f"- {r['label_a']} {short(r['a']['product'], 35)} ↔ {r['label_b']} {short(r['b']['product'], 35)} "
@@ -354,7 +406,19 @@ def write_report(target, portcos, profiles, mapped, results, stamp):
 
 
 # =============================================================== main
+def parse_args():
+    global TEST_CASE, SEARCH_MODEL, EXTRACT_MODEL, JUDGE_MODEL
+    p = argparse.ArgumentParser(description="Test the activity overview and the factual comparison on one test case.")
+    p.add_argument("case", nargs="?", default=TEST_CASE, choices=sorted(TEST_CASES))
+    p.add_argument("--search", default=SEARCH_MODEL, help='"saved" (default) or a model for new web searches')
+    p.add_argument("--extract", default=EXTRACT_MODEL, help="model for the extraction")
+    p.add_argument("--judge", default=JUDGE_MODEL, help="model for the factual comparison")
+    args = p.parse_args()
+    TEST_CASE, SEARCH_MODEL, EXTRACT_MODEL, JUDGE_MODEL = args.case, args.search, args.extract, args.judge
+
+
 def main():
+    parse_args()
     start = time.time()
     target = TEST_CASES[TEST_CASE]
     portcos = PORTFOLIO
@@ -393,11 +457,13 @@ def main():
     with cf.ThreadPoolExecutor(MAX_PARALLEL) as ex:
         results = list(ex.map(assess, pairs))
 
+    checks = benchmark.run_checks(TEST_CASE, target, mapped, results, rules.SIMILARITY_UNCLEAR)
+
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     RESULTS.mkdir(exist_ok=True)
     name = f"compare_{TEST_CASE}_{JUDGE_MODEL}_{stamp}"     # model names contain dots, so no with_suffix()
     md_path, json_path = RESULTS / f"{name}.md", RESULTS / f"{name}.json"
-    report = write_report(target, portcos, profiles, mapped, results, stamp)
+    report = write_report(target, portcos, profiles, mapped, results, checks, stamp)
     md_path.write_text(report, encoding="utf-8")
     slim = [{k: v for k, v in r.items() if k not in ("sims",)} | {"sims": {k: round(v, 3) for k, v in r["sims"].items()}}
             for r in results]
@@ -405,10 +471,14 @@ def main():
         {"settings": {"test_case": TEST_CASE, "search": SEARCH_MODEL, "extract": EXTRACT_MODEL, "judge": JUDGE_MODEL,
                       "thresholds": [rules.SIMILARITY_UNCLEAR, rules.INPUT_MATCH, rules.RESALE_MATCH]},
          "mapped": mapped, "names_removed": sorted(rules.name_variants(NAMES)),
+         "benchmark": [{k: v for k, v in c.items() if k not in ("target", "portco_act")} for c in checks],
          "results": slim, "log": LOG}, ensure_ascii=False, indent=1), encoding="utf-8")
 
     counts = {s: sum(r["decision"]["status"] == s for r in results) for s in ("candidate", "unclear", "screened out")}
     print(f"   {counts}")
+    print("4. Benchmark check:")
+    for c in checks:
+        print(f"   {c['mark']} {c['id']} {c['portco']}: {c['what']} -> {c['detail']}")
     print(f"Done in {time.time() - start:.0f} s · USD {sum(c['cost'] for c in LOG):.4f} (token costs) · "
           f"report: {md_path}")
 
