@@ -1,3 +1,7 @@
 streamlit
 openai
 python-dotenv
+pydantic
+chromadb==1.5.9
+semchunk
+tiktoken
