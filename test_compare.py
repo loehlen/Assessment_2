@@ -53,22 +53,7 @@ REASONING_EFFORT = "low"
 MAX_PARALLEL = 8
 TIMEOUT = 300                    # seconds; Sol searches took up to 211 s in the first test
 
-COMPANIES = {
-    "Lindt & Sprüngli": {"hint": "Swiss premium chocolate maker based in Kilchberg",
-                         "aliases": ["Lindt", "Sprüngli", "Lindt & Sprüngli AG"]},
-    "Planet A Foods": {"hint": "Munich-based maker of the cocoa-free chocolate alternative ChoViva",
-                       "aliases": ["Planet A", "ChoViva"]},
-    "Koa": {"hint": "Swiss-Ghanaian company making products from cocoa fruit pulp",
-            "aliases": ["Koa Impact", "Koa Switzerland AG", "Koa Germany GmbH"]},
-    "Ritter Sport": {"hint": "German chocolate maker Alfred Ritter GmbH & Co. KG, Waldenbuch",
-                     "aliases": ["Ritter", "Alfred Ritter GmbH & Co. KG"]},
-    "Barry Callebaut": {"hint": "Swiss cocoa and chocolate manufacturer based in Zurich",
-                        "aliases": ["Callebaut", "Barry Callebaut AG"]},
-    "Bahlsen": {"hint": "German biscuit and cake maker based in Hanover", "aliases": ["Bahlsen GmbH & Co. KG"]},
-    "FRoSTA": {"hint": "German frozen food company based in Bremerhaven", "aliases": ["FRoSTA AG"]},
-}
-TEST_CASES = {"TC1": "Lindt & Sprüngli", "TC2": "Planet A Foods", "TC3": "Koa"}
-PORTFOLIO = ["Ritter Sport", "Barry Callebaut", "Bahlsen", "FRoSTA"]
+from examples import COMPANIES, PORTFOLIO, TEST_CASES  # noqa: E402 - the test cases, shared with the app
 
 # USD per 1M tokens (input, output); third-party listings, to verify. Web search fees not included.
 PRICES = {"gpt-6-luna": (0.10, 0.50), "gpt-6.1-sol": (2.00, 10.00), "text-embedding-3-large": (0.13, 0.0)}
@@ -192,28 +177,29 @@ def search(company):
     return data
 
 
+_AI = None
+
+
+def shared_ai():
+    """The app's own AI wrapper (ai_client.py), so this script tests exactly the app's extraction: the same
+    instruction, the consolidation to at most rules.MAX_MAIN business areas and the merged 'Other activities' line.
+    It uses the same cache/ folder; its calls are copied into LOG after the mapping."""
+    global _AI
+    if _AI is None:
+        import ai_client
+        _AI = ai_client.AI(profile="dev", use_cache=True, timeout=TIMEOUT)
+        _AI.models["extract"] = EXTRACT_MODEL
+    return _AI
+
+
+def company_dict(name):
+    return {"name": name, "role": "", "hint": COMPANIES[name]["hint"], "aliases": COMPANIES[name]["aliases"],
+            "pasted": ""}
+
+
 def extract(company, found):
-    text = schemas.extraction_input(company, found["notes"], found["sources"])
-    guard(schemas.extraction_input(company, "", []), allowed_company=company)  # the part the app writes itself
-    key = [EXTRACT_MODEL, schemas.EXTRACTION_INSTRUCTIONS, schemas.ActivityList.model_json_schema(), text]
-    path, hit = cache_lookup("extract", key)
-    if hit:
-        log_call("extract", EXTRACT_MODEL, 0, 0, 0, company, cached=True)
-        return hit
-    t = time.time()
-    resp = with_retry(client().responses.parse, model=EXTRACT_MODEL, instructions=schemas.EXTRACTION_INSTRUCTIONS,
-                      input=text, text_format=schemas.ActivityList, **reasoning(EXTRACT_MODEL))
-    log_call("extract", EXTRACT_MODEL, *usage(resp), time.time() - t, company)
-    if resp.output_parsed is None:  # refusal or invalid structured output: stop with a clear message
-        raise RuntimeError(f"Extraction for {company} returned no valid activity list: {resp.output_text[:300]}")
-    data = resp.output_parsed.model_dump()
-    valid = {s["n"] for s in found["sources"]}
-    for act in data["activities"]:  # code check: only source numbers the search actually returned
-        act["invalid_source_numbers"] = [n for n in act["source_numbers"] if n not in valid]
-        act["source_numbers"] = [n for n in act["source_numbers"] if n in valid]
-        act["verified_source"] = bool(act["source_numbers"])
-    cache_store(path, data)
-    return data
+    import activity_mapping
+    return activity_mapping.extract(shared_ai(), company_dict(company), found, [company_dict(c) for c in COMPANIES])
 
 
 def map_company(company, case_companies):
@@ -315,11 +301,11 @@ def short(text, n=60):
 
 
 def benchmark_lines(checks):
-    marks = {m: sum(c["mark"] == m for c in checks) for m in ("✔", "◐", "✖", "∅", "⚠")}
+    marks = {m: sum(c["mark"] == m for c in checks) for m in ("✔", "◐", "✖", "∅", "⚠", "○")}
     L = ["## Benchmark check (spec section 13)", "",
          f"{marks['✔']} ✔ as expected · {marks['◐']} ◐ kept in another form · "
          f"**{marks['✖']} ✖ missed by the comparison** · {marks['∅']} ∅ activity not found · "
-         f"{marks['⚠']} ⚠ false positives in a control row", "",
+         f"{marks['⚠']} ⚠ false positives in a control row · {marks['○']} ○ observation (no pass/fail)", "",
          "Checkpoint Wed 21 Oct: no ✖. A ∅ is a search or extraction gap (or the keywords in benchmark.py "
          "need adjusting: compare with the activity overview below).", "",
          "| Check | Portco | Pair | Expected | Result | Pairs | Detail |", "|---|---|---|---|---|---|---|"]
@@ -349,7 +335,8 @@ def write_report(target, portcos, profiles, mapped, results, checks, stamp):
               "|---|---|---|---|---|---|---|---|"]
         prefix = "T" if company == target else f"P{portcos.index(company) + 1}"
         for i, a in enumerate(m["extraction"]["activities"], start=1):
-            L.append(f"| {prefix}-{i} | {short(a['business_area'], 25)} | {short(a['product'], 45)} | "
+            L.append(f"| {prefix}-{i} | {rules.category(a)}: {short(a['business_area'], 20)} | "
+                     f"{short(a['product'], 40)} ({short(', '.join(a.get('includes') or []), 60)}) | "
                      f"{a['value_chain_level']} | {', '.join(a['direct_customers'])} | "
                      f"{short(', '.join(a['countries_of_sale']), 30)} | {a['status']} | "
                      f"{a['source_numbers'] or '⚠ none'}"
@@ -380,8 +367,9 @@ def write_report(target, portcos, profiles, mapped, results, checks, stamp):
             L += ["", "</details>"]
     screened = sorted((r for r in results if r["decision"]["status"] == "screened out"),
                       key=lambda r: -r["sims"]["product"])[:8]
-    L += ["", "## Calibration: closest pairs that were screened out", "",
-          "If a benchmark overlap appears here, lower SIMILARITY_UNCLEAR in rules.py below its similarity.", ""]
+    L += ["", "## Closest pairs that were screened out (for information)", "",
+          "The similarity rule is no longer applied (option B, 15 Oct); a benchmark overlap here was missed by the "
+          "AI and by the vertical signals.", ""]
     L += [f"- {r['sims']['product']:.2f} · {r['label_a']} {short(r['a']['product'], 40)} ↔ "
           f"{r['label_b']} {short(r['b']['product'], 40)} ({r['portco']})" for r in screened]
     for status in ("candidate", "screened out"):
@@ -429,6 +417,9 @@ def main():
     with cf.ThreadPoolExecutor(MAX_PARALLEL) as ex:
         futures = {c: ex.submit(map_company, c, case_companies) for c in case_companies}
         mapped = {c: f.result() for c, f in futures.items()}
+    if _AI is not None:                     # the extraction calls, logged by the app's wrapper
+        LOG.extend({k: c[k] for k in ("step", "model", "in", "out", "seconds", "cost", "cached", "note")}
+                   for c in _AI.log.calls)
     for c in case_companies:
         print(f"   {c}: {len(mapped[c]['extraction']['activities'])} activities")
 

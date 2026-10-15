@@ -1,7 +1,8 @@
-streamlit
+streamlit>=1.66
 openai
 python-dotenv
 pydantic
+pandas
 chromadb==1.5.9
 semchunk
 tiktoken

@@ -1,0 +1,181 @@
+"""
+comparison.py - stage 3: anonymisation and the factual comparison (spec sections 6 and 7, step 3).
+
+    collect_names(companies, activities, group_companies)   every name that must never reach a comparison
+    anonymise(activities, names)                            the abstracts, with the name check
+    embed_company(ai, label, activities, names)             one embedding request per company
+    build_pairs(target, portcos, profiles)                  every target activity x every portco activity
+    assess(ai, pair, names)                                 ONE anonymised pair per AI call + code signals + rule
+
+Stage 3 was frozen on 15 Oct in test_compare.py: Luna as the comparison model, the prompt of 15 Oct, the reseller
+check and the resale threshold of 0.50. This module is the same logic, moved out of the test script so that the
+app can use it: same prompts (schemas.py), same rules (rules.py), same cache keys, same result format (so
+benchmark.py can check the app's results too).
+"""
+import rules
+import schemas
+from ai_client import EMBED_MODEL
+
+
+# =============================================================== names and abstracts
+def collect_names(companies, activities, group_companies):
+    """All entered names and aliases, the group companies found by the extraction, and every brand in the
+    (confirmed) activity lists. activities / group_companies: {company name: [...]}."""
+    names = []
+    for c in companies:
+        names += [c["name"]] + [a for a in c.get("aliases", []) if a]
+        names += [g for g in group_companies.get(c["name"], []) if g]
+        for a in activities.get(c["name"], []):
+            names += [b for b in a.get("brands") or [] if b]
+    return names
+
+
+def anonymise(activities, names):
+    """Abstracts of one company's activities. Returns (abstracts, problems); problems lists the activities in
+    which a name is still found after the removal. Their pairs are blocked (shown as 'unclear')."""
+    abstracts, problems = [], []
+    for i, a in enumerate(activities):
+        text, leftover = rules.build_abstract(a, names)
+        abstracts.append(text)
+        if leftover:
+            problems.append((i, leftover))
+    return abstracts, problems
+
+
+# =============================================================== embeddings (one request per company)
+def embedding_texts(activities, names):
+    texts = []
+    for a in activities:
+        texts.append(rules.redact(rules.product_text(a), names))
+        texts += [rules.redact(i, names) for i in a.get("main_inputs") or [] if i and i != "not stated"]
+    return texts
+
+
+def embed_company(ai, label, activities, names):
+    """Anonymised product texts and inputs of ONE company in one request. Returns one entry per activity:
+    {"product": vector, "inputs": [vectors]}. An error is raised, never hidden: a missing vector would
+    make two products look unrelated, and an error must never screen a pair out."""
+    texts = embedding_texts(activities, names)
+    for t in texts:
+        if rules.find_names(t, names):
+            raise RuntimeError(f"Blocked: a name is left in an embedding text of {label}")
+    if not texts:
+        return []
+    path, hit = ai.cache_get("embed", [EMBED_MODEL, texts])
+    if hit:
+        ai.log_cached("embed", EMBED_MODEL, label)
+        vectors = hit
+    else:
+        vectors = ai.embed(texts, note=label)
+        ai.cache_put(path, vectors)
+    out, k = [], 0
+    for a in activities:
+        n_inputs = len([i for i in a.get("main_inputs") or [] if i and i != "not stated"])
+        out.append({"product": vectors[k], "inputs": vectors[k + 1:k + 1 + n_inputs]})
+        k += 1 + n_inputs
+    return out
+
+
+# =============================================================== pairs
+def build_pairs(target, portcos, profiles):
+    """profiles: {name: {"activities", "abstracts", "vectors"}}.
+    Labels: T-2 = target activity 2, P1-3 = portco 1, activity 3. The key never leaves the app."""
+    pairs = []
+    t = profiles[target]
+    for pi, portco in enumerate(portcos, start=1):
+        p = profiles[portco]
+        for ti, ta in enumerate(t["activities"]):
+            for ki, pa in enumerate(p["activities"]):
+                tv, pv = t["vectors"][ti], p["vectors"][ki]
+                sims = {"product": rules.cosine(tv["product"], pv["product"]),
+                        "input_a_to_b": rules.best_input_match(tv["product"], pv["inputs"]),
+                        "input_b_to_a": rules.best_input_match(pv["product"], tv["inputs"])}
+                pairs.append({"portco": portco, "label_a": f"T-{ti + 1}", "label_b": f"P{pi}-{ki + 1}",
+                              "a": ta, "b": pa, "abstract_a": t["abstracts"][ti], "abstract_b": p["abstracts"][ki],
+                              "sims": sims})
+    return pairs
+
+
+# =============================================================== one anonymised pair per AI call
+def compare(ai, prompt, names):
+    """An error or a blocked call never screens a pair out: it becomes 'not enough information' -> unclear."""
+    leftover = rules.find_names(prompt, names)
+    if leftover:
+        return {"product_relation": "not enough information", "product_reason": f"Blocked: names found {leftover}",
+                "vertical_links": [], "vertical_reason": "", "blocked": True}
+    model = ai.model("compare")
+    path, hit = ai.cache_get("compare", [model, schemas.COMPARISON_INSTRUCTIONS,
+                                         schemas.Comparison.model_json_schema(), prompt])
+    if hit:
+        ai.log_cached("compare", model)
+        return hit
+    try:
+        resp = ai.respond("compare", prompt, instructions=schemas.COMPARISON_INSTRUCTIONS,
+                          schema=schemas.Comparison, model=model)
+    except Exception as e:  # noqa: BLE001
+        return {"product_relation": "not enough information", "product_reason": f"Call failed: {e}",
+                "vertical_links": [], "vertical_reason": "", "error": True}
+    if resp.output_parsed is None:
+        return {"product_relation": "not enough information", "product_reason": "No valid answer from the model",
+                "vertical_links": [], "vertical_reason": "", "error": True}
+    data = resp.output_parsed.model_dump()
+    ai.cache_put(path, data)
+    return data
+
+
+def assess(ai, pair, names):
+    prompt = schemas.comparison_input(pair["abstract_a"], pair["abstract_b"])
+    comparison = compare(ai, prompt, names)
+    signals = rules.code_vertical_signals(pair["a"], pair["b"], pair["sims"])
+    decision = rules.decide(comparison, signals, pair["sims"]["product"], pair["a"], pair["b"])
+    customers = rules.customer_overlap(pair["a"]["direct_customers"], pair["b"]["direct_customers"])
+    eea = [rules.eea_status(pair["a"]["countries_of_sale"]), rules.eea_status(pair["b"]["countries_of_sale"])]
+    flags = (["no EEA overlap"] if "outside the EEA only" in eea else []) + \
+        (["captive (not on the merchant market)"] if rules.captive_only(pair["a"]) or rules.captive_only(pair["b"])
+         else [])
+    return {**pair, "prompt": prompt, "comparison": comparison, "code_signals": signals, "decision": decision,
+            "customers": customers if decision["horizontal"] else "", "flags": "; ".join(flags)}
+
+
+# =============================================================== presentation helpers (names re-attached in code)
+CUSTOMER_ORDER = {"●●●": 0, "●●○": 1, "●○○": 2, "?": 3, "": 4}
+FOUND_BY_ORDER = {"AI and rule": 0, "rule": 1, "AI": 2}
+
+
+def pair_id(r):
+    return f"{r['label_a']}×{r['label_b']}"
+
+
+def describe_link(link, target, portco):
+    """Which party supplies the other, with the names re-attached (A is always the target, B the portco)."""
+    return {
+        "A could be an input for B": f"{target} → {portco} (input)",
+        "B could be an input for A": f"{portco} → {target} (input)",
+        "A could be resold by B": f"{portco} could resell {target}'s product",
+        "B could be resold by A": f"{target} could resell {portco}'s product",
+    }.get(link, link)
+
+
+def is_indirect(r):
+    return "indirect" in (r["comparison"].get("vertical_reason") or "").lower()
+
+
+def horizontal_sort_key(r):
+    return (CUSTOMER_ORDER.get(r["customers"], 4), -r["sims"]["product"])
+
+
+def vertical_sort_key(r):
+    """Direct links before indirect ones (spec section 6), then links found by AI and rule, then similarity."""
+    best = min((FOUND_BY_ORDER.get(f, 3) for f in r["decision"]["found_by"].values()), default=3)
+    return (is_indirect(r), best, -r["sims"]["product"])
+
+
+def effective_status(r, overrides):
+    """The code's decision, changed only by the user (never by the AI): 'dismissed' or 'added back'."""
+    o = overrides.get(pair_id(r), {})
+    status = r["decision"]["status"]
+    if status == "screened out" and o.get("add_back"):
+        return "added back by user"
+    if status != "screened out" and o.get("dismiss"):
+        return "dismissed by user"
+    return status

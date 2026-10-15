@@ -10,17 +10,19 @@ Three AI tasks:
   2. EXTRACTION   one company per call, prose -> structured activity list (ActivityList)
   3. COMPARISON   one anonymised pair of activities per call, no names (Comparison)
 """
+import json
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from rules import (DIRECT_CUSTOMER_TYPES, END_USERS, PRODUCT_RELATIONS, STATUS,
+from rules import (CATEGORIES, DIRECT_CUSTOMER_TYPES, END_USERS, MAX_MAIN, PRODUCT_RELATIONS, STATUS,
                    VALUE_CHAIN_LEVELS, VERTICAL_LINKS)
 
 Level = Literal[tuple(VALUE_CHAIN_LEVELS)]
 CustomerType = Literal[tuple(DIRECT_CUSTOMER_TYPES)]
 EndUsers = Literal[tuple(END_USERS)]
 Status = Literal[tuple(STATUS)]
+Category = Literal[tuple(CATEGORIES)]
 ProductRelation = Literal[tuple(PRODUCT_RELATIONS)]
 VerticalLink = Literal[tuple(VERTICAL_LINKS)]
 
@@ -30,7 +32,11 @@ def search_prompt(company, hint=""):
     who = f"{company} ({hint})" if hint else company
     return f"""Research the business activities of {who}, including all subsidiaries and brands that the group controls.
 
-Start with the company's own website and its most recent annual report; then use other reliable sources.
+Use only publicly available sources: pages that anyone can open without logging in, paying or getting around an
+access restriction, such as the company's own websites, its annual and sustainability reports, press releases,
+public registers and established news or trade media. Do not try to reach password-protected, paywalled, internal,
+confidential or leaked material, and do not use cached or mirrored copies of such material.
+Start with the company's own website and its most recent annual report; then use other reliable public sources.
 Describe every activity, also those outside the company's main business, and for each:
 - how the company itself presents and groups its activities (divisions, segments, business areas)
 - the product or service, what it is used for and its main inputs or raw materials
@@ -42,28 +48,66 @@ Describe every activity, also those outside the company's main business, and for
 - whether it is on the market or still in development
 Also name the group companies and brands, and any partnership, supply or distribution agreement
 with other companies that the sources mention.
-Only report what the sources say; write "not stated" where they say nothing."""
+Only report what the sources say; write "not stated" where they say nothing. If the public sources say little or
+nothing about the company, say so and stop: a gap is an acceptable answer, a guess is not."""
 
 
 # =============================================================== 2. extraction (one company per call)
-EXTRACTION_INSTRUCTIONS = f"""You turn research notes about ONE company group into a structured list of its activities,
-for the first step of a competition-law overlap analysis. Use only the research notes and the numbered sources given.
+EXTRACTION_INSTRUCTIONS = f"""You turn research notes about ONE company group into (1) a short company profile and
+(2) a structured list of its activities, for the first step of a competition-law overlap analysis.
+Use only the research notes and the numbered sources given.
 
-Granularity: one activity per plausible product market, at most about 10 per company. Split only by type of product
-or service and by level of trade (e.g. the same product sold to retailers and in own shops = two activities).
-Do not split by brand, flavour, pack size or individual product.
+COMPANY PROFILE (company_profile): 2-3 factual sentences, the way the company would introduce itself: who it is,
+where it is based, who owns it or which group it belongs to, and its main business areas; revenue and number of
+employees only if the notes state them (with the year). Names are allowed here. Do not repeat claims about its
+market position or "its market" (e.g. "a leading player in the global snacks market"); say what it does.
+profile_source_numbers: the sources used for the profile.
+
+ACTIVITIES: work in two steps.
+
+Step 1, form the lines. One line = one BUSINESS AREA of the company at one level of trade: what a lawyer would write
+as one line of a first overview. Start from how the company presents and groups its business (divisions, segments,
+the sections of its website); ignore purely geographic segments.
+Split a business area ONLY when its level of trade differs, into these groups:
+  (1) inputs for other producers (raw materials, ingredients, semi-finished or intermediate products);
+  (2) goods made for resale or for business use (sold to retailers, wholesalers, foodservice or other businesses);
+  (3) own retail and hospitality (own shops, outlets, own online shop, cafes, restaurants, catering);
+  (4) other services;
+and keep a product that is still in development as its own line. Wholesale of goods made by others is also its own
+line.
+Do NOT split by type of product: different products of one business area at one level of trade are ONE line, and
+every product type goes into "includes" (e.g. one line "paints and coatings sold to retailers" with includes
+"interior wall paint, exterior paint, varnishes, wood stains, trade packs"). Also merge brands, product lines, formats,
+channels, customer groups (branded, private label, corporate gifts), countries and group companies doing the same
+thing (name them all in "entity"). When unsure whether two lines belong together, MERGE them.
+"includes" must list every product type, format and customer group covered, in generic words, so that nothing is
+lost by merging.
+
+Step 2, categorise each line on its own, after the lines are formed:
+- "main": the company offers it to customers as a business in its own right.
+- "other": (a) it is not offered on the market at all, i.e. production or services only for the group's own use
+  (direct customer "internal use (captive)"); or (b) it is offered to third parties only as a side line that exists
+  to support or promote the company's main business.
+The size of an activity is never a reason for "other". A line never combines activities of different levels of
+trade or of different categories. AT MOST {MAX_MAIN} "main" lines per company. List each "other" line separately;
+code combines them into one line.
+category_reason: one short sentence applying this definition.
 
 Fields:
 - business_area: how the company itself groups this activity (division, segment), else "not stated".
 - sector: the broad sector in plain words (e.g. "food", "frozen food", "real estate"). Only for sorting the overview.
-- entity: the group company or brand the activity belongs to.
-- brands: brand names used for this activity. Brand names go ONLY here.
-- product, description, intended_use, customer_details, sales_channels: generic words, NO company or brand names,
-  including the names of customers, suppliers, partners or retailers (write "a biscuit manufacturer", not its name).
-  Describe what the product is, its key characteristics and, if stated, its price positioning; and what the direct
-  customers use it for.
+- entity: the group companies or brands that carry this activity (comma-separated).
+- brands: brand names used for this activity. Brand names go ONLY here (and in the company profile).
+- product: a short generic name of the business area at its level of trade (e.g. "paints and coatings sold to
+  retailers").
+- includes: every product type, format and customer group covered, in generic words (e.g. "interior wall paint",
+  "varnishes", "trade packs", "private label", "corporate gifts"), else [].
+- product, includes, description, intended_use, customer_details, sales_channels: generic words, NO company or brand
+  names, including the names of customers, suppliers, partners or retailers (write "a biscuit manufacturer", not its
+  name). Describe what the products are, their key characteristics and, if stated, their price positioning; and what
+  the direct customers use them for.
 - main_inputs: the main raw materials or inputs, if stated or obvious from the description, else ["not stated"].
-- value_chain_level: the company's own level of trade for this activity:
+- value_chain_level: the company's own level of trade for this activity (own retail and hospitality = "retail"):
   {"; ".join(f"{k} = {v}" for k, v in VALUE_CHAIN_LEVELS.items())}.
 - direct_customers: who buys directly FROM THE COMPANY, at its own level of trade (not the end consumer of a
   product sold through shops): {"; ".join(f"{k} = {v}" for k, v in DIRECT_CUSTOMER_TYPES.items())}.
@@ -75,7 +119,6 @@ Fields:
 
 Rules:
 - Ignore information about other companies with similar names.
-- Production for the group's own use is "internal use (captive)".
 - Never adopt the company's own description of "its market" (e.g. "we compete in the global snacks market")
   as a market definition; describe the activity instead.
 - Write "not stated" instead of guessing."""
@@ -84,9 +127,13 @@ Rules:
 class Activity(BaseModel):
     business_area: str = Field(description="How the company itself groups this activity, else 'not stated'")
     sector: str = Field(description="Broad sector in plain words, for sorting the overview only")
-    entity: str = Field(description="Group company or brand the activity belongs to")
+    entity: str = Field(description="Group companies or brands that carry this activity, comma-separated")
     brands: list[str] = Field(description="Brand names used for this activity (the only field with brand names)")
-    product: str = Field(description="The product or service in generic words, no company or brand names")
+    category: Category = Field(description="main: offered as a business in its own right; other: own use only, or a "
+                                           "side line that supports or promotes the main business")
+    category_reason: str = Field(description="One short sentence why main or secondary")
+    product: str = Field(description="Short generic name of the business area at its level of trade; no names")
+    includes: list[str] = Field(description="Every product type, format and customer group covered; generic words")
     description: str = Field(description="What it is, key characteristics, price positioning if stated; no names")
     intended_use: str = Field(description="What the direct customers use it for; no names")
     main_inputs: list[str] = Field(description="Main raw materials or inputs, or ['not stated']")
@@ -102,8 +149,32 @@ class Activity(BaseModel):
 
 
 class ActivityList(BaseModel):
+    company_profile: str = Field(description="2-3 factual sentences introducing the company group; names allowed")
+    profile_source_numbers: list[int] = Field(description="Only numbers from the numbered source list")
     group_companies: list[str] = Field(description="Subsidiaries and brands of the group named in the notes")
     activities: list[Activity]
+
+
+class ActivityGroup(BaseModel):
+    activities: list[Activity]
+
+
+CONSOLIDATION_INSTRUCTIONS = f"""You receive the main activities of ONE company group, extracted for the first overview of a
+competition-law overlap screen. There are more than {MAX_MAIN}. Merge them into AT MOST {MAX_MAIN} main activities.
+One activity = one business area of the company at one level of trade. Split ONLY by level of trade: (1) inputs for
+other producers, (2) goods made for resale or business use, (3) own retail and hospitality, (4) other services;
+keep a product in development separate. Merge everything else; when unsure, merge.
+When you merge lines: give a product name that covers all of them; "includes" keeps every item of the merged lines,
+including their former product names; combine description, intended_use, main_inputs, direct_customers,
+customer_details, sales_channels and countries_of_sale; source_numbers is the union; evidence is a short combination.
+Keep every field rule: no company, brand, customer or supplier names except in "brands" and "entity".
+Return only the merged main activities, with category "main"."""
+
+
+def consolidation_input(company, activities):
+    keep = set(Activity.model_fields)
+    return f"Company: {company}\n\nMAIN ACTIVITIES (JSON)\n" + json.dumps(
+        [{k: v for k, v in a.items() if k in keep} for a in activities], ensure_ascii=False, indent=1)
 
 
 def extraction_input(company, notes, sources):

@@ -8,7 +8,7 @@ How a check works: activities are found by keywords (regex, case-insensitive) in
 (product, description, intended use, business area, entity, brands) and, optionally, by value-chain level.
 This file stays on your machine and is never sent to an AI, so names may be used here.
 
-Each check gets one of five results:
+Each check gets one of six results:
   ✔  expected result
   ◐  kept (candidate or unclear), but not in the expected form, e.g. "unclear" instead of "horizontal".
      Still on the list, so nothing is lost (over-inclusive principle).
@@ -17,6 +17,9 @@ Each check gets one of five results:
   ∅  NOT FOUND: no matching activity on one side. Either the search / extraction missed it
      (a finding for A3), or the keywords below need adjusting (check the activity overview in the report).
   ⚠  FALSE POSITIVE (control rows only): pairs were kept where the benchmark expects none.
+  ○  OBSERVATION: reported, never pass/fail. For links the tool found that the original benchmark missed and
+     that depend on how an activity is extracted (TC1-13; spec section 17), so a run-to-run change is recorded
+     as non-determinism (A3), not as a missed overlap.
 
 Expectations:
   "horizontal"    at least one matching pair is a horizontal candidate
@@ -25,6 +28,7 @@ Expectations:
   "screened out"  every pair with this portco is screened out (control for false positives), except the
                   pairs listed under "except" (real links the tool found that the original benchmark missed)
   "relationship"  the public sources of one company mention the other (🔗 note)
+  "observation"   reports how the matching pairs came out (vertical / kept / screened out), with the mark ○
 """
 import re
 
@@ -85,8 +89,8 @@ BENCHMARK = {
         {"id": "TC1-12", "portco": "FRoSTA", "what": "control: nothing else in common (except TC1-13)",
          "target": ANY, "portco_act": ANY, "expect": "screened out",
          "except": [(act(CAFE), FOODSERVICE)]},
-        {"id": "TC1-13", "portco": "FRoSTA", "what": "foodservice frozen food → Lindt cafés (found by the tool, 15 Oct)",
-         "target": act(CAFE), "portco_act": FOODSERVICE, "expect": "vertical"},
+        {"id": "TC1-13", "portco": "FRoSTA", "what": "foodservice frozen food → Lindt cafés (found by the tool, 15 Oct; observation)",
+         "target": act(CAFE), "portco_act": FOODSERVICE, "expect": "observation"},
     ],
     # ------------------------------------------------------------------ TC2 Planet A Foods (partial precedent)
     "TC2": [
@@ -139,7 +143,8 @@ BENCHMARK = {
 
 # =============================================================== matching
 def activity_text(a):
-    return " ".join([a.get("product", ""), a.get("description", ""), a.get("intended_use", ""),
+    return " ".join([a.get("product", ""), " ".join(a.get("includes") or []), a.get("description", ""),
+                     a.get("intended_use", ""),
                      a.get("business_area", ""), a.get("entity", ""), " ".join(a.get("brands") or [])])
 
 
@@ -149,7 +154,10 @@ def matches(activity, spec):
         return False
     if spec["words"] and not re.search(spec["words"], text, re.IGNORECASE):
         return False
-    if spec["exclude"] and re.search(spec["exclude"], text, re.IGNORECASE):
+    # broad activities list everything under "includes"; an exclusion applies to what the activity IS (its name and
+    # business area), not to everything it includes
+    name = " ".join([activity.get("product", ""), activity.get("business_area", "")])
+    if spec["exclude"] and re.search(spec["exclude"], name, re.IGNORECASE):
         return False
     return True
 
@@ -180,6 +188,21 @@ def run_checks(case, target, mapped, results, similarity_unclear):
             continue
 
         pairs = [r for r in results if r["portco"] == portco]
+        if expect == "observation":
+            hits = [r for r in pairs if matches(r["a"], chk["target"]) and matches(r["b"], chk["portco_act"])]
+            if not hits:
+                rows.append({**chk, "mark": "○", "labels": [], "detail": "observation: no matching pair in this run "
+                                                                         "(activity not extracted separately)"})
+                continue
+            vertical = [r for r in hits if r["decision"]["vertical_links"]]
+            kept = [r for r in hits if r["decision"]["status"] != "screened out"]
+            best = max(hits, key=lambda r: r["sims"]["product"])
+            detail = (f"observation: {len(vertical)} of {len(hits)} matching pairs vertical, {len(kept)} kept"
+                      + ("" if kept else f"; all screened out (closest {best['label_a']}↔{best['label_b']} "
+                                         f"sim. {best['sims']['product']:.2f}, AI: {best['comparison']['product_relation']})"))
+            rows.append({**chk, "mark": "○", "labels": [f"{r['label_a']}↔{r['label_b']}" for r in (vertical or kept or hits)],
+                         "detail": detail})
+            continue
         if expect == "screened out":
             exempt = [r for r in pairs for t, p in chk.get("except", []) if matches(r["a"], t) and matches(r["b"], p)]
             exempt_ids = {id(r) for r in exempt}
