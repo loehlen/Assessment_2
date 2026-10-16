@@ -97,12 +97,15 @@ def build_pairs(target, portcos, profiles):
 
 
 # =============================================================== one anonymised pair per AI call
+NO_ITEMS = {"matching_items_a": [], "matching_items_b": [], "vertical_items": []}
+
+
 def compare(ai, prompt, names):
     """An error or a blocked call never screens a pair out: it becomes 'not enough information' -> unclear."""
     leftover = rules.find_names(prompt, names)
     if leftover:
         return {"product_relation": "not enough information", "product_reason": f"Blocked: names found {leftover}",
-                "vertical_links": [], "vertical_reason": "", "blocked": True}
+                "vertical_links": [], "vertical_reason": "", "blocked": True, **NO_ITEMS}
     model = ai.model("compare")
     path, hit = ai.cache_get("compare", [model, schemas.COMPARISON_INSTRUCTIONS,
                                          schemas.Comparison.model_json_schema(), prompt])
@@ -114,10 +117,10 @@ def compare(ai, prompt, names):
                           schema=schemas.Comparison, model=model)
     except Exception as e:  # noqa: BLE001
         return {"product_relation": "not enough information", "product_reason": f"Call failed: {e}",
-                "vertical_links": [], "vertical_reason": "", "error": True}
+                "vertical_links": [], "vertical_reason": "", "error": True, **NO_ITEMS}
     if resp.output_parsed is None:
         return {"product_relation": "not enough information", "product_reason": "No valid answer from the model",
-                "vertical_links": [], "vertical_reason": "", "error": True}
+                "vertical_links": [], "vertical_reason": "", "error": True, **NO_ITEMS}
     data = resp.output_parsed.model_dump()
     ai.cache_put(path, data)
     return data
@@ -133,8 +136,32 @@ def assess(ai, pair, names):
     flags = (["no EEA overlap"] if "outside the EEA only" in eea else []) + \
         (["captive (not on the merchant market)"] if rules.captive_only(pair["a"]) or rules.captive_only(pair["b"])
          else [])
+    matches, vertical_items = check_matches(comparison, decision, pair, names)
     return {**pair, "prompt": prompt, "comparison": comparison, "code_signals": signals, "decision": decision,
-            "customers": customers if decision["horizontal"] else "", "flags": "; ".join(flags)}
+            "customers": customers if decision["horizontal"] else "", "flags": "; ".join(flags),
+            "matches": matches, "vertical_items": vertical_items}
+
+
+def check_matches(comparison, decision, pair, names):
+    """Option C (16 Oct): the items the AI says meet, checked in code against each activity's own items. Only for
+    what the decision kept: matching items for a horizontal candidate, items for each vertical link that counts
+    (a link disregarded by the reseller check keeps no items). Rejected items go to the audit trail only."""
+    items_a, items_b = rules.activity_items(pair["a"]), rules.activity_items(pair["b"])
+    rejected = []
+    matches = {"a": [], "b": [], "rejected": rejected}
+    if decision["horizontal"]:
+        matches["a"], bad_a = rules.check_items(comparison.get("matching_items_a"), items_a, names)
+        matches["b"], bad_b = rules.check_items(comparison.get("matching_items_b"), items_b, names)
+        rejected += bad_a + bad_b
+    vertical_items = []
+    for v in comparison.get("vertical_items") or []:
+        if v.get("link") not in decision["vertical_links"] or any(x["link"] == v["link"] for x in vertical_items):
+            continue
+        a, bad_a = rules.check_items(v.get("items_a"), items_a, names)
+        b, bad_b = rules.check_items(v.get("items_b"), items_b, names)
+        rejected += bad_a + bad_b
+        vertical_items.append({"link": v["link"], "a": a, "b": b})
+    return matches, vertical_items
 
 
 # =============================================================== presentation helpers (names re-attached in code)

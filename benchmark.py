@@ -36,6 +36,7 @@ import re
 FINISHED = {"finished products"}
 INTERMEDIATE = {"intermediate products", "raw materials"}
 RETAIL = {"retail"}
+RESELLING = {"retail", "wholesale / distribution"}
 
 CHOCOLATE = r"(?<!non-)(?<!non )chocolate|praline|truffle"  # not "non-chocolate confectionery"
 BISCUITS = r"biscuit|cookie|wafer|cake"
@@ -53,7 +54,7 @@ ANY = act()
 FOODSERVICE = act(r"foodservice|food service|professional kitchen", exclude=r"consult|advis|development")
 # Koa's ingredients for manufacturers, whatever level the extraction chooses (its drinks and shots excluded)
 KOA_INGREDIENTS = act(r"pulp|juice|concentrate|powder|flakes|sweetener|cocoa fruit",
-                      exclude=r"shot|ready-to-drink|sold directly to consumers")
+                      exclude=r"shot|ready-to-drink|beverage|drink|sold (directly )?to consumers|other activities")
 
 BENCHMARK = {
     # ------------------------------------------------------------------ TC1 Lindt & Sprüngli (full precedent)
@@ -105,14 +106,19 @@ BENCHMARK = {
         {"id": "TC2-4", "portco": "Ritter Sport", "what": "ChoViva → Ritter chocolate (vertical candidate)",
          "target": act(r"cocoa-free|alternative|chocolate", exclude=r"butter"),
          "portco_act": act(CHOCOLATE, FINISHED), "expect": "vertical"},
-        {"id": "TC2-5", "portco": "Ritter Sport", "what": "Ritter consumer chocolate ↔ ChoViva (related, ●○○)",
+        # Linda, 16 Oct (after the run of 05:35): horizontal (related, ●○○) and vertical (ChoViva as an input) are both
+        # possible; a lawyer has to look at it. So any kept form is the expected result.
+        {"id": "TC2-5", "portco": "Ritter Sport", "what": "Ritter consumer chocolate ↔ ChoViva (horizontal ●○○, vertical, or both)",
          "target": act(r"cocoa-free|alternative|chocolate", exclude=r"butter"),
-         "portco_act": act(CHOCOLATE, FINISHED), "expect": "horizontal"},
+         "portco_act": act(CHOCOLATE, FINISHED), "expect": "kept"},
         {"id": "TC2-6", "portco": "Bahlsen", "what": "ChoViva → biscuits (vertical candidate)",
          "target": act(r"cocoa-free|alternative|chocolate", exclude=r"butter"),
          "portco_act": act(BISCUITS, FINISHED), "expect": "vertical"},
-        {"id": "TC2-7", "portco": "FRoSTA", "what": "control: nothing in common",
-         "target": ANY, "portco_act": ANY, "expect": "screened out"},
+        # Linda, 16 Oct (after the run of 05:35): a supplier of food fats and a frozen-food maker can be vertically
+        # related at market level (fats as an ingredient, e.g. in puff pastry); a lawyer checks it. Those pairs are
+        # expected results, not false positives.
+        {"id": "TC2-7", "portco": "FRoSTA", "what": "control: nothing in common, except food fats as an input",
+         "target": ANY, "portco_act": ANY, "expect": "screened out", "except": [(act(r"\bfats?\b|\boils?\b|butter", exclude=r"other activities"), ANY)]},
     ],
     # ------------------------------------------------------------------ TC3 Koa (no precedent)
     "TC3": [
@@ -135,8 +141,27 @@ BENCHMARK = {
         {"id": "TC3-6", "portco": "Bahlsen", "what": "Koa ingredients → bakery (vertical candidate)",
          "target": KOA_INGREDIENTS,
          "portco_act": act(BISCUITS), "expect": "vertical"},
-        {"id": "TC3-7", "portco": "FRoSTA", "what": "control (possible false positive: fruit ingredient → frozen food)",
-         "target": ANY, "portco_act": ANY, "expect": "screened out"},
+        # The same principle as TC2-7 (Linda, 16 Oct): an ingredient supplier and a frozen-food maker can be vertically
+        # related at market level, so Koa's ingredients → FRoSTA are expected results for the lawyer to check.
+        {"id": "TC3-7", "portco": "FRoSTA", "what": "control: nothing in common, except Koa's ingredients as an input",
+         "target": ANY, "portco_act": ANY, "expect": "screened out", "except": [(KOA_INGREDIENTS, ANY)]},
+    ],
+    # ------------------------------------------------------------------ OS Brillux (other sector, added 16 Oct)
+    # Expert view from what the companies publicly make and sell: done criterion 2 (spec section 16) asks whether the
+    # generic design gives sensible results outside cocoa. Written after the first run of 16 Oct, so it is a check of
+    # plausibility, not a blind benchmark (A3). No precedent of this sector is in the corpus, so only the factual
+    # comparison is checked.
+    "OS": [
+        {"id": "OS-1", "portco": "Sto", "what": "Sto facade systems, paints and renders ↔ Brillux paints and plasters",
+         "target": act(r"paint|coating|plaster"), "portco_act": act(r"facade|façade|paint|coating|render|plaster"),
+         "expect": "horizontal"},
+        {"id": "OS-2", "portco": "Hornbach", "what": "Brillux paints → Hornbach DIY stores / builders' merchants (resale)",
+         "target": act(r"paint|coating"), "portco_act": act(levels=RESELLING), "expect": "vertical"},
+        {"id": "OS-3", "portco": "Henkel", "what": "Henkel construction adhesives and sealants ↔ Brillux (both sell "
+         "building products to trades)", "target": act(r"paint|coating|plaster|adhesive"),
+         "portco_act": act(r"construction|craftsman|building|professional"), "expect": "kept"},
+        {"id": "OS-4", "portco": "Henkel", "what": "control: Henkel laundry, home care and hair products",
+         "target": ANY, "portco_act": act(r"laundry|detergent|home.care|hair"), "expect": "screened out"},
     ],
 }
 
@@ -204,6 +229,8 @@ def run_checks(case, target, mapped, results, similarity_unclear):
                          "detail": detail})
             continue
         if expect == "screened out":
+            # a control row may cover only some activities of the portco (OS-4); TC rows use ANY on both sides
+            pairs = [r for r in pairs if matches(r["a"], chk.get("target", ANY)) and matches(r["b"], chk.get("portco_act", ANY))]
             exempt = [r for r in pairs for t, p in chk.get("except", []) if matches(r["a"], t) and matches(r["b"], p)]
             exempt_ids = {id(r) for r in exempt}
             kept = [r for r in pairs if r["decision"]["status"] != "screened out" and id(r) not in exempt_ids]

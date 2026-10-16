@@ -28,15 +28,24 @@ VerticalLink = Literal[tuple(VERTICAL_LINKS)]
 
 
 # =============================================================== 1. search (one company per call)
-def search_prompt(company, hint=""):
+def search_prompt(company, hint="", website=""):
+    """website (added 16 Oct): identifies the company and is the starting point of the search. Without a website the
+    text is exactly the earlier prompt, so the saved test searches and caches stay valid."""
     who = f"{company} ({hint})" if hint else company
+    if website:
+        who += f", whose own website is {website}"
+        start = (f"Start with the company's own website ({website}) and its most recent annual report; then use other "
+                 "reliable public sources. The website identifies the company: ignore other companies with similar "
+                 "names.")
+    else:
+        start = "Start with the company's own website and its most recent annual report; then use other reliable public sources."
     return f"""Research the business activities of {who}, including all subsidiaries and brands that the group controls.
 
 Use only publicly available sources: pages that anyone can open without logging in, paying or getting around an
 access restriction, such as the company's own websites, its annual and sustainability reports, press releases,
 public registers and established news or trade media. Do not try to reach password-protected, paywalled, internal,
 confidential or leaked material, and do not use cached or mirrored copies of such material.
-Start with the company's own website and its most recent annual report; then use other reliable public sources.
+{start}
 Describe every activity, also those outside the company's main business, and for each:
 - how the company itself presents and groups its activities (divisions, segments, business areas)
 - the product or service, what it is used for and its main inputs or raw materials
@@ -187,6 +196,8 @@ COMPARISON_INSTRUCTIONS = """You support a competition lawyer with the first, fa
 You receive two business activities, A and B, described without company names. Compare them on the facts only.
 Do not define markets and do not cite decisions; that is done in a later step.
 An activity whose status is "in development" (a pipeline product) is compared like a product on the market.
+Each activity names its products in the line "Product" and in the list "Includes", whose items are separated by
+semicolons. These are its ITEMS.
 
 1. product_relation: compare WHAT the products are, from the point of view of the customers who buy them:
    characteristics, intended use (function) and price positioning. Ignore who the direct customers are and at
@@ -223,13 +234,31 @@ An activity whose status is "in development" (a pipeline product) is compared li
    how products of that type are made, supplied or distributed.
 3. product_reason and vertical_reason: one or two factual sentences each. In vertical_reason, name the part of
    the descriptions (main inputs, product, range) that supports each link, or say why there is none.
+4. matching_items_a and matching_items_b: if product_relation is "same product" or "similar product, possibly
+   substitutable", the items of A and the items of B that meet, i.e. that are the same or that customers could use
+   instead of each other. Otherwise two empty lists.
+5. vertical_items: one entry for each link in vertical_links, with the items of A and the items of B that the link
+   concerns (what is supplied or resold, and the activity that uses or resells it).
+   In 4 and 5, copy each item exactly as it is written: the text of the line "Product", or one entry of "Includes"
+   (the text between two semicolons). Do not reword items and do not list items that do not meet.
 Never mention a company or brand, even if you think you recognise the business."""
+
+
+class VerticalItems(BaseModel):
+    link: VerticalLink
+    items_a: list[str] = Field(description="Items of A this link concerns, copied exactly from Product or Includes")
+    items_b: list[str] = Field(description="Items of B this link concerns, copied exactly from Product or Includes")
 
 
 class Comparison(BaseModel):
     product_relation: ProductRelation
     product_reason: str
+    # added 16 Oct (option C): which items meet, so the assessment can say "with regard to ..." (checked in code)
+    matching_items_a: list[str] = Field(description="Items of A that meet items of B (same or similar product), "
+                                                    "copied exactly; else []")
+    matching_items_b: list[str] = Field(description="Items of B that meet items of A, copied exactly; else []")
     vertical_links: list[VerticalLink]
+    vertical_items: list[VerticalItems] = Field(description="One entry per link in vertical_links")
     vertical_reason: str
 
 

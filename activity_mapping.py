@@ -4,10 +4,13 @@ activity_mapping.py - stages 1-2: the activity overview, ONE company per call (s
     map_company(ai, company, companies)     web search + extraction for one company (two isolated calls)
     find_relationships(mapped, companies)   the 🔗 notes: public sources of one company that mention another
 
-A company is a dict: {"name", "role" ("target" / "portco"), "hint", "aliases": [...], "pasted": ""}.
-  hint     optional identifying description ("Swiss-Ghanaian company making products from cocoa fruit pulp")
+A company is a dict: {"name", "role" ("target" / "portco"), "website", "aliases": [...], "source", "pasted"}.
+  website  optional (added 16 Oct): identifies the company in the search and marks its own pages as "company"
   aliases  other names of the company (removed from every abstract, like the name itself)
-  pasted   optional description pasted by the user; added as an extra source "provided by the user"
+  source   how the activities are found (added 16 Oct): "web search" (public sources), "my description" (no web
+           search: only the text the user entered) or "both"
+  pasted   the user's description; a numbered source "provided by the user"
+  hint     earlier one-line identifying description; still read for test_compare.py, no longer entered in the app
 
 Ported from test_compare.py (same prompts, same source check, same cache keys), without global state, so that
 several Streamlit sessions can run at the same time.
@@ -21,9 +24,16 @@ import rules
 import schemas
 from ai_client import setting
 
-# Development only: the Sol searches of 14 Oct for the seven test companies (spec section 8, dev profile)
-SAVED_SEARCH_FILE = Path(setting("SAVED_SEARCH_FILE", "test_results/search_20261014-0130.json"))
+# Development only: saved Sol searches (spec section 8, dev profile): the seven test companies of 14 Oct, and any
+# further file written by save_searches.py (e.g. the other-sector companies). SAVED_SEARCH_FILE limits it to one file.
+SAVED_SEARCH_FILE = setting("SAVED_SEARCH_FILE", "")
 SAVED_SEARCH_MODEL = "gpt-6.1-sol"
+
+
+def saved_search_files():
+    if SAVED_SEARCH_FILE:
+        return [Path(SAVED_SEARCH_FILE)]
+    return sorted(Path("test_results").glob("search_*.json"), reverse=True)     # newest first
 
 
 class Blocked(RuntimeError):
@@ -68,31 +78,52 @@ def _domain_words(name):
             if len(w) >= 4}
 
 
+def site_of(url):
+    """'https://www.brillux.com/de/' or 'brillux.com' -> 'brillux.com' (empty if none)."""
+    url = (url or "").strip()
+    if not url:
+        return ""
+    if "://" not in url:
+        url = "https://" + url
+    host = urlparse(url).netloc.lower().split(":")[0]
+    return host[4:] if host.startswith("www.") else host
+
+
 def label_sources(sources, company, group_companies):
     """Labels each source 'company' (own or group website) or 'third party', unless already labelled.
-    A simple domain check: a word of the company, alias or group company name appears in the domain."""
+    The website the user entered decides first (its domain and subdomains); otherwise a simple domain check: a word of
+    the company, alias or group company name appears in the domain."""
+    site = site_of(company.get("website"))
     words = set()
     for n in names_of(company) + list(group_companies or []):
         words |= _domain_words(n)
     for s in sources:
         if s.get("type"):
             continue
-        domain = urlparse(s.get("url", "")).netloc.lower()
-        s["type"] = "company" if domain and any(w in domain for w in words) else "third party"
+        domain = site_of(s.get("url", ""))
+        own = bool(site) and (domain == site or domain.endswith("." + site))
+        s["type"] = "company" if own or (domain and any(w in domain for w in words)) else "third party"
     return sources
 
 
 # =============================================================== step 1-2a: search (web search, one company)
 def saved_search(name):
-    """The saved Sol search of 14 Oct for this company (development only), or None."""
-    if not SAVED_SEARCH_FILE.exists():
-        return None
-    for e in json.loads(SAVED_SEARCH_FILE.read_text(encoding="utf-8")):
-        if e["company"] == name and e["search_model"] == SAVED_SEARCH_MODEL:
-            sources = [{"n": s["number"], "url": clean_url(s["url"]), "title": s.get("title") or s["url"],
-                        "type": s.get("type", "")} for s in e["sources"]]
-            return {"company": name, "model": f"{SAVED_SEARCH_MODEL} (saved {SAVED_SEARCH_FILE.name})",
-                    "date": "2026-10-14", "notes": e["notes"], "sources": sources}
+    """A saved Sol search for this company (development only), or None. The newest file wins."""
+    for path in saved_search_files():
+        if not path.exists():
+            continue
+        try:
+            entries = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(entries, list):
+            continue
+        for e in entries:
+            if e.get("company") == name and e.get("search_model") == SAVED_SEARCH_MODEL:
+                sources = [{"n": s["number"], "url": clean_url(s["url"]), "title": s.get("title") or s["url"],
+                            "type": s.get("type", "")} for s in e["sources"]]
+                return {"company": name, "model": f"{SAVED_SEARCH_MODEL} (saved {path.name})",
+                        "date": e.get("date", "2026-10-14"), "notes": e["notes"], "sources": sources}
     return None
 
 
@@ -103,7 +134,7 @@ def search(ai, company, companies, use_saved=False):
         if found:
             ai.log_cached("search", SAVED_SEARCH_MODEL, f"{name} (saved search)", names=[name])
             return found
-    prompt = schemas.search_prompt(name, company.get("hint", ""))
+    prompt = schemas.search_prompt(name, company.get("hint", ""), company.get("website", ""))
     guard(prompt, name, companies)
     model = ai.model("search")
     path, hit = ai.cache_get("search", [model, prompt])
@@ -202,16 +233,39 @@ def consolidate(ai, name, activities, warnings):
 
 
 # =============================================================== one company, end to end
+SOURCE_OPTIONS = ("web search", "my description", "both")
+
+
+def source_mode(company):
+    """How this company's activities are found. Companies from before 16 Oct have no 'source': a pasted
+    description then meant 'both'."""
+    mode = company.get("source")
+    if mode in SOURCE_OPTIONS:
+        return mode
+    return "both" if (company.get("pasted") or "").strip() else "web search"
+
+
 def map_company(ai, company, companies, use_saved=False):
-    """Search + extraction for one company. Never raises: errors are returned, so the other companies'
-    results are kept and the user can paste a description for this one (spec section 7, fallbacks)."""
+    """Search (unless the user chose 'my description') + extraction for one company. Never raises: errors are
+    returned, so the other companies' results are kept and the user can correct this one (spec section 7)."""
     name = company["name"]
-    result = {"company": name, "role": company["role"], "search": None, "extraction": None, "error": None}
+    mode = source_mode(company)
+    pasted = (company.get("pasted") or "").strip() if mode != "web search" else ""
+    result = {"company": name, "role": company["role"], "search": None, "extraction": None, "error": None,
+              "source_mode": mode}
     try:
-        if company.get("pasted"):
-            guard(company["pasted"], name, companies)
-        found = search(ai, company, companies, use_saved)
-        found = add_pasted(found, company.get("pasted", ""))
+        if mode == "my description" and not pasted:
+            result["error"] = "No description entered. Enter a description of the company's activities, or choose web search."
+            return result
+        if pasted:
+            guard(pasted, name, companies)
+        if mode == "my description":       # no web search at all: the extraction reads only the user's text
+            from datetime import date
+            found = {"company": name, "model": "no web search (description provided by the user)",
+                     "date": date.today().isoformat(), "notes": "", "sources": []}
+        else:
+            found = search(ai, company, companies, use_saved)
+        found = add_pasted(found, pasted)
         result["search"] = found
         if not found["sources"]:
             result["error"] = ("The search returned no usable sources. Paste a description of the company "

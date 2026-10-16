@@ -145,9 +145,9 @@ def redact(text, names):
     return text
 
 
-def _join(values):
+def _join(values, sep=", "):
     values = [v for v in (values or []) if v and v != "not stated"]
-    return ", ".join(values) if values else "not stated"
+    return sep.join(values) if values else "not stated"
 
 
 def build_abstract(activity, names):
@@ -163,7 +163,9 @@ def build_abstract(activity, names):
         customers += f" ({details})"
     lines = [
         f"Product: {activity.get('product', 'not stated')}",
-        f"Includes: {_join(activity.get('includes'))}",
+        # items separated by semicolons (16 Oct): an item may itself contain commas, and the comparison names the
+        # items that meet, which code then checks against this list (check_items)
+        f"Includes: {_join(activity.get('includes'), sep='; ')}",
         f"Description: {activity.get('description', 'not stated')}",
         f"Intended use: {activity.get('intended_use', 'not stated')}",
         f"Main inputs: {_join(activity.get('main_inputs'))}",
@@ -175,6 +177,38 @@ def build_abstract(activity, names):
     ]
     text = redact("\n".join(lines), names)
     return text, find_names(text, names)
+
+
+def activity_items(activity):
+    """The items of one activity as the comparison sees them: its product line, then each entry of 'includes'."""
+    items = [activity.get("product", "")] + [i for i in activity.get("includes") or [] if i and i != "not stated"]
+    return [i for i in items if i and i.strip()]
+
+
+def _norm(text):
+    return re.sub(r"\s+", " ", text or "").strip(" .;,:").lower()
+
+
+def check_items(given, items, names):
+    """
+    Code check of the items the AI says meet (added 16 Oct, like the check of source numbers): each must be one of
+    the activity's own items as the AI saw them (product line or an entry of 'includes', names removed). An item the
+    AI shortened or extended is accepted only if it matches exactly one item. Returns (items in their original
+    wording, rejected items); a rejected item is shown in the audit trail, never in the assessment.
+    """
+    shown = [_norm(redact(i, names)) for i in items]
+    found, rejected = [], []
+    for g in given or []:
+        n = _norm(g)
+        idx = shown.index(n) if n in shown else None
+        if idx is None and n:
+            near = [k for k, s in enumerate(shown) if s and (n in s or s in n)]
+            idx = near[0] if len(near) == 1 else None
+        if idx is None:
+            rejected.append(g)
+        elif items[idx] not in found:
+            found.append(items[idx])
+    return found, rejected
 
 
 def product_text(activity):
@@ -289,6 +323,8 @@ def merge_other(activities):
         "source_numbers": sorted({n for a in others for n in a.get("source_numbers") or []}),
         "evidence": " | ".join(uniq(a.get("evidence") for a in others))[:800] or "not stated",
         "merged_from": others,
+        # the levels of trade of the merged lines, so that the reseller check can still be applied (16 Oct)
+        "merged_levels": uniq(a.get("value_chain_level") for a in others),
     }
     return main + [merged]
 
@@ -347,21 +383,36 @@ def code_vertical_signals(a, b, sims):
     return signals
 
 
+def selling_levels(activity):
+    """The levels of trade at which an activity sells. The merged 'Other activities' line has the level 'other' by
+    construction; there the levels of the lines it was merged from count (merged_levels, or merged_from in data
+    saved before 16 Oct), unless the user has set a level of their own."""
+    level = activity.get("value_chain_level")
+    if level == "other":
+        merged = activity.get("merged_levels") or [m.get("value_chain_level") for m in activity.get("merged_from") or []]
+        if merged:
+            return {m for m in merged if m}
+    return {level}
+
+
 def check_ai_links(ai_links, a, b):
     """
     Applies the one condition of the vertical definition that the structured facts can check: a resale link
     needs a reseller. An AI resale link whose reseller side is not at retail or wholesale level is disregarded,
     and the reason is recorded. Input links are left to the AI (any product, by-product or service may be an
     input, Draft Merger Guidelines para 250), so code does not second-guess them.
+    For the merged 'Other activities' line, the levels of the merged lines are checked (16 Oct): before, its level
+    'other' always passed, so side services could 'resell' anything.
     Returns (valid links, [(disregarded link, reason)]).
     """
     valid, disregarded = set(), []
     for link in ai_links:
         reseller = b if link == "A could be resold by B" else a if link == "B could be resold by A" else None
-        if reseller is not None and reseller.get("value_chain_level") not in RESELLER_OR_UNCLEAR_LEVELS:
+        levels = selling_levels(reseller) if reseller is not None else set()
+        if reseller is not None and not levels & RESELLER_OR_UNCLEAR_LEVELS:
             side = "B" if reseller is b else "A"
             disregarded.append((link, f"{side} is not active in wholesale or retail "
-                                      f"(level: {reseller.get('value_chain_level')})"))
+                                      f"(level: {', '.join(sorted(levels))})"))
         else:
             valid.add(link)
     return valid, disregarded
