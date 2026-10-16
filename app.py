@@ -10,7 +10,8 @@ portfolio company's activities that meet it, the Commission's market definition 
 
 Settings (.env in the Codespace, Secrets on Streamlit Cloud; see .env.example):
     DEV_MODE=1, APP_PASSWORD, OPENAI_API_KEY      development: password gate, cost counter, development tools
-    MODEL_PROFILE=dev | final                      the models per step (ai_client.py)
+    MODEL_PROFILE=dev | final                      the models per step (ai_client.py); default: dev with
+                                                   DEV_MODE on, final with DEV_MODE off (the submitted version)
     USE_CACHE=1, USE_SAVED_SEARCHES=1              development only: reuse paid calls and the saved Sol searches
 With DEV_MODE off (the submitted version) the sidebar asks for the user's own OpenAI key; the course
 credentials module replaces that field before the final deployment tests.
@@ -36,7 +37,7 @@ import rules
 st.set_page_config(page_title="EU Overlap Screen", page_icon="⚖️", layout="wide")
 
 DEV_MODE = ai_client.flag("DEV_MODE")
-PROFILE = ai_client.setting("MODEL_PROFILE", "dev")
+PROFILE = ai_client.setting("MODEL_PROFILE", "dev" if DEV_MODE else "final")   # the submitted version never runs on dev
 USE_CACHE = DEV_MODE and ai_client.flag("USE_CACHE", default=True)
 USE_SAVED = DEV_MODE and ai_client.flag("USE_SAVED_SEARCHES", default=True)
 MAX_PORTCOS = 5
