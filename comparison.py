@@ -12,9 +12,36 @@ check and the resale threshold of 0.50. This module is the same logic, moved out
 app can use it: same prompts (schemas.py), same rules (rules.py), same cache keys, same result format (so
 benchmark.py can check the app's results too).
 """
+import hashlib
+import json
+import uuid
+
 import rules
 import schemas
 from ai_client import EMBED_MODEL
+
+
+# =============================================================== stable activity IDs and content keys (16 Oct)
+# Each activity carries a fixed ID ("aid") from the moment it is extracted or added, so that the user's dismissals
+# and notes stay with the right pair when activities are added, deleted or re-ordered. The content key decides
+# whether a pair must go to the AI again: it changes when anything in the activity or its anonymised abstract
+# changes (e.g. a new brand name to remove), and only then.
+def new_aid():
+    return uuid.uuid4().hex[:10]
+
+
+def ensure_ids(activities_by_company):
+    """Gives every activity without an ID one (activities from before 16 Oct, or added by the user)."""
+    for acts in activities_by_company.values():
+        for a in acts:
+            if not a.get("aid"):
+                a["aid"] = new_aid()
+
+
+def activity_key(activity, abstract):
+    content = {k: v for k, v in activity.items() if k != "aid"}
+    raw = json.dumps(content, sort_keys=True, ensure_ascii=False, default=str) + "\n" + abstract
+    return hashlib.sha256(raw.encode()).hexdigest()[:20]
 
 
 # =============================================================== names and abstracts
@@ -170,7 +197,9 @@ FOUND_BY_ORDER = {"AI and rule": 0, "rule": 1, "AI": 2}
 
 
 def pair_id(r):
-    return f"{r['label_a']}×{r['label_b']}"
+    """The pair's fixed ID (16 Oct): the two activity IDs, so overrides survive re-ordering and partial updates.
+    Results from before 16 Oct have no IDs and fall back to the position labels."""
+    return f"{r['a'].get('aid') or r['label_a']}×{r['b'].get('aid') or r['label_b']}"
 
 
 def describe_link(link, target, portco):

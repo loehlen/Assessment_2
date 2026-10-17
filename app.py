@@ -1,7 +1,9 @@
 """
 app.py - EU Overlap Screen (LAWS90286 Assignment 2): a preliminary EU merger control overlap screen.
 
-Built so far: stages ① Companies, ② Activities and ③ Preliminary assessment (spec section 5).
+Built so far: stages ① Companies, ② Activities and ③ Preliminary assessment (spec 9, sections 6-9).
+Going back never deletes anything: a changed company is researched again and only new or changed pairs are compared
+again (stable activity IDs and content keys, 16 Oct); dismissals and notes stay with their pair.
 Stages ④ market definitions, ⑤ geography and ⑥ export follow; they add columns to the table of stage ③, which
 follows the overlap table used in practice: one box per portfolio company; in it, each target activity with the
 portfolio company's activities that meet it, the Commission's market definition and the preliminary assessment.
@@ -44,7 +46,7 @@ MAX_PORTCOS = 5
 
 ss = st.session_state
 ss.setdefault("log", ai_client.CallLog())     # every AI call of this session
-ss.setdefault("stage_logs", {})               # (first, last) position in the call log + seconds, per stage
+ss.setdefault("stage_logs", {})               # per stage: [(first, last) position in the call log, seconds], one per run
 ss.setdefault("run_first", 0)                 # position in the call log where the current screen started
 ss.setdefault("pf_version", 0)                # a new version = a fresh portfolio table in step ①
 ss.setdefault("acts_version", 0)              # a new version = fresh widgets for the activity lists in step ②
@@ -112,12 +114,24 @@ def words_list(items):
     return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1] if items else ""
 
 
+def log_stage(name, first, seconds):
+    """Records one run of a stage (a stage can run several times: partial updates since 16 Oct)."""
+    ss.stage_logs.setdefault(name, []).append((first, ss.log.mark(), seconds))
+
+
+def stage_calls(name):
+    return [c for first, last, _ in ss.stage_logs.get(name, []) for c in ss.log.calls[first:last]]
+
+
+def stage_seconds(name):
+    return sum(sec for _, _, sec in ss.stage_logs.get(name, []))
+
+
 def stage_cost(name):
-    """Calls, cache hits, cost and time of one stage, from the call log."""
+    """Calls, cache hits, cost and time of one stage (all its runs in this screen), from the call log."""
     if name not in ss.stage_logs:
         return ""
-    first, last, seconds = ss.stage_logs[name]
-    calls = ss.log.calls[first:last]
+    calls, seconds = stage_calls(name), stage_seconds(name)
     text = f"{len(calls)} AI calls"
     if USE_CACHE:
         text += f" ({sum(c['cached'] for c in calls)} from the development cache)"
@@ -126,17 +140,6 @@ def stage_cost(name):
     if unpriced:
         text += f" · no price for {', '.join(unpriced)}"
     return text
-
-
-def reset_after(stage):
-    """Results that depend on an earlier stage are discarded when that stage is re-run."""
-    order = ["mapping", "confirm"]
-    keys = {"mapping": ["mapped", "relationships", "acts", "companies", "profiles_edit"],
-            "confirm": ["confirmed", "confirmed_hash", "results", "names", "profiles_meta", "overrides",
-                        "override_store", "profiles_text"]}
-    for later in order[order.index(stage):]:
-        for k in keys[later]:
-            ss.pop(k, None)
 
 
 def go_to(step):
@@ -186,8 +189,9 @@ def stage_of(a):
     return STAGE.get(a.get("value_chain_level"), "Other")
 
 
-def stage_tag(a):
-    return f":gray-background[{stage_of(a)}]"
+def stage_text(a):
+    """The stage as plain grey text (16 Oct, Linda: no grey highlight)."""
+    return f":gray[{stage_of(a)}]"
 
 
 def source_index(company):
@@ -376,22 +380,36 @@ def stage_companies(ai):
         return
     ss.portfolio_df = edited.reset_index(drop=True)
     ss.pf_version += 1
-    reset_after("mapping")
     run_mapping(ai, companies)
     ss.step = 2
     st.rerun()
 
 
+def company_key(c):
+    """What the research of a company depends on: if none of it changed, the company is not searched again."""
+    return json.dumps({k: c.get(k) for k in ("name", "website", "aliases", "source", "pasted")}, sort_keys=True,
+                      ensure_ascii=False)
+
+
 def run_mapping(ai, companies):
+    """Maps the companies that are new or whose input changed (16 Oct); the others keep their research and the
+    user's edits of their activities. A new screen starts with "↺ New screen" (reset_all), not here."""
     first, t0 = ss.log.mark(), time.time()
-    ss.run_first = first                     # a new screen: the audit log starts here
-    mapped = {}
-    searching = any(am.source_mode(c) != "my description" for c in companies)
+    old, old_keys = ss.get("mapped") or {}, ss.get("map_keys") or {}
+    kept = {c["name"] for c in companies if c["name"] in old and not old[c["name"]].get("error")
+            and old_keys.get(c["name"]) == company_key(c)}
+    todo = [c for c in companies if c["name"] not in kept]
+    mapped = {n: old[n] for n in kept}
+    searching = any(am.source_mode(c) != "my description" for c in todo)
     label = ("Researching each company on public websites (one company per search, in parallel). This takes about "
              "one to four minutes." if searching else "Reading your descriptions (one company per call, in parallel).")
+    if not todo:
+        label = "Nothing new to research: the companies are unchanged."
     with st.status(label, expanded=True) as status:
+        for n in sorted(kept):
+            st.write(f"✔ {n}: kept from before (no change)")
         with cf.ThreadPoolExecutor(ai_client.MAX_PARALLEL) as ex:
-            futures = {ex.submit(am.map_company, ai, c, companies, USE_SAVED): c for c in companies}
+            futures = {ex.submit(am.map_company, ai, c, companies, USE_SAVED): c for c in todo}
             for fut in cf.as_completed(futures):
                 c = futures[fut]
                 m = fut.result()
@@ -403,13 +421,17 @@ def run_mapping(ai, companies):
                               else f"{len(m['search']['sources'])} sources")
                     st.write(f"✔ {c['name']}: {len(m['extraction']['activities'])} activities from {origin}")
         status.update(label=f"Activities found in {time.time() - t0:.0f} s", state="complete", expanded=False)
+    old_acts = ss.get("acts") or {}
     ss.companies = companies
-    ss.mapped = mapped
-    ss.relationships = am.find_relationships(mapped, companies)
-    ss.acts = {c["name"]: copy.deepcopy(extracted(mapped[c["name"]])) for c in companies}
-    ss.profiles_edit = {}
+    ss.mapped = {c["name"]: mapped[c["name"]] for c in companies}
+    ss.map_keys = {c["name"]: company_key(c) for c in companies}
+    ss.relationships = am.find_relationships(ss.mapped, companies)
+    ss.acts = {c["name"]: old_acts[c["name"]] if c["name"] in kept and c["name"] in old_acts
+               else copy.deepcopy(extracted(ss.mapped[c["name"]])) for c in companies}
+    cmp.ensure_ids(ss.acts)
+    ss.profiles_edit = {n: t for n, t in (ss.get("profiles_edit") or {}).items() if n in kept}
     ss.acts_version += 1
-    ss.stage_logs["mapping"] = (first, ss.log.mark(), time.time() - t0)
+    log_stage("mapping", first, time.time() - t0)
 
 
 def extracted(m):
@@ -461,14 +483,14 @@ def activity_line(a, company):
     """One activity in step ②: name, stage, what the company does, three examples, sources."""
     markers = source_markers(a, company)
     if a.get("excluded"):
-        return (f"~~**{esc(capital(a['product']))}**~~ {stage_tag(a)} · *not relevant to this deal:* "
+        return (f"~~**{esc(capital(a['product']))}**~~ {stage_text(a)} · *not relevant to this deal:* "
                 f"{esc(a.get('exclusion_reason', ''))} {markers}")
     includes = [i for i in a.get("includes") or [] if i]
     if rules.category(a) == "other":
         items = [esc(short_item(i)) for i in includes]
         more = f" (+{len(items) - 4} more)" if len(items) > 4 else ""
-        return f"**Other activities** {stage_tag(a)} · {'; '.join(items[:4])}{more} {markers}"
-    line = f"**{esc(capital(a['product']))}** {stage_tag(a)} · {esc(everyday(a))}"
+        return f"**Other activities** {stage_text(a)} · {'; '.join(items[:4])}{more} {markers}"
+    line = f"**{esc(capital(a['product']))}** {stage_text(a)} · {esc(everyday(a))}"
     includes = [esc(i) for i in includes if i.strip().lower() != a["product"].strip().lower()]
     if includes:
         line += f" · e.g. {', '.join(includes[:3])}"
@@ -504,7 +526,7 @@ def profile_of(name):
 
 
 def new_activity():
-    return {"excluded": False, "exclusion_reason": "", "business_area": "not stated", "sector": "not stated",
+    return {"aid": cmp.new_aid(), "excluded": False, "exclusion_reason": "", "business_area": "not stated", "sector": "not stated",
             "entity": "not stated", "brands": [], "category": "main", "category_reason": "added by user",
             "product": "", "includes": [], "description": "not stated", "intended_use": "not stated",
             "main_inputs": ["not stated"], "value_chain_level": "finished products", "direct_customers": ["not stated"],
@@ -621,17 +643,27 @@ def stage_activities(ai):
     st.caption(SOURCES_LEGEND)
     if DEV_MODE:
         st.caption(stage_cost("mapping"))
+    cmp.ensure_ids(ss.acts)
     show_relationships()
     for i, c in enumerate(ss.companies):
         company_block(ai, c, i)
     problems = activity_problems()
     ss.current_hash = None if problems else activities_hash(ss.acts)
-    c1, c2 = st.columns([1, 3], vertical_alignment="center")
-    if c1.button("Compare activities", type="primary"):
+    has_results = ss.get("results") is not None
+    c1, c2 = st.columns([3, 2], vertical_alignment="center")
+    if has_results and ss.current_hash == ss.get("confirmed_hash"):
+        c1.button("Back to the assessment (no changes) →", type="primary", on_click=go_to, args=(3,))
+        return
+    label = "Compare activities"
+    if has_results and not problems:
+        plan = prepare_comparison(copy.deepcopy(ss.acts))
+        label = (f"Update the comparison: {plural(plan['new'], 'new or changed pair')} to compare, {plan['kept']} kept"
+                 if plan["new"] else "Update the comparison (nothing new to compare)")
+    if c1.button(label, type="primary"):
         confirm_activities(ai, copy.deepcopy(ss.acts), problems,
                            {c["name"]: profile_of(c["name"]) for c in ss.companies})
-    if ss.get("results") is not None and ss.current_hash == ss.get("confirmed_hash"):
-        c2.button("Back to the assessment (activities unchanged) →", on_click=go_to, args=(3,))
+    if has_results:
+        c2.button("Back to the assessment without these changes →", on_click=go_to, args=(3,))
 
 
 def company_block(ai, c, index):
@@ -708,11 +740,11 @@ def remap_company(ai, name, website, mode, pasted):
     ss.companies = companies
     ss.relationships = am.find_relationships(ss.mapped, companies)
     ss.acts[name] = copy.deepcopy(extracted(ss.mapped[name]))
+    cmp.ensure_ids(ss.acts)
+    ss.map_keys = {c["name"]: company_key(c) for c in companies}
     ss.profiles_edit.pop(name, None)
     ss.acts_version += 1
-    f0, _, s0 = ss.stage_logs.get("mapping", (first, first, 0))
-    ss.stage_logs["mapping"] = (f0, ss.log.mark(), s0 + time.time() - t0)
-    reset_after("confirm")
+    log_stage("mapping", first, time.time() - t0)
     st.rerun()
 
 
@@ -736,59 +768,88 @@ def activities_hash(activities):
 
 
 # =============================================================== stage ③ factual comparison
-def confirm_activities(ai, activities, problems, profiles_text):
-    if problems:
-        st.error("Please fix these points first:\n\n" + "\n".join(f"- {p}" for p in problems))
-        return
-    reset_after("confirm")
+POSITION_FIELDS = ("portco", "label_a", "label_b", "a", "b", "abstract_a", "abstract_b", "sims")
+
+
+def prepare_comparison(activities):
+    """Names, abstracts and content keys of the activities to compare, and how many pairs are new: a pair goes to the
+    AI only if no result for exactly these two anonymised activities exists in this session (16 Oct). Pure code."""
     companies = ss.companies
     target, portcos = companies[0]["name"], [c["name"] for c in companies[1:]]
     group = {c["name"]: ((ss.mapped[c["name"]].get("extraction") or {}).get("group_companies") or [])
              for c in companies}
     names = cmp.collect_names(companies, activities, group)
-    compared = {n: [a for a in acts if not a.get("excluded")] for n, acts in activities.items()}
+    compared = {c["name"]: [a for a in activities.get(c["name"], []) if not a.get("excluded")] for c in companies}
+    profiles, blocked, keys = {}, [], {}
+    for c in companies:
+        abstracts, problems = cmp.anonymise(compared[c["name"]], names)
+        profiles[c["name"]] = {"activities": compared[c["name"]], "abstracts": abstracts}
+        blocked += [f"{c['name']} activity {i + 1}: {left}" for i, left in problems]
+        for a, abstract in zip(compared[c["name"]], abstracts):
+            keys[a["aid"]] = cmp.activity_key(a, abstract)
+    pair_keys = [(keys[ta["aid"]], keys[pa["aid"]]) for p in portcos for ta in compared[target] for pa in compared[p]]
+    cache = ss.get("pair_cache") or {}
+    new = sum(1 for k in pair_keys if k not in cache)
+    return {"target": target, "portcos": portcos, "names": names, "profiles": profiles, "keys": keys,
+            "blocked": blocked, "pairs": len(pair_keys), "new": new, "kept": len(pair_keys) - new}
+
+
+def confirm_activities(ai, activities, problems, profiles_text):
+    if problems:
+        st.error("Please fix these points first:\n\n" + "\n".join(f"- {p}" for p in problems))
+        return
+    plan = prepare_comparison(activities)
+    target, portcos, names, profiles, keys = (plan[k] for k in ("target", "portcos", "names", "profiles", "keys"))
+    ss.setdefault("vec_cache", {})
+    ss.setdefault("pair_cache", {})
     first, t0 = ss.log.mark(), time.time()
     with st.status("Comparing the activities: one pair of anonymised descriptions per AI call, in parallel",
                    expanded=True) as status:
-        profiles, blocked = {}, []
-        for c in companies:
-            abstracts, problems = cmp.anonymise(compared[c["name"]], names)
-            profiles[c["name"]] = {"activities": compared[c["name"]], "abstracts": abstracts}
-            blocked += [f"{c['name']} activity {i + 1}: {left}" for i, left in problems]
         st.write(f"✔ Anonymised: {len(rules.name_variants(names))} name variants removed"
-                 + (f"; ✖ names left in {len(blocked)} abstracts (their pairs are blocked)" if blocked else
-                    "; name check passed for every abstract"))
+                 + (f"; ✖ names left in {len(plan['blocked'])} abstracts (their pairs are blocked)" if plan["blocked"]
+                    else "; name check passed for every abstract"))
+        missing = {n: [a for a in p["activities"] if keys[a["aid"]] not in ss.vec_cache] for n, p in profiles.items()}
+        missing = {n: acts for n, acts in missing.items() if acts}
         try:
             with cf.ThreadPoolExecutor(ai_client.MAX_PARALLEL) as ex:
-                futures = {ex.submit(cmp.embed_company, ai, n, profiles[n]["activities"], names): n for n in profiles}
+                futures = {ex.submit(cmp.embed_company, ai, n, acts, names): n for n, acts in missing.items()}
                 for fut in cf.as_completed(futures):
-                    profiles[futures[fut]]["vectors"] = fut.result()
+                    for a, v in zip(missing[futures[fut]], fut.result()):
+                        ss.vec_cache[keys[a["aid"]]] = v
         except Exception as e:  # noqa: BLE001 - never continue without vectors (see comparison.embed_company)
             status.update(label="The comparison stopped", state="error")
             st.error(f"The embeddings failed, so nothing was compared: {type(e).__name__}: {e}. Please try again.")
             return
-        st.write("✔ Embeddings: one request per company, anonymised texts only")
+        st.write(f"✔ Embeddings: {plural(len(missing), 'request')}, one per company, anonymised texts only"
+                 if missing else "✔ Embeddings: all kept from before")
+        for p in profiles.values():
+            p["vectors"] = [ss.vec_cache[keys[a["aid"]]] for a in p["activities"]]
         pairs = cmp.build_pairs(target, portcos, profiles)
-        bar = st.progress(0.0, text=f"0 of {len(pairs)} pairs compared")
-        results = [None] * len(pairs)
-        with cf.ThreadPoolExecutor(ai_client.MAX_PARALLEL) as ex:
-            futures = {ex.submit(cmp.assess, ai, p, names): i for i, p in enumerate(pairs)}
-            for done, fut in enumerate(cf.as_completed(futures), start=1):
-                results[futures[fut]] = fut.result()
-                if done % 5 == 0 or done == len(pairs):
-                    bar.progress(done / len(pairs), text=f"{done} of {len(pairs)} pairs compared")
-        status.update(label=f"{len(pairs)} pairs compared in {time.time() - t0:.0f} s", state="complete",
-                      expanded=False)
+        pair_key = {id(p): (keys[p["a"]["aid"]], keys[p["b"]["aid"]]) for p in pairs}
+        todo = [p for p in pairs if pair_key[id(p)] not in ss.pair_cache]
+        if len(pairs) > len(todo):
+            st.write(f"✔ {plural(len(pairs) - len(todo), 'pair')} kept from before (nothing changed in them)")
+        if todo:
+            bar = st.progress(0.0, text=f"0 of {len(todo)} pairs compared")
+            with cf.ThreadPoolExecutor(ai_client.MAX_PARALLEL) as ex:
+                futures = {ex.submit(cmp.assess, ai, p, names): p for p in todo}
+                for done, fut in enumerate(cf.as_completed(futures), start=1):
+                    ss.pair_cache[pair_key[id(futures[fut])]] = fut.result()
+                    if done % 5 == 0 or done == len(todo):
+                        bar.progress(done / len(todo), text=f"{done} of {len(todo)} pairs compared")
+        results = [{**ss.pair_cache[pair_key[id(p)]], **{k: p[k] for k in POSITION_FIELDS}} for p in pairs]
+        status.update(label=f"{plural(len(todo), 'pair')} compared, {len(pairs) - len(todo)} kept, in "
+                            f"{time.time() - t0:.0f} s", state="complete", expanded=False)
     ss.confirmed = activities
     ss.profiles_text = profiles_text
     ss.confirmed_hash = activities_hash(activities)
     ss.current_hash = ss.confirmed_hash
-    ss.results_version = ss.get("results_version", 0) + 1     # fresh override widgets for new results
-    ss.override_store = {}
+    ss.results_version = ss.get("results_version", 0) + 1     # fresh widgets; their values come from override_store
+    ss.setdefault("override_store", {})                       # kept: dismissals and notes stay with their pair
     ss.names = names
     ss.profiles_meta = {n: {"abstracts": p["abstracts"]} for n, p in profiles.items()}
     ss.results = results
-    ss.stage_logs["confirm"] = (first, ss.log.mark(), time.time() - t0)
+    log_stage("confirm", first, time.time() - t0)
     ss.step = 3
     st.rerun()
 
@@ -797,7 +858,8 @@ def confirm_activities(ai, activities, problems, profiles_text):
 # One box per portfolio company (decided 16 Oct). In it: each target activity (the fixed reference point) with the
 # portfolio company's activities that meet it; columns: target activity · portco activity · Commission market
 # definition (grey until stage ④) · preliminary assessment · notes · check. Pairs involving "Other activities" come
-# last and collapsed; pairs without overlap are listed collapsed and can be added back.
+# last and collapsed. Each target activity's block ends with one line naming the activities that do not meet it,
+# with the reasons and "Add back" behind "Why?" (16 Oct, replacing the separate list of pairs without overlap).
 WIDTHS = [1.6, 1.6, 1.25, 3.2, 1.5, 1.15]
 BLOCK_RULE = "<hr style='margin:6px 0 10px 0;border:none;border-top:2px solid rgba(128,128,128,0.45)'>"
 ROW_RULE = "<hr style='margin:4px 0 8px 0;border:none;border-top:1px dashed rgba(128,128,128,0.35)'>"
@@ -834,7 +896,7 @@ def listing(items, limit=4):
 def table_cell(a, company):
     """An activity in the table: name, stage, sources. What it includes and does is in 'Details'."""
     name = "Other activities" if rules.category(a) == "other" else capital(a["product"])
-    return f"**{esc(name)}** {stage_tag(a)}  \n{source_markers(a, company)}"
+    return f"**{esc(name)}**  \n{stage_text(a)} · {source_markers(a, company)}"
 
 
 def direction(link, r, target, portco):
@@ -919,7 +981,7 @@ def pair_details(r, target, portco):
     for who, act in ((target, r["a"]), (portco, r["b"])):
         includes = ", ".join(esc(i) for i in act.get("includes") or [])
         evidence = act.get("evidence") or ""
-        text = (f"*{esc(who)}:* **{esc(act['product'])}** {stage_tag(act)} {source_markers(act, who)}  \n"
+        text = (f"*{esc(who)}:* **{esc(act['product'])}** {stage_text(act)} {source_markers(act, who)}  \n"
                 f":gray[{esc(everyday(act))}" + (f" · includes: {includes}" if includes else "") + "]")
         if evidence and evidence not in ("not stated", "added by user"):
             text += f"  \n> {esc(evidence[:500])}"
@@ -949,10 +1011,8 @@ def pair_row(r, status, rv, target, portco, first):
     cols[3].markdown(assessment(r, s, target, portco))
     with cols[4]:
         key = f"note_{rv}_{pid}"
-        st.text_area("Note", value=o.get("note", ""), key=key, placeholder="Note (required to dismiss)",
+        st.text_area("Note", value=o.get("note", ""), key=key, placeholder="Note (optional)",
                      label_visibility="collapsed", height=68, on_change=_store_override, args=(pid, "note", key))
-        if s == "dismissed by user" and not o.get("note"):
-            st.caption(":red[Add a reason for dismissing.]")
     with cols[5]:
         if r["decision"]["status"] == "screened out":
             key = f"add_{rv}_{pid}"
@@ -974,28 +1034,45 @@ def table_header(target, portco):
             col.markdown(f"**{label}**")
 
 
-def blocks(rows, status, rv, target, portco):
-    """Rows grouped by target activity, in the target's order; one block each."""
-    by_target = {}
-    for r in rows:
-        by_target.setdefault(r["label_a"], []).append(r)
-    for group in by_target.values():
-        st.markdown(BLOCK_RULE, unsafe_allow_html=True)
-        for k, r in enumerate(group):
-            if k:
-                st.markdown(ROW_RULE, unsafe_allow_html=True)
-            pair_row(r, status, rv, target, portco, first=(k == 0))
+def short_name(a):
+    return "Other activities" if rules.category(a) == "other" else capital(a["product"])
 
 
-def screened_row(r, rv, target, portco):
-    """A pair without any overlap, in one compact row with the AI's reason and 'Add back'."""
-    pid = cmp.pair_id(r)
-    key = f"add_{rv}_{pid}"
-    c1, c2 = st.columns([6, 1], vertical_alignment="center")
-    c1.markdown(f"*{esc(target)}:* {esc(r['a']['product'])} ↔ *{esc(portco)}:* {esc(r['b']['product'])}  \n"
-                f":gray[{esc(r['comparison'].get('product_reason', ''))}]")
-    c2.checkbox("Add back", value=ss.override_store.get(pid, {}).get("add_back", False), key=key,
-                on_change=_store_override, args=(pid, "add_back", key))
+def no_overlap_row(ta, rows, rv, target, portco, n_portco, first):
+    """The last line of a target activity's block (16 Oct): the portfolio company's activities that do not meet it.
+    'Why?' shows the AI's reasons; 'Add back' moves a pair into the table as a row of its own."""
+    cols = st.columns([WIDTHS[0], sum(WIDTHS[1:5]), WIDTHS[5]], vertical_alignment="top")
+    if first:
+        cols[0].markdown(table_cell(ta, target), unsafe_allow_html=True)
+    if len(rows) >= n_portco:
+        cols[1].markdown(f":gray[No overlap found with any of {esc(portco)}'s activities]")
+    else:
+        cols[1].markdown(":gray[No overlap found with:] " + " · ".join(esc(short_name(r["b"])) for r in rows))
+    with cols[2].popover("Why?"):
+        st.caption("The AI's reasons, pair by pair. “Add back” moves a pair into the table, where it can be dismissed "
+                   "again.")
+        for r in rows:
+            pid = cmp.pair_id(r)
+            key = f"add_{rv}_{pid}"
+            reasons = [x for x in (r["comparison"].get("product_reason"), r["comparison"].get("vertical_reason")) if x]
+            st.markdown(f"**{esc(short_name(r['b']))}** {stage_text(r['b'])}  \n"
+                        + esc(" ".join(reasons) or "No reason given."))
+            st.checkbox("Add back", value=ss.override_store.get(pid, {}).get("add_back", False), key=key,
+                        on_change=_store_override, args=(pid, "add_back", key))
+
+
+def target_block(ta, kept_rows, screened, status, rv, target, portco, n_portco):
+    """One target activity: the portfolio company's activities that meet it (one row each), then one line naming
+    those that do not (16 Oct: replaces the separate list of pairs without overlap)."""
+    st.markdown(BLOCK_RULE, unsafe_allow_html=True)
+    for k, r in enumerate(kept_rows):
+        if k:
+            st.markdown(ROW_RULE, unsafe_allow_html=True)
+        pair_row(r, status, rv, target, portco, first=(k == 0))
+    if screened:
+        if kept_rows:
+            st.markdown(ROW_RULE, unsafe_allow_html=True)
+        no_overlap_row(ta, screened, rv, target, portco, n_portco, first=not kept_rows)
 
 
 def portco_sentence(target, portco, pairs, status):
@@ -1020,6 +1097,8 @@ def is_other(r):
 
 
 def portco_section(i, p, target, pairs, status, rv):
+    """One box per portfolio company. Every compared target activity appears once, in the target's order: with the
+    rows that meet it and a line naming what does not. Pairs involving "Other activities" are collapsed below."""
     with st.container(border=True):
         st.markdown(f"#### {i}. {esc(p)}")
         st.markdown(portco_sentence(target, p, pairs, status))
@@ -1027,35 +1106,52 @@ def portco_section(i, p, target, pairs, status, rv):
         if excluded:
             st.caption("Not compared (excluded by you): " + "; ".join(
                 f"{esc(a['product'])} ({esc(a.get('exclusion_reason', ''))})" for a in excluded))
-        live = [r for r in pairs if status[cmp.pair_id(r)] != "screened out"]
-        main_rows = [r for r in live if not is_other(r)]
-        other_rows = [r for r in live if is_other(r)]
-        if main_rows:
+        t_acts = [ss.confirmed[target][k] for k in display_order(ss.confirmed[target])
+                  if not ss.confirmed[target][k].get("excluded")]
+        n_portco = len([a for a in ss.confirmed.get(p, []) if not a.get("excluded")])
+        by_target = {}
+        for r in pairs:
+            by_target.setdefault(r["a"].get("aid") or r["label_a"], []).append(r)
+
+        def rows_of(ta):
+            return by_target.get(ta.get("aid"), [])
+
+        def is_out(r):
+            return status[cmp.pair_id(r)] == "screened out"
+
+        main_t = [ta for ta in t_acts if rules.category(ta) == "main"]
+        if main_t:
             table_header(target, p)
-            blocks(main_rows, status, rv, target, p)
-        if other_rows:
-            with st.expander(f"Other activities (own use and side lines): {plural(len(other_rows), 'potential link')} · show"):
+            for ta in main_t:
+                rs = rows_of(ta)
+                target_block(ta, [r for r in rs if not is_out(r) and not is_other(r)], [r for r in rs if is_out(r)],
+                             status, rv, target, p, n_portco)
+        other_rows = [r for r in pairs if not is_out(r) and is_other(r)]
+        other_t = [ta for ta in t_acts if rules.category(ta) == "other"]
+        if other_rows or other_t:
+            with st.expander(f"Other activities (own use and side lines): {plural(len(other_rows), 'potential link')}"
+                             " · show"):
                 table_header(target, p)
-                blocks(other_rows, status, rv, target, p)
-        out = [r for r in pairs if status[cmp.pair_id(r)] == "screened out"]
-        if out:
-            names = {r["label_a"]: r["a"]["product"] for r in pairs}
-            none_at_all = [name for label, name in names.items()
-                           if all(status[cmp.pair_id(x)] == "screened out" for x in pairs if x["label_a"] == label)]
-            with st.expander(f"No overlap found: {plural(len(out), 'pair')} · show or add back"):
-                if none_at_all:
-                    st.caption(f"Activities of {esc(target)} with no overlap with {esc(p)}: "
-                               + "; ".join(esc(x) for x in none_at_all))
-                for r in out:
-                    screened_row(r, rv, target, p)
+                for ta in t_acts:
+                    rs = rows_of(ta)
+                    kept_rows = [r for r in rs if not is_out(r) and is_other(r)]
+                    screened = [r for r in rs if is_out(r)] if rules.category(ta) == "other" else []
+                    if kept_rows or screened:
+                        target_block(ta, kept_rows, screened, status, rv, target, p, n_portco)
 
 
 def stage_overview(ai):
-    st.subheader("③ Preliminary assessment")
+    h1, h2 = st.columns([4, 1], vertical_alignment="center")
+    h1.subheader("③ Preliminary assessment")
+    h2.button("← Back to the activities", on_click=go_to, args=(2,), width="stretch")
     st.write("For each portfolio company, the table shows which of its activities meet each activity of the target, and "
              "how. “Potential” means: not yet checked against the Commission's market definitions, which are added in "
-             "step ④. Where you disagree, tick “Dismiss” and give the reason under “Notes”; both go into the audit log. "
-             "Pairs without any overlap are listed under each table and can be added back.")
+             "step ④. Where you disagree, tick “Dismiss”; a note is optional. Both go into the audit log. The line "
+             "“No overlap found with” under a target activity names the activities that do not meet it; “Why?” shows "
+             "the reasons and lets you add a pair back.")
+    if ss.get("acts") and ss.get("confirmed_hash") and activities_hash(ss.acts) != ss.confirmed_hash:
+        st.info("You changed the activities after this comparison. Go back to the activities and press “Update the "
+                "comparison”: only the new or changed pairs are compared again, and your dismissals and notes stay.")
     st.caption(LEGEND)
     if DEV_MODE:
         st.caption(stage_cost("confirm"))
@@ -1064,12 +1160,10 @@ def stage_overview(ai):
     portcos = [c["name"] for c in ss.companies[1:]]
     rv = ss.results_version
     ss.setdefault("override_store", {})
+    current = {cmp.pair_id(r) for r in results}
     ss.overrides = {pid: dict(o) for pid, o in ss.override_store.items()
-                    if o.get("dismiss") or o.get("add_back") or o.get("note")}
+                    if pid in current and (o.get("dismiss") or o.get("add_back") or o.get("note"))}
     status = {cmp.pair_id(r): cmp.effective_status(r, ss.overrides) for r in results}
-    missing = [pid for pid, s in status.items() if s == "dismissed by user" and not ss.overrides.get(pid, {}).get("note")]
-    if missing:
-        st.warning(f"{plural(len(missing), 'dismissal')} without a reason: add one under “Notes”.")
     show_relationships()
 
     with st.expander(f"🎯 Target: {target}"):
@@ -1096,13 +1190,11 @@ def run_summary():
     """Required output (spec section 10): AI calls, models, cost and time of the run."""
     calls, cost, seconds, models = 0, 0.0, 0.0, set()
     for stage in ("mapping", "confirm"):
-        if stage in ss.stage_logs:
-            first, last, sec = ss.stage_logs[stage]
-            part = ss.log.calls[first:last]
-            calls += len(part)
-            cost += sum(c["cost"] for c in part)
-            seconds += sec
-            models |= {c["model"] for c in part}
+        part = stage_calls(stage)
+        calls += len(part)
+        cost += sum(c["cost"] for c in part)
+        seconds += stage_seconds(stage)
+        models |= {c["model"] for c in part}
     return (f"Run summary: {calls} AI calls · models: {', '.join(sorted(models))} · USD {cost:.3f} at token prices "
             f"(web search fees not included) · {seconds:.0f} s")
 
@@ -1131,15 +1223,10 @@ def benchmark_panel(results):
 
 # =============================================================== audit log
 def audit_calls():
-    """The calls of the current screen: the activity mapping (searches and extractions since 'Find activities',
-    including any company mapped again) and only the latest comparison (16 Oct: comparing again no longer
-    keeps the calls of the earlier comparison in the log)."""
-    calls = ss.log.calls[ss.get("run_first", 0):]
-    if "confirm" not in ss.stage_logs or ss.get("results") is None:
-        return [c for c in calls if c["step"] in ("search", "extract")]
-    first, last, _ = ss.stage_logs["confirm"]
-    before = ss.log.calls[ss.get("run_first", 0):first]
-    return [c for c in before if c["step"] in ("search", "extract")] + ss.log.calls[first:last]
+    """Every call of the current screen (since the screen started): the research of each company, including companies
+    mapped again, and every comparison run. Since 16 Oct a comparison only sends new or changed pairs, so no call
+    is repeated, and the results shown can come from any of these runs."""
+    return ss.log.calls[ss.get("run_first", 0):]
 
 
 def audit_snapshot(ai):
@@ -1173,7 +1260,6 @@ def audit_json(snap):
                           "abstracts": snap["abstracts"]},
         "stage_3_factual_comparison": slim,
         "user_overrides": snap["overrides"],
-        "dismissed_without_reason": [pid for pid, o in snap["overrides"].items() if o.get("dismiss") and not o.get("note")],
         "call_log": snap["calls"],
     }
     return json.dumps(log, ensure_ascii=False, indent=1, default=str)
@@ -1270,24 +1356,29 @@ def scroll_to_top_on_new_step(step):
         st.iframe(SCROLL_TOP, height=1)          # our own constant script, never user input
 
 
-def progress_text(step):
-    return "  →  ".join((f"**{'①②③'[k - 1]} {v}**" if k == step else
-                         f"✔ {v}" if k < step else f":gray[{'①②③'[k - 1]} {v}]") for k, v in STEPS.items())
+def progress_nav(step):
+    """The steps as buttons (16 Oct): every step already reached can be opened again; nothing is deleted by going
+    back. Returns the last column, for the "New screen" button."""
+    reachable = {1: True, 2: bool(ss.get("acts")), 3: ss.get("results") is not None}
+    cols = st.columns([1.2, 1.2, 1.7, 1.1], vertical_alignment="center")
+    for k, name in STEPS.items():
+        cols[k - 1].button(f"{'①②③'[k - 1]} {name}", key=f"nav_{k}", type="primary" if k == step else "secondary",
+                           disabled=not reachable[k], on_click=go_to, args=(k,), width="stretch")
+    return cols[3]
 
 
 def done_summaries(step):
-    """Finished steps collapse into one line each, with a way back."""
+    """Finished steps in one line each, as context; the step buttons above lead back to them."""
+    lines = []
     if step > 1 and ss.get("companies"):
-        c1, c2 = st.columns([5, 1], vertical_alignment="center")
-        c1.markdown(f"✔ **Companies:** target {ss.companies[0]['name']} · portfolio: "
-                    f"{', '.join(c['name'] for c in ss.companies[1:])}")
-        c2.button("Change", key="back_1", on_click=go_to, args=(1,))
+        lines.append(f"✔ **Companies:** target {esc(ss.companies[0]['name'])} · portfolio: "
+                     f"{esc(', '.join(c['name'] for c in ss.companies[1:]))}")
     if step > 2 and ss.get("confirmed"):
         acts = [a for v in ss.confirmed.values() for a in v]
         excl = sum(a.get("excluded", False) for a in acts)
-        c1, c2 = st.columns([5, 1], vertical_alignment="center")
-        c1.markdown(f"✔ **Activities:** {len(acts) - excl} compared" + (f", {excl} excluded" if excl else ""))
-        c2.button("Change", key="back_2", on_click=go_to, args=(2,))
+        lines.append(f"✔ **Activities:** {len(acts) - excl} compared" + (f", {excl} excluded" if excl else ""))
+    if lines:
+        st.markdown("  \n".join(lines))
 
 
 st.title("EU Overlap Screen")
@@ -1303,9 +1394,8 @@ if step == 2 and not ss.get("acts"):
 if step == 3 and ss.get("results") is None:
     step = ss.step = 2 if ss.get("acts") else 1
 scroll_to_top_on_new_step(step)
-top = st.columns([6, 1], vertical_alignment="center")
-top[0].markdown(progress_text(step))
-if top[1].button("↺ New screen", help="Discard this screen and start again"):
+top = progress_nav(step)
+if top.button("↺ New screen", help="Discard this screen and start again", width="stretch"):
     confirm_reset(audit_snapshot(ai) if ss.get("mapped") else None)
 done_summaries(step)
 st.divider()
