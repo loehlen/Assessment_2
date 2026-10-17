@@ -46,16 +46,54 @@ def activity_key(activity, abstract):
 
 
 # =============================================================== names and abstracts
-def collect_names(companies, activities, group_companies):
+def collect_names(companies, activities, group_companies, keep=()):
     """All entered names and aliases, the group companies found by the extraction, and every brand in the
-    (confirmed) activity lists. activities / group_companies: {company name: [...]}."""
+    (confirmed) activity lists. activities / group_companies: {company name: [...]}.
+    keep (17 Oct, Linda: option b): brands or group company names the lawyer marked as ordinary product words, which
+    stay in the descriptions (e.g. "Cacaofruit", a brand that is also the word for the product). The entered names and
+    aliases can never be kept."""
+    keep = {k.strip().lower() for k in keep or () if k}
     names = []
     for c in companies:
         names += [c["name"]] + [a for a in c.get("aliases", []) if a]
-        names += [g for g in group_companies.get(c["name"], []) if g]
+        names += [g for g in group_companies.get(c["name"], []) if g and g.strip().lower() not in keep]
         for a in activities.get(c["name"], []):
-            names += [b for b in a.get("brands") or [] if b]
+            names += [b for b in a.get("brands") or [] if b and b.strip().lower() not in keep]
     return names
+
+
+GENERIC_FIELDS = ("product", "includes", "description", "intended_use", "main_inputs")
+
+
+def names_used_as_words(companies, activities, group_companies):
+    """Brands and group company names that also appear in the generic fields of the activities, where the extraction
+    writes no names (17 Oct). Such a word is either an ordinary product word that happens to be a brand ("Cacaofruit")
+    or a name that slipped in; removing it can take away what the comparison needs, so the lawyer decides.
+    Returns [{"word", "company" (whose brand or group company it is), "examples": [(company, text)]}]. Pure code."""
+    entered = {v.lower() for v in rules.name_variants([n for c in companies
+                                                       for n in [c["name"]] + list(c.get("aliases") or []) if n])}
+    owners = {}
+    for c in companies:
+        for n in list(group_companies.get(c["name"]) or []) + [b for a in activities.get(c["name"], [])
+                                                               for b in a.get("brands") or []]:
+            n = (n or "").strip()
+            # a group company whose short form is an entered name ("X S.r.l." -> "X") is the company itself: always removed
+            if not n or n.lower() == "not stated" or {v.lower() for v in rules.name_variants([n])} & entered:
+                continue
+            owners.setdefault(n.lower(), (n, c["name"]))
+    found = []
+    for word, owner in owners.values():
+        examples = []
+        for c in companies:
+            for a in activities.get(c["name"], []):
+                for f in GENERIC_FIELDS:
+                    values = a.get(f)
+                    for text in (values if isinstance(values, list) else [values]):
+                        if text and rules.find_names(str(text), [word]):
+                            examples.append((c["name"], str(text)))
+        if examples:
+            found.append({"word": word, "company": owner, "examples": list(dict.fromkeys(examples))[:3]})
+    return sorted(found, key=lambda x: x["word"].lower())
 
 
 def anonymise(activities, names):

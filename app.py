@@ -676,6 +676,7 @@ def stage_activities(ai):
     show_relationships()
     for i, c in enumerate(ss.companies):
         company_block(ai, c, i)
+    name_word_review()
     problems = activity_problems()
     ss.current_hash = None if problems else activities_hash(ss.acts)
     has_results = ss.get("results") is not None
@@ -782,6 +783,38 @@ def remap_company(ai, name, website, mode, pasted):
     log_stage("mapping", first, time.time() - t0)
 
 
+def _store_keep(word, key):
+    keep = set(ss.get("keep_words") or [])
+    (keep.add if ss.get(key) else keep.discard)(word.lower())
+    ss.keep_words = sorted(keep)
+
+
+def name_word_review():
+    """Option b (17 Oct, Linda): before the comparison, the brands and group company names that also appear as words in
+    the descriptions. They are removed by default (confidentiality first); the lawyer can keep an ordinary product
+    word, so the comparison still sees it. The choice is recorded in the audit log."""
+    group = {c["name"]: ((ss.mapped[c["name"]].get("extraction") or {}).get("group_companies") or [])
+             for c in ss.companies}
+    found = cmp.names_used_as_words(ss.companies, ss.acts, group)
+    if not found:
+        return
+    keep = set(ss.get("keep_words") or [])
+    with st.container(border=True):
+        st.markdown(f"**Names that are also used as words in the descriptions** · {plural(len(found), 'word')}")
+        st.caption("Before the comparison, every company name, brand and group company is removed from the descriptions, "
+                   "so that the AI never sees who is involved. Some brands are also ordinary product words (e.g. a brand "
+                   "called after its product); removing them can take away what the comparison needs. Tick a word "
+                   "only if it describes the product rather than identifying the company. The entered company names "
+                   "are always removed.")
+        for f in found:
+            ex = "; ".join(f"{esc(c)}: “{esc(t[:120])}”" for c, t in f["examples"])
+            key = f"keep_{ss.acts_version}_{f['word']}"
+            st.checkbox(f"Keep “{f['word']}” as an ordinary word", value=f["word"].lower() in keep, key=key,
+                        help=f"A brand or group company of {f['company']}.", on_change=_store_keep,
+                        args=(f["word"], key))
+            st.caption(f"{esc(f['company'])}'s brand or group company · used in: {ex}")
+
+
 def activity_problems():
     problems = []
     for c in ss.companies:
@@ -798,7 +831,9 @@ def activity_problems():
 
 
 def activities_hash(activities):
-    return hashlib.sha256(json.dumps(activities, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
+    """What the comparison depends on: the activities and (17 Oct) the words the lawyer keeps in the descriptions."""
+    state = {"activities": activities, "keep_words": sorted(ss.get("keep_words") or [])}
+    return hashlib.sha256(json.dumps(state, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
 
 
 # =============================================================== stage ③ factual comparison
@@ -812,7 +847,7 @@ def prepare_comparison(activities):
     target, portcos = companies[0]["name"], [c["name"] for c in companies[1:]]
     group = {c["name"]: ((ss.mapped[c["name"]].get("extraction") or {}).get("group_companies") or [])
              for c in companies}
-    names = cmp.collect_names(companies, activities, group)
+    names = cmp.collect_names(companies, activities, group, ss.get("keep_words") or ())
     compared = {c["name"]: [a for a in activities.get(c["name"], []) if not a.get("excluded") and not rules.is_gap(a)]
                 for c in companies}
     profiles, blocked, keys = {}, [], {}
@@ -1037,7 +1072,8 @@ def pair_details(r, target, portco):
                     "groups alone never make separate markets (Market Definition Notice (88)–(89)).")
     if "captive" in r["flags"]:
         st.markdown("**Own use:** produced for the group's own use, not sold on the market (draft Merger Guidelines "
-                    "para 103(i)); shown, never screened out.")
+                    "para 103(i)). It cannot supply the other company, so a link where it would be the supplier is set "
+                    "aside (shown under “No overlap found”, with “Add back”).")
     st.markdown("**Sources**")
     for who, act in ((target, r["a"]), (portco, r["b"])):
         includes = ", ".join(esc(i) for i in act.get("includes") or [])
@@ -1125,8 +1161,12 @@ def no_overlap_row(ta, rows, rv, target, portco, n_portco, first):
             pid = cmp.pair_id(r)
             key = f"add_{rv}_{pid}"
             reasons = [x for x in (r["comparison"].get("product_reason"), r["comparison"].get("vertical_reason")) if x]
-            st.markdown(f"**{esc(short_name(r['b']))}** {stage_text(r['b'])}  \n"
-                        + esc(" ".join(reasons) or "No reason given."))
+            text = f"**{esc(short_name(r['b']))}** {stage_text(r['b'])}  \n" + esc(" ".join(reasons) or "No reason given.")
+            for link, why in r["decision"].get("disregarded") or []:
+                who = target if why.startswith("A ") else portco
+                text += (f"  \n*Link set aside by the tool:* {esc(cmp.describe_link(link, target, portco))}; "
+                         f"{esc(who)} {esc(why[2:])}.")
+            st.markdown(text)
             st.checkbox("Add back", value=ss.override_store.get(pid, {}).get("add_back", False), key=key,
                         on_change=_store_override, args=(pid, "add_back", key))
 
@@ -1146,21 +1186,32 @@ def target_block(ta, kept_rows, screened, status, rv, target, portco, n_portco):
 
 
 def portco_sentence(target, portco, pairs, status):
-    """One sentence per portfolio company, counted by business area (not by pairs), assembled in code."""
+    """One sentence per portfolio company, counted by business area (not by pairs), assembled in code. Links that
+    involve only "Other activities" are counted separately (17 Oct): they sit in the collapsed section, and a count
+    without saying so read as if the table contradicted the sentence."""
     acts = list(dict.fromkeys(r["label_b"] for r in pairs))
     live = [r for r in pairs if kept(status[cmp.pair_id(r)])]
-    touched = {r["label_b"] for r in live}
-    if not touched:
-        return f"None of {esc(portco)}'s {plural(len(acts), 'activity', 'activities')} meets an activity of {esc(target)}."
-    found = [r for r in live if r["decision"]["status"] == "candidate"]
+    n_acts = plural(len(acts), "activity", "activities")
+    if not live:
+        return f"None of {esc(portco)}'s {n_acts} meets an activity of {esc(target)}."
+    main_live = [r for r in live if not is_other(r)]
+    other_live = [r for r in live if is_other(r)]
+    other_note = (f"{plural(len(other_live), 'potential link')} involving “Other activities” (own use and side lines), "
+                  "in the collapsed section below")
+    if not main_live:
+        return f"No overlap with {esc(target)}'s main activities; {other_note}."
+    found = [r for r in main_live if r["decision"]["status"] == "candidate"]
     off = {cmp.pair_id(r): set(cmp.dismissed_parts(r, ss.get("overrides") or {})) for r in found}
     h = {r["label_b"] for r in found if r["decision"]["horizontal"] and "horizontal" not in off[cmp.pair_id(r)]}
     v = {r["label_b"] for r in found if set(r["decision"]["vertical_links"]) - off[cmp.pair_id(r)]}
-    check = {r["label_b"] for r in live if r["decision"]["status"] == "unclear" or status[cmp.pair_id(r)] == "added back by user"}
+    check = {r["label_b"] for r in main_live
+             if r["decision"]["status"] == "unclear" or status[cmp.pair_id(r)] == "added back by user"}
+    touched = {r["label_b"] for r in main_live}
     parts = [x for x in (f"horizontal in {len(h)}" if h else "", f"vertical in {len(v)}" if v else "",
                          f"to check in {len(check)}" if check else "") if x]
-    return (f"{len(touched)} of {esc(portco)}'s {plural(len(acts), 'activity', 'activities')} meet activities of "
-            f"{esc(target)}: {', '.join(parts)}.")
+    text = (f"{len(touched)} of {esc(portco)}'s {n_acts} meet main activities of {esc(target)}: "
+            f"{', '.join(parts) or 'see the table'}.")
+    return text + (f" Also {other_note}." if other_live else "")
 
 
 def is_other(r):
@@ -1337,7 +1388,7 @@ def audit_snapshot(ai):
             "cache": USE_CACHE, "saved_searches": USE_SAVED, "models": dict(ai.models),
             "companies": ss.get("companies"), "mapped": ss.get("mapped"), "relationships": ss.get("relationships"),
             "confirmed": ss.get("confirmed"), "profiles": ss.get("profiles_text"),
-            "names": list(ss.get("names") or []),
+            "names": list(ss.get("names") or []), "keep_words": list(ss.get("keep_words") or []),
             "abstracts": ss.get("profiles_meta"), "results": list(ss.get("results") or []),
             "overrides": dict(ss.get("overrides") or {}), "calls": audit_calls()}
 
@@ -1358,6 +1409,7 @@ def audit_json(snap):
         "stage_2_company_profiles": snap["profiles"],
         "stage_2_confirmed_activities": snap["confirmed"],
         "anonymisation": {"name_variants_removed": sorted(rules.name_variants(snap["names"])),
+                          "kept_as_ordinary_words_by_user": snap["keep_words"],
                           "abstracts": snap["abstracts"]},
         "stage_3_factual_comparison": slim,
         "user_overrides": snap["overrides"],
