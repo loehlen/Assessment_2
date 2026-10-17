@@ -28,23 +28,37 @@ VerticalLink = Literal[tuple(VERTICAL_LINKS)]
 
 
 # =============================================================== 1. search (one company per call)
-def search_prompt(company, hint="", website=""):
-    """website (added 16 Oct): identifies the company and is the starting point of the search. Without a website the
-    text is exactly the earlier prompt, so the saved test searches and caches stay valid."""
+SOURCE_RULES = """Use only publicly available sources: pages that anyone can open without logging in, paying or getting around an
+access restriction. Do not try to reach password-protected, paywalled, internal, confidential or leaked material, and
+do not use cached or mirrored copies of such material.
+Prefer sources in this order: the company's own websites, annual and sustainability reports and press releases;
+official registers and filings; established news and trade media. Use business directories and data aggregators only
+for a fact that no better source gives, and say that the fact comes from such a site."""
+
+GAP_RULE = """Only report what the sources say; write "not stated" where they say nothing. If the public sources say little or
+nothing about the company, say so and stop: a gap is an acceptable answer, a guess is not."""
+
+
+def _who_and_start(company, hint, website):
     who = f"{company} ({hint})" if hint else company
     if website:
         who += f", whose own website is {website}"
-        start = (f"Start with the company's own website ({website}) and its most recent annual report; then use other "
-                 "reliable public sources. The website identifies the company: ignore other companies with similar "
-                 "names.")
+        start = (f"Start with the company's own website ({website}) and its most recent annual report. The website "
+                 "identifies the company: ignore other companies with similar names.")
     else:
-        start = "Start with the company's own website and its most recent annual report; then use other reliable public sources."
+        start = ("Start with the company's own website and its most recent annual report. Ignore other companies with "
+                 "similar names.")
+    return who, start
+
+
+def search_prompt(company, hint="", website=""):
+    """Search 1 (main business). Since 17 Oct each company is searched twice, in parallel and in separate calls: this
+    search covers the business as the company presents it, search 2 (search_prompt_beyond) what such a search easily
+    misses. Both contain only this one company's name (the guard checks it)."""
+    who, start = _who_and_start(company, hint, website)
     return f"""Research the business activities of {who}, including all subsidiaries and brands that the group controls.
 
-Use only publicly available sources: pages that anyone can open without logging in, paying or getting around an
-access restriction, such as the company's own websites, its annual and sustainability reports, press releases,
-public registers and established news or trade media. Do not try to reach password-protected, paywalled, internal,
-confidential or leaked material, and do not use cached or mirrored copies of such material.
+{SOURCE_RULES}
 {start}
 Describe every activity, also those outside the company's main business, and for each:
 - how the company itself presents and groups its activities (divisions, segments, business areas)
@@ -55,20 +69,49 @@ Describe every activity, also those outside the company's main business, and for
 - how it is sold (sales channels)
 - in which countries it is sold, especially in the European Economic Area
 - whether it is on the market or still in development
-Also name the group companies and brands, and any partnership, supply or distribution agreement
-with other companies that the sources mention.
-Only report what the sources say; write "not stated" where they say nothing. If the public sources say little or
-nothing about the company, say so and stop: a gap is an acceptable answer, a guess is not."""
+Also state where the group is headquartered (city and country) and who owns it, and give every figure (revenue,
+employees) with its year or reporting period and its source.
+Name the group companies and brands, and any partnership, supply or distribution agreement with other companies
+that the sources mention.
+{GAP_RULE}"""
+
+
+def search_prompt_beyond(company, hint="", website=""):
+    """Search 2 (added 17 Oct, Linda: Luna with a double search): the same company, a complementary focus. The live
+    test of 17 Oct showed that one search finds the core reliably but misses side lines from run to run (e.g. a
+    drinks brand, cafes, sales to businesses, private label). Sector-neutral: it names kinds of activity, not
+    products."""
+    who, start = _who_and_start(company, hint, website)
+    return f"""Research {who}. A separate search already covers the company's main business as it presents it. This search
+looks for the activities that such a search easily misses, including those of subsidiaries and brands that the group
+controls.
+
+{SOURCE_RULES}
+{start} Then look specifically for:
+- smaller brands and product lines, brands the group owns but presents separately, recent launches and acquisitions
+- sales to other businesses: ingredients, components or products for other manufacturers; products for professional,
+  foodservice, hospitality or industrial customers; private-label or contract manufacturing for retailers or others
+- own retail and hospitality: own shops, outlets, cafes, restaurants, visitor centres, online shops
+- side businesses offered to third parties, e.g. licensing, services, energy, property, logistics, training
+- joint ventures, partnerships, supply or distribution agreements with other companies
+- activities still in development
+For each activity found, describe the product or service and what it is used for, the level of trade at which the
+company sells it, who buys it directly and who finally uses it, how it is sold, in which countries (especially in the
+European Economic Area), and whether it is on the market or still in development.
+Also state where the group is headquartered (city and country), and give every figure with its year and source.
+{GAP_RULE}"""
 
 
 # =============================================================== 2. extraction (one company per call)
 EXTRACTION_INSTRUCTIONS = f"""You turn research notes about ONE company group into (1) a short company profile and
 (2) a structured list of its activities, for the first step of a competition-law overlap analysis.
-Use only the research notes and the numbered sources given.
+Use only the research notes and the numbered sources given. The notes may come from two searches about the same
+company (its main business, and what lies beyond it): combine them, and never list the same activity twice.
 
 COMPANY PROFILE (company_profile): 2-3 factual sentences, the way the company would introduce itself: who it is,
-where it is based, who owns it or which group it belongs to, and its main business areas; revenue and number of
-employees only if the notes state them (with the year). Names are allowed here. Do not repeat claims about its
+where it is based (city and country), who owns it or which group it belongs to, and its main business areas; revenue
+and number of employees only if the notes state them, always with their year or reporting period (e.g. "sales of
+EUR 712 million in 2025"). If two sources give different figures, give the most recent one with its year. Names are allowed here. Do not repeat claims about its
 market position or "its market" (e.g. "a leading player in the global snacks market"); say what it does.
 profile_source_numbers: the sources used for the profile.
 
@@ -85,8 +128,8 @@ Split a business area ONLY when its level of trade differs, into these groups:
 and keep a product that is still in development as its own line. Wholesale of goods made by others is also its own
 line.
 Do NOT split by type of product: different products of one business area at one level of trade are ONE line, and
-every product type goes into "includes" (e.g. one line "paints and coatings sold to retailers" with includes
-"interior wall paint, exterior paint, varnishes, wood stains, trade packs"). Also merge brands, product lines, formats,
+every product type goes into "includes" (e.g. one line "paints and coatings" at the level "finished products" with
+includes "interior wall paint, exterior paint, varnishes, wood stains, trade packs"). Also merge brands, product lines, formats,
 channels, customer groups (branded, private label, corporate gifts), countries and group companies doing the same
 thing (name them all in "entity"). When unsure whether two lines belong together, MERGE them.
 "includes" must list every product type, format and customer group covered, in generic words, so that nothing is
@@ -107,8 +150,15 @@ Fields:
 - sector: the broad sector in plain words (e.g. "food", "frozen food", "real estate"). Only for sorting the overview.
 - entity: the group companies or brands that carry this activity (comma-separated).
 - brands: brand names used for this activity. Brand names go ONLY here (and in the company profile).
-- product: a short generic name of the business area at its level of trade (e.g. "paints and coatings sold to
-  retailers").
+- product: a short generic name of WHAT the business area offers, i.e. the product or service and, where helpful,
+  its use (e.g. "paints and coatings", "frozen ready meals and vegetables", "cocoa powder and cocoa butter"). Do NOT
+  put the buyers or the channel into the name (no "sold to businesses", "supplied to the trade", "for retailers"):
+  the level of trade and the direct customers are separate fields and are shown next to the name. Only own retail
+  and hospitality may say so in the name (e.g. "own shops and cafes for chocolate"). If the same products appear at
+  two levels of trade, the two names may be alike; the level tells them apart.
+- A brand, business or group company that the notes name without saying what it offers: do not guess a product.
+  List it as its own line with product "not stated", includes [], its name in "brands" or "entity", and
+  description "The sources name it but do not say what it offers." Code shows it as a question for the company.
 - includes: every product type, format and customer group covered, in generic words (e.g. "interior wall paint",
   "varnishes", "trade packs", "private label", "corporate gifts"), else [].
 - product, includes, description, intended_use, customer_details, sales_channels: generic words, NO company or brand
@@ -141,7 +191,8 @@ class Activity(BaseModel):
     category: Category = Field(description="main: offered as a business in its own right; other: own use only, or a "
                                            "side line that supports or promotes the main business")
     category_reason: str = Field(description="One short sentence why main or secondary")
-    product: str = Field(description="Short generic name of the business area at its level of trade; no names")
+    product: str = Field(description="Short generic name of what the business area offers (product or service); no "
+                                     "buyers or channel in the name; no names; 'not stated' if the sources do not say")
     includes: list[str] = Field(description="Every product type, format and customer group covered; generic words")
     description: str = Field(description="What it is, key characteristics, price positioning if stated; no names")
     intended_use: str = Field(description="What the direct customers use it for; no names")
@@ -170,7 +221,8 @@ class ActivityGroup(BaseModel):
 
 CONSOLIDATION_INSTRUCTIONS = f"""You receive the main activities of ONE company group, extracted for the first overview of a
 competition-law overlap screen. There are more than {MAX_MAIN}. Merge them into AT MOST {MAX_MAIN} main activities.
-One activity = one business area of the company at one level of trade. Split ONLY by level of trade: (1) inputs for
+One activity = one business area of the company at one level of trade. Its product name says what it offers, never
+who buys it ("cocoa powder and cocoa butter", not "cocoa products sold to businesses"). Split ONLY by level of trade: (1) inputs for
 other producers, (2) goods made for resale or business use, (3) own retail and hospitality, (4) other services;
 keep a product in development separate. Merge everything else; when unsure, merge.
 When you merge lines: give a product name that covers all of them; "includes" keeps every item of the merged lines,

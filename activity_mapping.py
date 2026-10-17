@@ -1,7 +1,8 @@
 """
 activity_mapping.py - stages 1-2: the activity overview, ONE company per call (spec section 7, steps 1-2).
 
-    map_company(ai, company, companies)     web search + extraction for one company (two isolated calls)
+    map_company(ai, company, companies)     web search + extraction for one company (isolated calls: since 17 Oct two
+                                            searches in parallel, main business and beyond it, then one extraction)
     find_relationships(mapped, companies)   the 🔗 notes: public sources of one company that mention another
 
 A company is a dict: {"name", "role" ("target" / "portco"), "website", "aliases": [...], "source", "pasted"}.
@@ -15,6 +16,7 @@ A company is a dict: {"name", "role" ("target" / "portco"), "website", "aliases"
 Ported from test_compare.py (same prompts, same source check, same cache keys), without global state, so that
 several Streamlit sessions can run at the same time.
 """
+import concurrent.futures as cf
 import json
 import re
 from pathlib import Path
@@ -28,6 +30,10 @@ from ai_client import setting
 # further file written by save_searches.py (e.g. the other-sector companies). SAVED_SEARCH_FILE limits it to one file.
 SAVED_SEARCH_FILE = setting("SAVED_SEARCH_FILE", "")
 SAVED_SEARCH_MODEL = "gpt-6.1-sol"
+# The second, complementary search per company (17 Oct, Linda): on by default; SECOND_SEARCH=0 switches it off. Read
+# here, at import, because the searches run in worker threads, which cannot read Streamlit's Secrets.
+SECOND_SEARCH = setting("SECOND_SEARCH", "1").strip().lower() not in {"0", "false", "no", "off"}
+SEARCHES = (("main business", schemas.search_prompt), ("beyond the main business", schemas.search_prompt_beyond))
 
 
 def saved_search_files():
@@ -128,25 +134,64 @@ def saved_search(name):
 
 
 def search(ai, company, companies, use_saved=False):
+    """The web research for ONE company. Since 17 Oct: two searches in parallel, each a separate stateless call with
+    only this company's name (search 1: the main business; search 2: what lies beyond it). Their notes are joined and
+    their sources merged and numbered once, in code, before the extraction reads them. If one search fails, the other
+    is kept and the failure recorded; only if both fail is the error raised."""
     name = company["name"]
     if use_saved:
         found = saved_search(name)
         if found:
             ai.log_cached("search", SAVED_SEARCH_MODEL, f"{name} (saved search)", names=[name])
             return found
-    prompt = schemas.search_prompt(name, company.get("hint", ""), company.get("website", ""))
-    guard(prompt, name, companies)
+    plan = SEARCHES if SECOND_SEARCH else SEARCHES[:1]
+    prompts = [(focus, make(name, company.get("hint", ""), company.get("website", ""))) for focus, make in plan]
+    for _, prompt in prompts:
+        guard(prompt, name, companies)
+    with cf.ThreadPoolExecutor(len(prompts)) as ex:
+        futures = [ex.submit(one_search, ai, name, focus, prompt, k) for k, (focus, prompt) in enumerate(prompts, 1)]
+        runs = []
+        for (focus, _), fut in zip(prompts, futures):
+            try:
+                runs.append(fut.result())
+            except Exception as e:  # noqa: BLE001 - kept as a recorded gap; raised below only if every search failed
+                runs.append({"focus": focus, "error": f"{type(e).__name__}: {e}", "notes": "", "sources": []})
+    if all(r.get("error") for r in runs):
+        raise RuntimeError(runs[0]["error"])
+    return merge_searches(name, ai.model("search"), runs)
+
+
+def one_search(ai, name, focus, prompt, k):
     model = ai.model("search")
     path, hit = ai.cache_get("search", [model, prompt])
     if hit:
-        ai.log_cached("search", model, name, names=[name])
-        return hit
-    resp = ai.respond("search", prompt, web_search=True, note=name, names=[name])
-    from datetime import date
-    data = {"company": name, "model": model, "date": date.today().isoformat(),
-            "notes": resp.output_text, "sources": cited_sources(resp)}
+        ai.log_cached("search", model, f"{name} (search {k}: {focus})", names=[name])
+        return {**hit, "focus": focus}
+    resp = ai.respond("search", prompt, web_search=True, note=f"{name} (search {k}: {focus})", names=[name])
+    data = {"focus": focus, "notes": resp.output_text, "sources": cited_sources(resp)}
     ai.cache_put(path, data)
     return data
+
+
+def merge_searches(name, model, runs):
+    """One research record from one or two searches: the notes under a heading each, the sources merged by address
+    and numbered once (the first search's numbering first). Each source records which search returned it."""
+    from datetime import date
+    numbered, found_by = {}, {}
+    for k, r in enumerate(runs, 1):
+        for s in r.get("sources") or []:
+            if s["url"] not in numbered:
+                numbered[s["url"]] = s.get("title") or s["url"]
+            found_by.setdefault(s["url"], []).append(k)
+    sources = [{"n": i + 1, "url": u, "title": t, "searches": found_by[u]} for i, (u, t) in enumerate(numbered.items())]
+    if len(runs) == 1:
+        notes = runs[0]["notes"]
+    else:
+        notes = "\n\n".join(f"## Search {k}: {r['focus']}\n\n" + (r["notes"] or f"(this search failed: {r.get('error')})")
+                             for k, r in enumerate(runs, 1))
+    return {"company": name, "model": model, "date": date.today().isoformat(), "notes": notes, "sources": sources,
+            "searches": [{"focus": r["focus"], "sources": len(r.get("sources") or []), "characters": len(r["notes"] or ""),
+                          "error": r.get("error")} for r in runs]}
 
 
 def add_pasted(found, pasted):
@@ -282,24 +327,62 @@ def map_company(ai, company, companies, use_saved=False):
 
 
 # =============================================================== existing relationships (🔗)
-SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
+# The research notes are prose with citations as markdown links, e.g. "... a long-term partnership. ([site.com](url))".
+# A passage is the sentence together with the citations that follow it (17 Oct: before, a citation on its own could be
+# shown as the "passage", and a name that appeared only in a web address counted as a mention without any context).
+LINK = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+)\)")
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def _clean(text):
+    """A passage as plain text: links reduced to their text, table bars and bold marks removed."""
+    text = LINK.sub(lambda m: m.group(1), text)
+    text = re.sub(r"[*_`#>]+", "", text).replace("|", " ")
+    text = re.sub(r"\(\s*\)", "", text)
+    return re.sub(r"\s+", " ", text).strip(" -–")
+
+
+def segments(text):
+    """The sentences of a text, each with the web addresses cited in it or right after it."""
+    out = []
+    for line in (text or "").split("\n"):
+        for piece in SENTENCE_END.split(line):
+            urls = [m.group(2) for m in LINK.finditer(piece)]
+            plain = _clean(LINK.sub("", piece))
+            if not re.search(r"\w{3}", plain):           # only a citation (or table bars): belongs to the sentence before
+                if out and urls:
+                    out[-1]["urls"] += urls
+                continue
+            out.append({"text": _clean(piece), "plain": plain, "urls": urls})
+    return out
+
+
+def _url_words(urls):
+    return " ".join(re.sub(r"[-_/.?=&]+", " ", u) for u in urls)
 
 
 def passages(text, names, limit=3, width=400):
-    """The sentences of a text that mention one of the names (shown to the user only, never sent to an AI)."""
-    out = []
-    for sentence in SENTENCE.split(text or ""):
-        if sentence.strip() and rules.find_names(sentence, names):
-            s = sentence.strip()
-            out.append(s if len(s) <= width else s[:width - 1] + "…")
-            if len(out) >= limit:
-                break
-    return out
+    """The sentences that mention one of the names, with their sources (shown to the user only, never sent to an AI).
+    A name found only in a source's web address is shown with the sentence it belongs to, and marked as such."""
+    in_text, in_url = [], []
+    for seg in segments(text):
+        named = bool(rules.find_names(seg["plain"], names))
+        if not named and not rules.find_names(_url_words(seg["urls"]), names):
+            continue
+        s = seg["text"] if len(seg["text"]) <= width else seg["text"][:width - 1] + "…"
+        sites = list(dict.fromkeys(site_of(u) for u in seg["urls"]))
+        if sites:
+            s += f" (source: {', '.join(sites)})"
+        if not named:
+            s += " [the name appears only in the source's web address]"
+        (in_text if named else in_url).append(s)
+    return (in_text + in_url)[:limit]
 
 
 def find_relationships(mapped, companies):
     """For every company: the other companies of the run (names, aliases, group companies) that its public
-    sources mention, with the passages. Also sets mapped[name]["mentions"] (the format benchmark.py reads)."""
+    sources mention, with the passages. Also sets mapped[name]["mentions"] (the format benchmark.py reads).
+    Pure code on each company's own research notes: no AI call, nothing leaves the app."""
     found = {}
     for c in companies:
         m = mapped.get(c["name"])
@@ -311,9 +394,11 @@ def find_relationships(mapped, companies):
                 continue
             group = ((mapped.get(other["name"]) or {}).get("extraction") or {}).get("group_companies", [])
             names = names_of(other) + [g for g in group if g]
-            hits = rules.find_names(notes, names)
-            if hits:
-                found[c["name"]].append({"other": other["name"], "names": hits, "passages": passages(notes, names)})
+            ps = passages(notes, names)
+            if ps:
+                urls = [u for _, u in LINK.findall(notes)]
+                hits = rules.find_names(_clean(LINK.sub("", notes)) + " " + _url_words(urls), names)
+                found[c["name"]].append({"other": other["name"], "names": hits, "passages": ps})
         if m is not None:
             m["mentions"] = [r["other"] for r in found[c["name"]]]
     return found

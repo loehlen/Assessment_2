@@ -56,8 +56,11 @@ PROFILES = {
     "dev": {step: ("gpt-6-luna", "low") for step in STEPS},
     # Sol checkpoints and the submitted version
     "final": {
-        "search": ("gpt-6.1-sol", "low"),      # decided 14 Oct: Sol finds the activities that decide the cases
-        "extract": ("gpt-6.1-sol", "low"),     # open (spec section 17): Luna missed nothing on 15 Oct
+        # 17 Oct (Linda): Luna with two complementary searches per company instead of one Sol search. Live test of
+        # 17 Oct: Sol closed the gaps of a single Luna search but cost about USD 2.50 per case (Luna about 0.10 plus
+        # search fees) and took 5 minutes; the marker pays with their own key. Was Sol (decided 14 Oct).
+        "search": ("gpt-6-luna", "low"),
+        "extract": ("gpt-6-luna", "low"),      # Luna missed nothing when extracting from the Sol notes on 15 Oct
         "compare": ("gpt-6-luna", "low"),      # decided by test, 15 Oct
         "query": ("gpt-6-luna", "low"),
         "reflect": ("gpt-6.1-sol", "low"),
@@ -67,7 +70,7 @@ PROFILES = {
     },
 }
 # Invalid structured output: one retry with the same model, then this model (spec section 7, fallbacks)
-FALLBACK = {"dev": "gpt-6.1-sol", "final": "gpt-6-luna"}
+FALLBACK = {"dev": "gpt-6.1-sol", "final": "gpt-6.1-sol"}   # a different model; final was Luna while Sol extracted
 
 # USD per 1M tokens (input, output). Third-party listings, October 2026: TO VERIFY on OpenAI's pricing page
 # before A3 (spec section 8). Web search tool fees are not included (also to verify).

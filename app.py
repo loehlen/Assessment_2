@@ -146,6 +146,33 @@ def go_to(step):
     ss.step = step
 
 
+# =============================================================== the working screen (17 Oct)
+# Long work (research, comparison) used to run in the middle of the page: Streamlit keeps the elements of the previous
+# screen, faded, until a run ends, so old blocks lingered for a minute below the progress, sometimes in the wrong
+# columns. Now a button only records the work and reloads; the next run clears the page body first and shows nothing
+# but the progress, then opens the next step.
+def start_work(kind, **args):
+    ss.pending = {"kind": kind, **args}
+    st.rerun()
+
+
+def do_work(ai, job):
+    """Runs the recorded work on the cleared page. Returns True when the next step can be shown."""
+    st.iframe(SCROLL_TOP, height=1)
+    kind = job["kind"]
+    if kind == "mapping":
+        run_mapping(ai, job["companies"])
+        ss.step = 2
+        return True
+    if kind == "remap":
+        remap_company(ai, job["name"], job["website"], job["mode"], job["pasted"])
+        ss.step = 2
+        return True
+    if kind == "compare":
+        return confirm_activities(ai, job["activities"], [], job["profiles_text"])
+    return True
+
+
 # =============================================================== new screen (reset)
 KEEP_ON_RESET = {"log", "app_password", "user_api_key", "deploy_check"}
 
@@ -380,9 +407,7 @@ def stage_companies(ai):
         return
     ss.portfolio_df = edited.reset_index(drop=True)
     ss.pf_version += 1
-    run_mapping(ai, companies)
-    ss.step = 2
-    st.rerun()
+    start_work("mapping", companies=companies)
 
 
 def company_key(c):
@@ -485,6 +510,9 @@ def activity_line(a, company):
     if a.get("excluded"):
         return (f"~~**{esc(capital(a['product']))}**~~ {stage_text(a)} · *not relevant to this deal:* "
                 f"{esc(a.get('exclusion_reason', ''))} {markers}")
+    if rules.is_gap(a):
+        return (f"**{esc(rules.gap_name(a))}** · ❔ *named in the sources, but what it offers is not stated* · question "
+                f"for the company; use “Edit” to add the product if you know it (until then it is not compared) {markers}")
     includes = [i for i in a.get("includes") or [] if i]
     if rules.category(a) == "other":
         items = [esc(short_item(i)) for i in includes]
@@ -556,7 +584,8 @@ def edit_activity(company, idx):
     k = f"ea_{ss.acts_version}_{company}_{idx}_"
     st.caption(f"{company} · {'new activity' if idx is None else 'changes are kept for this screen and recorded in the audit log'}")
     name = st.text_input("Activity", value=a.get("product", ""), key=k + "name",
-                         help="A short generic name of the business area at its level of trade; no company or brand names")
+                         help="What the business area offers (product or service), in generic words; who buys it goes under "
+                              "“Direct customers”, not into the name; no company or brand names")
     includes = st.text_area("Includes (one item per line)", value="\n".join(a.get("includes") or []), key=k + "inc",
                             height=130, help="Every product type, format and customer group this activity covers")
     c1, c2 = st.columns(2)
@@ -660,8 +689,11 @@ def stage_activities(ai):
         label = (f"Update the comparison: {plural(plan['new'], 'new or changed pair')} to compare, {plan['kept']} kept"
                  if plan["new"] else "Update the comparison (nothing new to compare)")
     if c1.button(label, type="primary"):
-        confirm_activities(ai, copy.deepcopy(ss.acts), problems,
-                           {c["name"]: profile_of(c["name"]) for c in ss.companies})
+        if problems:
+            st.error("Please fix these points first:\n\n" + "\n".join(f"- {p}" for p in problems))
+        else:
+            start_work("compare", activities=copy.deepcopy(ss.acts),
+                       profiles_text={c["name"]: profile_of(c["name"]) for c in ss.companies})
     if has_results:
         c2.button("Back to the assessment without these changes →", on_click=go_to, args=(3,))
 
@@ -683,7 +715,9 @@ def company_block(ai, c, index):
             st.error(m["error"])
         profile = profile_of(name)
         if profile.strip():
-            st.write(profile)
+            psrc = {"source_numbers": ext.get("profile_source_numbers") or [], "evidence": ""}
+            st.markdown(esc(profile) + (" " + source_markers(psrc, name) if psrc["source_numbers"] else ""),
+                        unsafe_allow_html=True)
         elif not m["error"]:
             st.caption("No profile found in the sources.")
         for w in ext.get("warnings") or []:
@@ -727,7 +761,7 @@ def company_block(ai, c, index):
                 if mode == "my description" and not text.strip():
                     st.error("Enter a description, or choose web search.")
                 else:
-                    remap_company(ai, name, website, mode, text)
+                    start_work("remap", name=name, website=website, mode=mode, pasted=text)
 
 
 def remap_company(ai, name, website, mode, pasted):
@@ -735,8 +769,9 @@ def remap_company(ai, name, website, mode, pasted):
                  for c in ss.companies]
     company = next(c for c in companies if c["name"] == name)
     first, t0 = ss.log.mark(), time.time()
-    with st.spinner(f"Mapping {name} ..."):
+    with st.status(f"Researching {name} again (one company, its own calls) ...", expanded=True) as status:
         ss.mapped[name] = am.map_company(ai, company, companies, USE_SAVED)
+        status.update(label=f"{name} researched again in {time.time() - t0:.0f} s", state="complete")
     ss.companies = companies
     ss.relationships = am.find_relationships(ss.mapped, companies)
     ss.acts[name] = copy.deepcopy(extracted(ss.mapped[name]))
@@ -745,7 +780,6 @@ def remap_company(ai, name, website, mode, pasted):
     ss.profiles_edit.pop(name, None)
     ss.acts_version += 1
     log_stage("mapping", first, time.time() - t0)
-    st.rerun()
 
 
 def activity_problems():
@@ -757,7 +791,7 @@ def activity_problems():
                 problems.append(f"{c['name']}: an activity has no name.")
             if a.get("excluded") and not (a.get("exclusion_reason") or "").strip():
                 problems.append(f"{c['name']}: '{a['product']}': give a short reason why it is not relevant.")
-        if not [a for a in acts if not a.get("excluded")]:
+        if not [a for a in acts if not a.get("excluded") and not rules.is_gap(a)]:
             problems.append(f"{c['name']}: no activities to compare. Map the company again, add an activity, or keep "
                             "at least one activity.")
     return problems
@@ -779,7 +813,8 @@ def prepare_comparison(activities):
     group = {c["name"]: ((ss.mapped[c["name"]].get("extraction") or {}).get("group_companies") or [])
              for c in companies}
     names = cmp.collect_names(companies, activities, group)
-    compared = {c["name"]: [a for a in activities.get(c["name"], []) if not a.get("excluded")] for c in companies}
+    compared = {c["name"]: [a for a in activities.get(c["name"], []) if not a.get("excluded") and not rules.is_gap(a)]
+                for c in companies}
     profiles, blocked, keys = {}, [], {}
     for c in companies:
         abstracts, problems = cmp.anonymise(compared[c["name"]], names)
@@ -787,7 +822,8 @@ def prepare_comparison(activities):
         blocked += [f"{c['name']} activity {i + 1}: {left}" for i, left in problems]
         for a, abstract in zip(compared[c["name"]], abstracts):
             keys[a["aid"]] = cmp.activity_key(a, abstract)
-    pair_keys = [(keys[ta["aid"]], keys[pa["aid"]]) for p in portcos for ta in compared[target] for pa in compared[p]]
+    pair_keys = [(keys[ta["aid"]], keys[pa["aid"]]) for p in portcos for ta in compared[target] for pa in compared[p]
+                 if rules.compared_pair(ta, pa)]
     cache = ss.get("pair_cache") or {}
     new = sum(1 for k in pair_keys if k not in cache)
     return {"target": target, "portcos": portcos, "names": names, "profiles": profiles, "keys": keys,
@@ -797,7 +833,7 @@ def prepare_comparison(activities):
 def confirm_activities(ai, activities, problems, profiles_text):
     if problems:
         st.error("Please fix these points first:\n\n" + "\n".join(f"- {p}" for p in problems))
-        return
+        return False
     plan = prepare_comparison(activities)
     target, portcos, names, profiles, keys = (plan[k] for k in ("target", "portcos", "names", "profiles", "keys"))
     ss.setdefault("vec_cache", {})
@@ -818,8 +854,10 @@ def confirm_activities(ai, activities, problems, profiles_text):
                         ss.vec_cache[keys[a["aid"]]] = v
         except Exception as e:  # noqa: BLE001 - never continue without vectors (see comparison.embed_company)
             status.update(label="The comparison stopped", state="error")
-            st.error(f"The embeddings failed, so nothing was compared: {type(e).__name__}: {e}. Please try again.")
-            return
+            st.error(f"The embeddings failed, so nothing was compared: {type(e).__name__}: {e}. Your activities are "
+                     "kept; go back and press “Compare activities” again.")
+            st.button("← Back to the activities", on_click=go_to, args=(2,))
+            return False
         st.write(f"✔ Embeddings: {plural(len(missing), 'request')}, one per company, anonymised texts only"
                  if missing else "✔ Embeddings: all kept from before")
         for p in profiles.values():
@@ -851,7 +889,7 @@ def confirm_activities(ai, activities, problems, profiles_text):
     ss.results = results
     log_stage("confirm", first, time.time() - t0)
     ss.step = 3
-    st.rerun()
+    return True
 
 
 # =============================================================== stage ③ the preliminary assessment table
@@ -880,6 +918,12 @@ def _store_override(pid, field, key):
     entry = ss.override_store.setdefault(pid, {"dismiss": False, "add_back": False, "note": ""})
     value = ss.get(key)
     entry[field] = value.strip() if isinstance(value, str) else bool(value)
+
+
+def _store_part(pid, part, key):
+    """Widget callback for one label of a pair with several labels (17 Oct): dismissed on its own."""
+    entry = ss.override_store.setdefault(pid, {"dismiss": False, "add_back": False, "note": ""})
+    entry.setdefault("dismissed_parts", {})[part] = bool(ss.get(key))
 
 
 def kept(status):
@@ -920,31 +964,48 @@ def link_sentence(link, vitems, r, target, portco):
 
 def assessment(r, status, target, portco):
     """The preliminary assessment of one pair, assembled in code from the structured answers (no AI call). The
-    reasons are in 'Details'."""
+    reasons are in 'Details'. A label the user dismissed on its own is struck through (17 Oct)."""
     d, c = r["decision"], r["comparison"]
     m = r.get("matches") or {}
+    off = set(cmp.dismissed_parts(r, ss.get("overrides") or {}))
     lines = ["✖ **Dismissed by you**"] if status == "dismissed by user" else []
     if status == "added back by user":
         return "↩ **Added back by you.** The tool found no overlap; see “Details”."
     if d["status"] == "unclear":
         return "  \n".join(lines + ["❔ **Unclear, please check** (see “Details”)"])
     own = " · own use" if "captive" in r["flags"] else ""
+
+    def mark(part, text):
+        return f"✖ ~~{text}~~ *(dismissed by you)*" if part in off and status != "dismissed by user" else text
+
     if d["horizontal"]:
         kind = "same product" if c["product_relation"] == "same product" else "similar product"
         sa, sb = stage_of(r["a"]).lower(), stage_of(r["b"]).lower()
         level = f"same level ({sa})" if sa == sb else f"different levels ({sa} v {sb})"
         dots = f" · {r['customers']}" if r.get("customers") in ("●●●", "●●○", "●○○") else ""
-        lines.append(f"🔴 **Potential horizontal overlap** ({kind}) · {level}{dots}{own}")
+        lines.append(mark("horizontal", f"🔴 **Potential horizontal overlap** ({kind}) · {level}{dots}{own}"))
         a, b = listing(m.get("a", [])), listing(m.get("b", []))
-        if a or b:
+        if (a or b) and "horizontal" not in off:
             lines.append(f"with regard to: *{esc(target)}:* {a or '–'} · *{esc(portco)}:* {b or '–'}")
     vitems = {v["link"]: v for v in r.get("vertical_items") or []}
     for link in d["vertical_links"]:
         up, up_act, down, down_act = direction(link, r, target, portco)
-        lines.append(f"🟠 **Potential vertical relationship** · {esc(up)} ({stage_of(up_act).lower()}) → "
-                     f"{esc(down)} ({stage_of(down_act).lower()}){own}")
-        lines.append(link_sentence(link, vitems.get(link, {}), r, target, portco))
+        lines.append(mark(link, f"🟠 **Potential vertical relationship** · {esc(up)} ({stage_of(up_act).lower()}) → "
+                                f"{esc(down)} ({stage_of(down_act).lower()}){own}"))
+        if link not in off:
+            lines.append(link_sentence(link, vitems.get(link, {}), r, target, portco))
     return "  \n".join(lines)
+
+
+def part_label(part, r, target, portco):
+    """Short label for the narrow column (the colour marks of the assessment), the full wording as help text."""
+    parts = cmp.assessment_parts(r)
+    if part == "horizontal":
+        return "🔴 Dismiss", "Dismiss the potential horizontal overlap only"
+    up, _, down, _ = direction(part, r, target, portco)
+    verticals = [x for x in parts if x != "horizontal"]
+    number = f" {verticals.index(part) + 1}" if len(verticals) > 1 else ""
+    return f"🟠 Dismiss{number}", f"Dismiss the potential vertical relationship {up} → {down} only"
 
 
 def pair_details(r, target, portco):
@@ -1018,6 +1079,15 @@ def pair_row(r, status, rv, target, portco, first):
             key = f"add_{rv}_{pid}"
             st.checkbox("Added back", value=o.get("add_back", False), key=key,
                         on_change=_store_override, args=(pid, "add_back", key))
+        elif len(cmp.assessment_parts(r)) > 1 and not o.get("dismiss"):
+            # 17 Oct (Linda): a pair with a horizontal and a vertical label (or two vertical links) gets one box per
+            # label, so that one can be dismissed and the other kept
+            chosen = o.get("dismissed_parts") or {}
+            for k, part in enumerate(cmp.assessment_parts(r)):
+                key = f"dis_{rv}_{pid}_{k}"
+                label, tip = part_label(part, r, target, portco)
+                st.checkbox(label, value=bool(chosen.get(part)), key=key, help=tip,
+                            on_change=_store_part, args=(pid, part, key))
         else:
             key = f"dis_{rv}_{pid}"
             st.checkbox("Dismiss", value=o.get("dismiss", False), key=key,
@@ -1083,8 +1153,9 @@ def portco_sentence(target, portco, pairs, status):
     if not touched:
         return f"None of {esc(portco)}'s {plural(len(acts), 'activity', 'activities')} meets an activity of {esc(target)}."
     found = [r for r in live if r["decision"]["status"] == "candidate"]
-    h = {r["label_b"] for r in found if r["decision"]["horizontal"]}
-    v = {r["label_b"] for r in found if r["decision"]["vertical_links"]}
+    off = {cmp.pair_id(r): set(cmp.dismissed_parts(r, ss.get("overrides") or {})) for r in found}
+    h = {r["label_b"] for r in found if r["decision"]["horizontal"] and "horizontal" not in off[cmp.pair_id(r)]}
+    v = {r["label_b"] for r in found if set(r["decision"]["vertical_links"]) - off[cmp.pair_id(r)]}
     check = {r["label_b"] for r in live if r["decision"]["status"] == "unclear" or status[cmp.pair_id(r)] == "added back by user"}
     parts = [x for x in (f"horizontal in {len(h)}" if h else "", f"vertical in {len(v)}" if v else "",
                          f"to check in {len(check)}" if check else "") if x]
@@ -1098,7 +1169,9 @@ def is_other(r):
 
 def portco_section(i, p, target, pairs, status, rv):
     """One box per portfolio company. Every compared target activity appears once, in the target's order: with the
-    rows that meet it and a line naming what does not. Pairs involving "Other activities" are collapsed below."""
+    rows that meet it and a line naming what does not. Pairs involving "Other activities" are collapsed below.
+    A portfolio company where nothing meets (17 Oct, Linda): its table is folded into one collapsed box, "open to
+    check", with the same lines, reasons and "Add back" inside; once a pair is added back, the box opens up again."""
     with st.container(border=True):
         st.markdown(f"#### {i}. {esc(p)}")
         st.markdown(portco_sentence(target, p, pairs, status))
@@ -1106,9 +1179,13 @@ def portco_section(i, p, target, pairs, status, rv):
         if excluded:
             st.caption("Not compared (excluded by you): " + "; ".join(
                 f"{esc(a['product'])} ({esc(a.get('exclusion_reason', ''))})" for a in excluded))
+        gaps = [a for a in ss.confirmed.get(p, []) if rules.is_gap(a) and not a.get("excluded")]
+        if gaps:
+            st.caption("Not compared, because the sources do not say what it offers (a question for the company): "
+                       + "; ".join(esc(rules.gap_name(a)) for a in gaps))
         t_acts = [ss.confirmed[target][k] for k in display_order(ss.confirmed[target])
-                  if not ss.confirmed[target][k].get("excluded")]
-        n_portco = len([a for a in ss.confirmed.get(p, []) if not a.get("excluded")])
+                  if not ss.confirmed[target][k].get("excluded") and not rules.is_gap(ss.confirmed[target][k])]
+        n_portco = len([a for a in ss.confirmed.get(p, []) if not a.get("excluded") and not rules.is_gap(a)])
         by_target = {}
         for r in pairs:
             by_target.setdefault(r["a"].get("aid") or r["label_a"], []).append(r)
@@ -1119,25 +1196,46 @@ def portco_section(i, p, target, pairs, status, rv):
         def is_out(r):
             return status[cmp.pair_id(r)] == "screened out"
 
-        main_t = [ta for ta in t_acts if rules.category(ta) == "main"]
-        if main_t:
-            table_header(target, p)
-            for ta in main_t:
-                rs = rows_of(ta)
-                target_block(ta, [r for r in rs if not is_out(r) and not is_other(r)], [r for r in rs if is_out(r)],
-                             status, rv, target, p, n_portco)
-        other_rows = [r for r in pairs if not is_out(r) and is_other(r)]
-        other_t = [ta for ta in t_acts if rules.category(ta) == "other"]
-        if other_rows or other_t:
-            with st.expander(f"Other activities (own use and side lines): {plural(len(other_rows), 'potential link')}"
-                             " · show"):
-                table_header(target, p)
-                for ta in t_acts:
-                    rs = rows_of(ta)
-                    kept_rows = [r for r in rs if not is_out(r) and is_other(r)]
-                    screened = [r for r in rs if is_out(r)] if rules.category(ta) == "other" else []
-                    if kept_rows or screened:
-                        target_block(ta, kept_rows, screened, status, rv, target, p, n_portco)
+        nothing_meets = bool(pairs) and all(is_out(r) for r in pairs)
+        if nothing_meets:
+            with st.expander(f"No overlap found with any activity of {esc(target)} · open to check the reasons or add "
+                             "a pair back"):
+                section_body(t_acts, rows_of, is_out, pairs, status, rv, target, p, n_portco, nested=True)
+        else:
+            section_body(t_acts, rows_of, is_out, pairs, status, rv, target, p, n_portco, nested=False)
+
+
+def section_body(t_acts, rows_of, is_out, pairs, status, rv, target, p, n_portco, nested):
+    """The table of one portfolio company's box. Inside the collapsed box (nested) Streamlit allows no second
+    expander, so "Other activities" is a plain sub-heading there."""
+    main_t = [ta for ta in t_acts if rules.category(ta) == "main"]
+    if main_t:
+        table_header(target, p)
+        for ta in main_t:
+            rs = rows_of(ta)
+            target_block(ta, [r for r in rs if not is_out(r) and not is_other(r)], [r for r in rs if is_out(r)],
+                         status, rv, target, p, n_portco)
+    other_rows = [r for r in pairs if not is_out(r) and is_other(r)]
+    other_t = [ta for ta in t_acts if rules.category(ta) == "other"]
+    if not (other_rows or other_t):
+        return
+    title = f"Other activities (own use and side lines): {plural(len(other_rows), 'potential link')}"
+    if nested:
+        st.markdown(f"**{title}**")
+        other_table(t_acts, rows_of, is_out, status, rv, target, p, n_portco)
+    else:
+        with st.expander(title + " · show"):
+            other_table(t_acts, rows_of, is_out, status, rv, target, p, n_portco)
+
+
+def other_table(t_acts, rows_of, is_out, status, rv, target, p, n_portco):
+    table_header(target, p)
+    for ta in t_acts:
+        rs = rows_of(ta)
+        kept_rows = [r for r in rs if not is_out(r) and is_other(r)]
+        screened = [r for r in rs if is_out(r)] if rules.category(ta) == "other" else []
+        if kept_rows or screened:
+            target_block(ta, kept_rows, screened, status, rv, target, p, n_portco)
 
 
 def stage_overview(ai):
@@ -1146,7 +1244,9 @@ def stage_overview(ai):
     h2.button("← Back to the activities", on_click=go_to, args=(2,), width="stretch")
     st.write("For each portfolio company, the table shows which of its activities meet each activity of the target, and "
              "how. “Potential” means: not yet checked against the Commission's market definitions, which are added in "
-             "step ④. Where you disagree, tick “Dismiss”; a note is optional. Both go into the audit log. The line "
+             "step ④. Where you disagree, tick “Dismiss”; a row with a horizontal and a vertical label has one box for each "
+             "(🔴 / 🟠), so you can dismiss one and keep the other; "
+             "a note is optional. Both go into the audit log. The line "
              "“No overlap found with” under a target activity names the activities that do not meet it; “Why?” shows "
              "the reasons and lets you add a pair back.")
     if ss.get("acts") and ss.get("confirmed_hash") and activities_hash(ss.acts) != ss.confirmed_hash:
@@ -1162,7 +1262,8 @@ def stage_overview(ai):
     ss.setdefault("override_store", {})
     current = {cmp.pair_id(r) for r in results}
     ss.overrides = {pid: dict(o) for pid, o in ss.override_store.items()
-                    if pid in current and (o.get("dismiss") or o.get("add_back") or o.get("note"))}
+                    if pid in current and (o.get("dismiss") or o.get("add_back") or o.get("note")
+                                           or any((o.get("dismissed_parts") or {}).values()))}
     status = {cmp.pair_id(r): cmp.effective_status(r, ss.overrides) for r in results}
     show_relationships()
 
@@ -1351,9 +1452,11 @@ window.parent.scrollTo(0, 0);
 def scroll_to_top_on_new_step(step):
     """Streamlit keeps the scroll position when the screen changes, so a new step would open in the middle of the
     page (16 Oct). A small script jumps to the top once per change of step."""
+    slot = st.empty()          # always one element here, so that everything below keeps its position (17 Oct)
     if ss.get("_shown_step") != step:
         ss._shown_step = step
-        st.iframe(SCROLL_TOP, height=1)          # our own constant script, never user input
+        with slot:
+            st.iframe(SCROLL_TOP, height=1)      # our own constant script, never user input
 
 
 def progress_nav(step):
@@ -1376,9 +1479,12 @@ def done_summaries(step):
     if step > 2 and ss.get("confirmed"):
         acts = [a for v in ss.confirmed.values() for a in v]
         excl = sum(a.get("excluded", False) for a in acts)
-        lines.append(f"✔ **Activities:** {len(acts) - excl} compared" + (f", {excl} excluded" if excl else ""))
+        gaps = sum(rules.is_gap(a) and not a.get("excluded", False) for a in acts)
+        lines.append(f"✔ **Activities:** {len(acts) - excl - gaps} compared" + (f", {excl} excluded" if excl else "")
+                     + (f", {gaps} not stated (questions for the company)" if gaps else ""))
+    slot = st.empty()          # always one element (see scroll_to_top_on_new_step)
     if lines:
-        st.markdown("  \n".join(lines))
+        slot.markdown("  \n".join(lines))
 
 
 st.title("EU Overlap Screen")
@@ -1399,11 +1505,24 @@ if top.button("↺ New screen", help="Discard this screen and start again", widt
     confirm_reset(audit_snapshot(ai) if ss.get("mapped") else None)
 done_summaries(step)
 st.divider()
-if step == 1:
-    stage_companies(ai)
-elif step == 2:
-    stage_activities(ai)
-else:
-    stage_overview(ai)
 if DEV_MODE:
     dev_sidebar(ai)
+# Two slots (17 Oct): the working screen and the page. During long work the page slot is set to empty, which removes
+# the previous screen at once (writing a new container into the same slot would keep its old children, faded, until
+# the work ends), and the progress is shown in the slot above it.
+work = st.empty()
+body = st.empty()
+job = ss.pop("pending", None)
+if job:
+    body.empty()
+    with work.container():
+        if do_work(ai, job):
+            st.rerun()
+else:
+    with body.container():
+        if step == 1:
+            stage_companies(ai)
+        elif step == 2:
+            stage_activities(ai)
+        else:
+            stage_overview(ai)

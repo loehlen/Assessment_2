@@ -329,6 +329,30 @@ def merge_other(activities):
     return main + [merged]
 
 
+def is_gap(activity):
+    """A line the sources name without saying what it offers (17 Oct, e.g. a drinks brand named only in a company
+    overview): product "not stated". Shown as a question for the company and not compared until the user fills it
+    in, because a comparison of an empty description can only come back "not enough information"."""
+    return (activity.get("product") or "").strip().lower() in {"not stated", "unknown", "n/a"}
+
+
+def gap_name(activity):
+    """What a gap line is called on screen: its brands, else the entity, else a neutral label."""
+    brands = [b for b in activity.get("brands") or [] if b and b != "not stated"]
+    if brands:
+        return ", ".join(brands)
+    entity = (activity.get("entity") or "").strip()
+    return entity if entity and entity.lower() != "not stated" else "A business named in the sources"
+
+
+def compared_pair(a, b):
+    """Whether a target activity and a portco activity are compared at all (17 Oct): never two "Other activities"
+    lines with each other. Own use and side lines of one company against those of the other cannot compete, and
+    nobody supplies anybody; in the runs of 17 Oct these pairs only produced noise. Each "Other activities" line is
+    still compared with every main activity of the other company."""
+    return not (category(a) == "other" and category(b) == "other")
+
+
 def pair_tier(a, b):
     """'main' if both activities are main activities, else 'other'."""
     return "main" if category(a) == "main" and category(b) == "main" else "other"

@@ -4,7 +4,8 @@ comparison.py - stage 3: anonymisation and the factual comparison (spec sections
     collect_names(companies, activities, group_companies)   every name that must never reach a comparison
     anonymise(activities, names)                            the abstracts, with the name check
     embed_company(ai, label, activities, names)             one embedding request per company
-    build_pairs(target, portcos, profiles)                  every target activity x every portco activity
+    build_pairs(target, portcos, profiles)                  every target activity x every portco activity (except
+                                                            "Other activities" x "Other activities", 17 Oct)
     assess(ai, pair, names)                                 ONE anonymised pair per AI call + code signals + rule
 
 Stage 3 was frozen on 15 Oct in test_compare.py: Luna as the comparison model, the prompt of 15 Oct, the reseller
@@ -113,6 +114,8 @@ def build_pairs(target, portcos, profiles):
         p = profiles[portco]
         for ti, ta in enumerate(t["activities"]):
             for ki, pa in enumerate(p["activities"]):
+                if not rules.compared_pair(ta, pa):        # never "Other activities" with "Other activities" (17 Oct)
+                    continue
                 tv, pv = t["vectors"][ti], p["vectors"][ki]
                 sims = {"product": rules.cosine(tv["product"], pv["product"]),
                         "input_a_to_b": rules.best_input_match(tv["product"], pv["inputs"]),
@@ -226,12 +229,37 @@ def vertical_sort_key(r):
     return (is_indirect(r), best, -r["sims"]["product"])
 
 
+def assessment_parts(r):
+    """The labels of a kept pair that the lawyer can dismiss one by one (17 Oct, Linda): "horizontal" and each vertical
+    link. A pair with both a horizontal and a vertical label, or two vertical links, has several parts."""
+    d = r["decision"]
+    if d["status"] != "candidate":
+        return []
+    return (["horizontal"] if d["horizontal"] else []) + list(d["vertical_links"])
+
+
+def dismissed_parts(r, overrides):
+    """The parts of a pair the user dismissed. 'dismiss' (the single box of a pair with one label, and every override
+    saved before 17 Oct) dismisses all parts."""
+    o = overrides.get(pair_id(r), {})
+    parts = assessment_parts(r)
+    if o.get("dismiss"):
+        return parts
+    chosen = o.get("dismissed_parts") or {}
+    return [p for p in parts if chosen.get(p)]
+
+
 def effective_status(r, overrides):
-    """The code's decision, changed only by the user (never by the AI): 'dismissed' or 'added back'."""
+    """The code's decision, changed only by the user (never by the AI): 'dismissed' or 'added back'. A pair with
+    several labels counts as dismissed only when every label is; with some labels dismissed it stays in the table,
+    with those labels struck through."""
     o = overrides.get(pair_id(r), {})
     status = r["decision"]["status"]
     if status == "screened out" and o.get("add_back"):
         return "added back by user"
     if status != "screened out" and o.get("dismiss"):
+        return "dismissed by user"
+    parts = assessment_parts(r)
+    if parts and set(dismissed_parts(r, overrides)) == set(parts):
         return "dismissed by user"
     return status
