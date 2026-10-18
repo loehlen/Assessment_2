@@ -48,15 +48,31 @@ class Blocked(RuntimeError):
 
 # =============================================================== names and the guard
 def names_of(company):
-    return [company["name"]] + [a for a in company.get("aliases", []) if a]
+    """The entered name, the other names, and (18 Oct) their parts joined by "&" / "and" ("Lindt" for
+    "Lindt & Sprungli")."""
+    names = [company["name"]] + [a for a in company.get("aliases", []) if a]
+    return names + [p for p in rules.name_parts(names) if p not in names]
 
 
-def guard(text, permitted, companies):
-    """Text the app builds itself may contain at most the one permitted company (spec section 7)."""
-    others = [n for c in companies if c["name"] != permitted for n in names_of(c)]
-    found = rules.find_names(text, others)
-    if found:
-        raise Blocked(f"Blocked by the confidentiality guard: the text for {permitted} names {', '.join(found)}")
+def other_names_in(text, permitted, companies):
+    """The names of the OTHER companies of the screen that a text contains (empty = clean)."""
+    found = []
+    for c in companies:
+        if c["name"] != permitted and rules.find_names(text, names_of(c)):
+            found.append(c["name"])        # one entry per company, under its entered name
+    return found
+
+
+def guard(text, permitted, companies, allowed=()):
+    """Text sent in one company's call may contain at most that company (spec section 7). Text the app builds itself
+    is always checked strictly. Text the lawyer typed (a description) may name another company if the lawyer chose
+    "Send anyway" for exactly those names (18 Oct, Linda: what a lawyer types is the lawyer's responsibility; the
+    choice is recorded in the audit log)."""
+    found = other_names_in(text, permitted, companies)
+    allowed = {a.lower() for a in allowed or ()}
+    blocking = [f for f in found if f.lower() not in allowed]       # allowed: the companies the lawyer confirmed
+    if blocking:
+        raise Blocked(f"Blocked by the confidentiality guard: the text for {permitted} names {', '.join(blocking)}")
 
 
 # =============================================================== sources
@@ -302,8 +318,8 @@ def map_company(ai, company, companies, use_saved=False):
         if mode == "my description" and not pasted:
             result["error"] = "No description entered. Enter a description of the company's activities, or choose web search."
             return result
-        if pasted:
-            guard(pasted, name, companies)
+        if pasted:      # the lawyer's own text: names they confirmed with "Send anyway" are allowed (18 Oct)
+            guard(pasted, name, companies, company.get("typed_names_confirmed") or ())
         if mode == "my description":       # no web search at all: the extraction reads only the user's text
             from datetime import date
             found = {"company": name, "model": "no web search (description provided by the user)",

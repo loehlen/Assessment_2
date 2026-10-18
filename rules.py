@@ -114,6 +114,24 @@ def name_variants(names):
     return {v for v in variants if len(v) >= MIN_NAME_LENGTH}
 
 
+NAME_JOINER = re.compile(r"\s*(?:&|\+|\band\b|\bund\b)\s*", re.IGNORECASE)
+MIN_PART_LENGTH = 4
+
+
+def name_parts(names):
+    """The parts of company names joined by "&", "and" or "+" (18 Oct): "Lindt & Sprungli" -> "Lindt", "Sprungli".
+    Everyday language uses the short forms, which the guard and the name removal did not recognise. Only for the
+    entered company names and their other names (brands such as "Salt & Pepper" may be ordinary words); each part
+    needs at least 4 letters after the legal form is removed."""
+    parts = []
+    for name in names or []:
+        short = LEGAL_FORMS.sub("", AND_CO.sub("", (name or "").strip())).strip(" ,&")
+        pieces = [p.strip(" ,.") for p in NAME_JOINER.split(short)]
+        if len(pieces) > 1:
+            parts += [p for p in pieces if len(re.sub(r"\W", "", p)) >= MIN_PART_LENGTH]
+    return list(dict.fromkeys(parts))
+
+
 def _without_accents(text):
     return "".join(ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch))
 
@@ -267,7 +285,9 @@ def is_reseller(activity):
 
 def captive_only(activity):
     """Produced only for the group's own use: not active on the merchant market (Draft Merger Guidelines
-    para 103(i)). Shown as a flag on every pair with this activity, never used to screen a pair out."""
+    para 103(i)). Shown as a flag on every pair with this activity. Since 17 Oct (Linda, option b) an own-use activity
+    cannot be the supplying side of a vertical link (check_ai_links); the pair is then listed under "No overlap found"
+    with the reason, and can be added back."""
     customers = set(activity.get("direct_customers") or []) - {"not stated"}
     return customers == {"internal use (captive)"}
 
@@ -419,24 +439,48 @@ def selling_levels(activity):
     return {level}
 
 
-def check_ai_links(ai_links, a, b):
+OWN_USE_MARK = "(own use)"
+
+
+def own_use_side(activity, items):
+    """Whether this side of a link is own use only: the activity serves only the group itself, or (for the merged
+    "Other activities" line) every item the AI named for the link is marked "(own use)"."""
+    if captive_only(activity):
+        return True
+    items = [i for i in items or [] if i]
+    return bool(items) and all(OWN_USE_MARK in i for i in items)
+
+
+def check_ai_links(ai_links, a, b, vertical_items=None):
     """
-    Applies the one condition of the vertical definition that the structured facts can check: a resale link
-    needs a reseller. An AI resale link whose reseller side is not at retail or wholesale level is disregarded,
-    and the reason is recorded. Input links are left to the AI (any product, by-product or service may be an
-    input, Draft Merger Guidelines para 250), so code does not second-guess them.
-    For the merged 'Other activities' line, the levels of the merged lines are checked (16 Oct): before, its level
-    'other' always passed, so side services could 'resell' anything.
-    Returns (valid links, [(disregarded link, reason)]).
+    Applies the conditions of the vertical definition that the structured facts can check:
+    1. a resale link needs a reseller. An AI resale link whose reseller side is not at retail or wholesale level is
+       disregarded. Input links are otherwise left to the AI (any product, by-product or service may be an input,
+       Draft Merger Guidelines para 250), so code does not second-guess them.
+       For the merged 'Other activities' line, the levels of the merged lines are checked (16 Oct).
+    2. (17 Oct, Linda: option b) the supplying side, and a reseller, must deal with third parties. Production or
+       services only for the group's own use are not on the market (Draft Merger Guidelines para 103(i)): they supply
+       nobody, so they cannot be an input for the other company or resell its goods. Such a link is disregarded; the
+       pair then appears under "No overlap found", with this reason under "Why?", and can be added back.
+    The reason is recorded, never silently dropped. Returns (valid links, [(disregarded link, reason)]).
     """
+    items = {v.get("link"): v for v in vertical_items or []}
     valid, disregarded = set(), []
     for link in ai_links:
         reseller = b if link == "A could be resold by B" else a if link == "B could be resold by A" else None
+        supplier = a if link in ("A could be an input for B", "A could be resold by B") else b
+        side_items = items.get(link, {}).get("items_a" if supplier is a else "items_b")
         levels = selling_levels(reseller) if reseller is not None else set()
         if reseller is not None and not levels & RESELLER_OR_UNCLEAR_LEVELS:
             side = "B" if reseller is b else "A"
             disregarded.append((link, f"{side} is not active in wholesale or retail "
                                       f"(level: {', '.join(sorted(levels))})"))
+        elif own_use_side(supplier, side_items):
+            side = "A" if supplier is a else "B"
+            disregarded.append((link, f"{side} is only for the group's own use, not supplied to third parties"))
+        elif reseller is not None and captive_only(reseller):
+            side = "B" if reseller is b else "A"
+            disregarded.append((link, f"{side} is only for the group's own use and resells nothing to third parties"))
         else:
             valid.add(link)
     return valid, disregarded
@@ -457,8 +501,12 @@ def decide(comparison, code_signals, similarity, a=None, b=None):
     ai_links = set(comparison.get("vertical_links") or [])
     disregarded = []
     if a is not None and b is not None:
-        ai_links, disregarded = check_ai_links(ai_links, a, b)
+        ai_links, disregarded = check_ai_links(ai_links, a, b, comparison.get("vertical_items"))
     rule_links = {link for link, _ in code_signals}
+    if a is not None and b is not None:          # the own-use condition applies to the code signals too (17 Oct)
+        kept_rules, dropped = check_ai_links(rule_links, a, b)
+        disregarded += [(link, why) for link, why in dropped if link not in {x for x, _ in disregarded}]
+        rule_links = kept_rules
     links = [link for link in VERTICAL_LINKS if link in ai_links | rule_links]
     found_by = {
         link: "AI and rule" if link in ai_links and link in rule_links else ("AI" if link in ai_links else "rule")

@@ -24,6 +24,7 @@ import hashlib
 import html
 import json
 import math
+import re
 import time
 from datetime import datetime
 
@@ -165,7 +166,7 @@ def do_work(ai, job):
         ss.step = 2
         return True
     if kind == "remap":
-        remap_company(ai, job["name"], job["website"], job["mode"], job["pasted"])
+        remap_company(ai, job["name"], job["website"], job["mode"], job["pasted"], job.get("confirmed"))
         ss.step = 2
         return True
     if kind == "compare":
@@ -330,10 +331,13 @@ def target_card():
         st.radio("Activities from", am.SOURCE_OPTIONS, key="t_source", horizontal=True, help=SOURCE_HELP)
         if ss.get("t_source", "web search") != "web search":
             st.text_area("Description of the target's activities", key="t_desc", height=140, help=DESCRIPTION_HELP)
-        with st.expander("Other names (optional)"):
+        with st.expander("Other names (optional): short names used in everyday language"):
             st.text_input("Other names of the company, comma-separated", key="t_aliases",
-                          help="Short names or former names. Like the name itself, they are removed from every "
-                               "anonymised description before a comparison.")
+                          placeholder="e.g. a short name, a former name",
+                          help="Short names or former names, e.g. “Lindt” for Lindt & Sprüngli. Like the name itself, they "
+                               "are removed from every anonymised description before a comparison. The confidentiality "
+                               "check only recognises names it knows; parts of a name joined by “&” or “and” are "
+                               "recognised automatically.")
 
 
 def portfolio_card():
@@ -349,7 +353,9 @@ def portfolio_card():
                 "name": cc.TextColumn("Name"),
                 "website": cc.TextColumn("Website (optional)", help="e.g. company.com"),
                 "aliases": cc.TextColumn("Other names (optional)",
-                                         help="Comma-separated; removed from every anonymised description, like the name"),
+                                         help="Short names used in everyday language, comma-separated (e.g. “Lindt” for "
+                                              "Lindt & Sprüngli); removed from every anonymised description, like the "
+                                              "name. Parts joined by “&” or “and” are recognised automatically."),
                 "source": cc.SelectboxColumn("Activities from", options=list(am.SOURCE_OPTIONS), default="web search",
                                              required=True, help=SOURCE_HELP)})
         for r in portfolio_rows(edited):
@@ -357,6 +363,34 @@ def portfolio_card():
                 st.text_area(f"Description of {r['name']}'s activities", key=f"desc_{r['name']}", height=120,
                              help=DESCRIPTION_HELP)
     return edited
+
+
+# Text the lawyer types (18 Oct, Linda): a description that names another company of the screen is not blocked but
+# shown with a warning; the lawyer decides ("Send anyway"), and the decision is recorded with the company in the audit
+# log. What may be typed into an AI tool is the lawyer's professional responsibility; the warning catches slips.
+def typed_names(c, companies):
+    return am.other_names_in(c.get("pasted") or "", c["name"], companies) if (c.get("pasted") or "").strip() else []
+
+
+def send_key(name, found):
+    return "send_" + hashlib.sha1((name + "|" + "|".join(sorted(found))).encode()).hexdigest()[:12]
+
+
+SEND_ANYWAY = "Send anyway (my responsibility; recorded in the audit log)"
+
+
+def typed_warning(name, found, what="The description of"):
+    st.warning(f"{what} {name} names {words_list(found)}, another company in this screen. The description is sent "
+               f"in {name}'s own research call, so the AI would see both names together. Change the text, or send it "
+               "anyway if the sentence reveals nothing confidential.")
+
+
+def typed_text_warnings(companies):
+    for c in companies:
+        found = typed_names(c, companies)
+        if found:
+            typed_warning(c["name"], found)
+            st.checkbox(SEND_ANYWAY, key=send_key(c["name"], found))
 
 
 def read_companies(edited):
@@ -381,6 +415,12 @@ def read_companies(edited):
     for c in companies:
         if c["name"] and c["source"] == "my description" and not c["pasted"]:
             problems.append(f"Enter a description for {c['name']}, or choose web search.")
+        found = typed_names(c, companies) if c["name"] else []
+        if found and ss.get(send_key(c["name"], found)):
+            c["typed_names_confirmed"] = found
+        elif found:
+            problems.append(f"The description of {c['name']} names {words_list(found)}: change the text, or tick "
+                            "“Send anyway”.")
     return companies, problems
 
 
@@ -393,6 +433,7 @@ def stage_companies(ai):
     example_buttons()
     target_card()
     edited = portfolio_card()
+    typed_text_warnings(read_companies(edited)[0])
     st.caption("Each company is researched separately; the AI never sees two company names together. With web search "
                "this takes about one to four minutes.")
     c1, c2 = st.columns([1, 3], vertical_alignment="center")
@@ -515,16 +556,28 @@ def activity_line(a, company):
                 f"for the company; use “Edit” to add the product if you know it (until then it is not compared) {markers}")
     includes = [i for i in a.get("includes") or [] if i]
     if rules.category(a) == "other":
-        items = [esc(short_item(i)) for i in includes]
-        more = f" (+{len(items) - 4} more)" if len(items) > 4 else ""
-        return f"**Other activities** {stage_text(a)} · {'; '.join(items[:4])}{more} {markers}"
+        items = [short_item(i) for i in includes]
+        return (f"**Other activities** {stage_text(a)} · {'; '.join(esc(i) for i in items[:4])}{more_items(items, 4)} "
+                f"{markers}")
     line = f"**{esc(capital(a['product']))}** {stage_text(a)} · {esc(everyday(a))}"
-    includes = [esc(i) for i in includes if i.strip().lower() != a["product"].strip().lower()]
-    if includes:
-        line += f" · e.g. {', '.join(includes[:3])}"
+    raw = [i for i in includes if i.strip().lower() != a["product"].strip().lower()]
+    if raw:
+        line += f" · e.g. {', '.join(esc(i) for i in raw[:3])}" + more_items(raw, 3)
+    brands = [b for b in a.get("brands") or [] if b and b != "not stated"]
+    if brands:                 # 18 Oct: step ② is where names may be shown, so the brands are visible here
+        line += f" · brands: {esc(', '.join(brands[:4]))}" + more_items(brands, 4)
     if a.get("status") == "in development":
         line += " · *in development*"
     return f"{line} {markers}"
+
+
+def more_items(items, shown):
+    """'(+6 more)' after the examples of an activity; hovering shows every item (18 Oct)."""
+    if len(items) <= shown:
+        return ""
+    tip = html.escape("All items: " + "; ".join(items), quote=True)
+    return (f" <span title='{tip}' style='text-decoration:underline dotted;cursor:help'>"
+            f"(+{len(items) - shown} more)</span>")
 
 
 def display_order(acts):
@@ -629,9 +682,17 @@ def edit_activity(company, idx):
                                value=", ".join(a.get("brands") or []), key=k + "brands")
     if idx is not None:
         st.markdown("Sources: " + source_markers(a, company), unsafe_allow_html=True)
+    typed = " ".join([name, includes, description, intended, inputs, details, channels, area])
+    found = am.other_names_in(typed, company, ss.companies)
+    if found:      # 18 Oct: the lawyer's own text; the name is removed before the comparison, the rest is sent
+        st.warning(f"This text names {words_list(found)}, another company in this screen. Company names are removed "
+                   "before the comparison, but the rest of the text is sent. Change the text, or save it anyway.")
+        anyway = st.checkbox("Save anyway (my responsibility; recorded in the audit log)", key=k + "anyway")
     b1, b2, b3 = st.columns(3)
     if b1.button("Save", type="primary", key=k + "save"):
         problems = []
+        if found and not anyway:
+            problems.append(f"The text names {words_list(found)}: change it, or tick “Save anyway”.")
         if not name.strip():
             problems.append("Give the activity a name.")
         if excluded and not reason.strip():
@@ -645,6 +706,8 @@ def edit_activity(company, idx):
                    intended_use=_text(intended), main_inputs=_items(inputs, ";") or ["not stated"],
                    customer_details=_text(details), end_users=end_users, sales_channels=_text(channels),
                    business_area=_text(area), entity=_text(entity), brands=_items(brands, ","))
+        if found:
+            new["typed_names_confirmed"] = found
         if idx is None:
             acts.append(new)
         else:
@@ -758,16 +821,22 @@ def company_block(ai, c, index):
                             key=f"resrc_{v}_{name}", horizontal=True, help=SOURCE_HELP)
             text = st.text_area("Description of the company's activities (used for “my description” and “both”)",
                                 value=c.get("pasted", ""), key=f"repaste_{v}_{name}", help=DESCRIPTION_HELP)
+            found = am.other_names_in(text, name, ss.companies) if mode != "web search" and text.strip() else []
+            if found:
+                typed_warning(name, found)
+                st.checkbox(SEND_ANYWAY, key=send_key(name, found) + f"_{v}")
             if st.button(f"Map {name} again", key=f"remap_{v}_{name}"):
                 if mode == "my description" and not text.strip():
                     st.error("Enter a description, or choose web search.")
+                elif found and not ss.get(send_key(name, found) + f"_{v}"):
+                    st.error(f"The description names {words_list(found)}: change the text, or tick “Send anyway”.")
                 else:
-                    start_work("remap", name=name, website=website, mode=mode, pasted=text)
+                    start_work("remap", name=name, website=website, mode=mode, pasted=text, confirmed=found)
 
 
-def remap_company(ai, name, website, mode, pasted):
-    companies = [dict(c, website=website.strip(), source=mode, pasted=pasted.strip()) if c["name"] == name else c
-                 for c in ss.companies]
+def remap_company(ai, name, website, mode, pasted, confirmed=()):
+    companies = [dict(c, website=website.strip(), source=mode, pasted=pasted.strip(),
+                      typed_names_confirmed=list(confirmed or [])) if c["name"] == name else c for c in ss.companies]
     company = next(c for c in companies if c["name"] == name)
     first, t0 = ss.log.mark(), time.time()
     with st.status(f"Researching {name} again (one company, its own calls) ...", expanded=True) as status:
@@ -781,6 +850,15 @@ def remap_company(ai, name, website, mode, pasted):
     ss.profiles_edit.pop(name, None)
     ss.acts_version += 1
     log_stage("mapping", first, time.time() - t0)
+
+
+def around(text, word, width=70):
+    """The passage around the first place where the word appears (18 Oct; before: the first 120 characters)."""
+    m = re.search(r"(?<!\w)" + re.escape(word) + r"(?!\w)", text, re.IGNORECASE)
+    if not m:
+        return text[:2 * width]
+    start, end = max(0, m.start() - width), min(len(text), m.end() + width)
+    return ("…" if start else "") + text[start:end] + ("…" if end < len(text) else "")
 
 
 def _store_keep(word, key):
@@ -807,7 +885,7 @@ def name_word_review():
                    "only if it describes the product rather than identifying the company. The entered company names "
                    "are always removed.")
         for f in found:
-            ex = "; ".join(f"{esc(c)}: “{esc(t[:120])}”" for c, t in f["examples"])
+            ex = "; ".join(f"{esc(c)}: “{esc(around(t, f['word']))}”" for c, t in f["examples"])
             key = f"keep_{ss.acts_version}_{f['word']}"
             st.checkbox(f"Keep “{f['word']}” as an ordinary word", value=f["word"].lower() in keep, key=key,
                         help=f"A brand or group company of {f['company']}.", on_change=_store_keep,
