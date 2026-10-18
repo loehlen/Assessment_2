@@ -22,9 +22,16 @@ import unicodedata
 # =============================================================== answer lists (used by schemas.py)
 VALUE_CHAIN_LEVELS = {
     "raw materials": "growing, extracting, sourcing or trading unprocessed commodities",
-    "intermediate products": "processed goods sold to other businesses to make their own products "
-                             "(ingredients, components, semi-finished goods)",
-    "finished products": "goods ready for use, sold by the company that makes them",
+    # 18 Oct (Linda): defined by the BUYER'S USE, not by the nature of the goods, following the Vertical Guidelines
+    # (2022/C 248/01) para 287 ("Intermediate goods or services are sold to undertakings for use as an input to
+    # produce other goods or services [...]. Final goods or services are, directly or indirectly, sold to end users")
+    # and para 3 (end users include undertakings). Before, "ready for use" let goods sold to processors count as
+    # finished products.
+    "intermediate products": "processed goods sold to businesses that use them as an input to produce their own goods "
+                             "or services (processed, built in or used up; usually no longer recognisable in the "
+                             "result), whatever the goods are called",
+    "finished products": "goods the company makes and sells, directly or through distributors, to end users: "
+                         "consumers, or businesses that use them themselves rather than as an input",
     "wholesale / distribution": "reselling goods made by others to businesses",
     "retail": "selling to consumers through own shops, outlets or an own online shop",
     "services": "services rather than goods",
@@ -299,14 +306,34 @@ def category(activity):
     return "main"
 
 
+def level_hint(activity):
+    """A hint for step ② (18 Oct, Linda: only if rare; 5 of 183 activities in the audits so far): 'finished products'
+    although the only buyers named are manufacturers or processors, i.e. businesses that probably use the goods as an
+    input (Vertical Guidelines para 287). The tool proposes, the lawyer decides: nothing is changed, and the hint
+    disappears once the activity has been saved in the edit form (even unchanged)."""
+    if activity.get("value_chain_level") != "finished products" or activity.get("level_checked"):
+        return ""
+    buyers = {c for c in activity.get("direct_customers") or [] if c and c != "not stated"}
+    if "manufacturers / processors" in buyers and buyers <= {"manufacturers / processors", "other businesses"}:
+        return ("Level of trade possibly “intermediate products”: the only buyers named are manufacturers or "
+                "processors, who usually use goods as an input to produce their own (Vertical Guidelines para 287: "
+                "intermediate goods are “sold to undertakings for use as an input to produce other goods or "
+                "services”; final goods are sold to end users). Check, and correct with “Edit” if needed.")
+    return ""
+
+
 def merge_other(activities):
     """All 'other' activities of one company become ONE line, 'Other activities' (decided 15 Oct): listed item by
     item under 'includes', compared once. Done in code, so there is always exactly one such line. The original
     activities are kept under 'merged_from' for the audit trail."""
-    main = [a for a in activities if category(a) == "main"]
-    others = [a for a in activities if category(a) == "other"]
+    # 18 Oct: a line whose product is not stated is never merged (before, it became the item "not stated" and its
+    # name disappeared); it stays its own question for the company, as a main line so that it is not treated as
+    # part of "Other activities" anywhere else.
+    gaps = [dict(a, category="main") for a in activities if is_gap(a)]
+    main = [a for a in activities if category(a) == "main" and not is_gap(a)]
+    others = [a for a in activities if category(a) == "other" and not is_gap(a)]
     if not others:
-        return main
+        return main + gaps
 
     def uniq(values):
         out = []
@@ -342,11 +369,12 @@ def merge_other(activities):
         "status": "on the market" if any(a.get("status") == "on the market" for a in others) else "not stated",
         "source_numbers": sorted({n for a in others for n in a.get("source_numbers") or []}),
         "evidence": " | ".join(uniq(a.get("evidence") for a in others))[:800] or "not stated",
+        "quotes": [q for a in others for q in a.get("quotes") or []],       # unchanged, per source (18 Oct)
         "merged_from": others,
         # the levels of trade of the merged lines, so that the reseller check can still be applied (16 Oct)
         "merged_levels": uniq(a.get("value_chain_level") for a in others),
     }
-    return main + [merged]
+    return main + gaps + [merged]
 
 
 def is_gap(activity):
@@ -362,7 +390,10 @@ def gap_name(activity):
     if brands:
         return ", ".join(brands)
     entity = (activity.get("entity") or "").strip()
-    return entity if entity and entity.lower() != "not stated" else "A business named in the sources"
+    return entity if entity and entity.lower() != "not stated" else GAP_FALLBACK
+
+
+GAP_FALLBACK = "A business named in the sources"
 
 
 def compared_pair(a, b):

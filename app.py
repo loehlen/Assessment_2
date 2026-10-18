@@ -227,38 +227,96 @@ def source_index(company):
     return {s["n"]: s for s in ((m.get("search") or {}).get("sources") or [])}
 
 
-def source_markers(a, company):
-    """Numbered source markers next to an activity: hover shows the page, its kind and the passage the extraction
-    relied on; a click opens the page. Company websites are solid, other public sources dotted (decided 16 Oct)."""
+def display_title(s):
+    """The title of a source as shown; a bare file name or web address (common for PDFs) becomes 'PDF on site'."""
+    title = (s.get("title") or "").strip()
+    site = am.site_of(s.get("url"))
+    pdf = (s.get("check") or {}).get("kind") == "pdf" or (s.get("url") or "").lower().split("?")[0].endswith(".pdf")
+    junk = (not title or title.startswith("http") or title == s.get("url") or title.lower().endswith(".pdf")
+            or title.lower() in (site, "www." + site)
+            or (" " not in title and (re.search(r"[_%]|\d{5}", title) or len(title) > 40)))
+    if junk and site:
+        return f"{'PDF' if pdf else 'Page'} on {site}"
+    return title or site
+
+
+QUOTE_TIP = {
+    "found": "✔ Quotation found on the page{page}:\n“{quote}”\n\nClick to open the page at this passage.",
+    "not found": "⚠ Quotation NOT found on the page:\n“{quote}”\n\n{reason}. Open the page and check before relying "
+                 "on it.",
+    "not checked": "○ Could not be checked automatically: {reason}.\nQuotation given by the search:\n“{quote}”\n\n"
+                   "Open the page and check.",
+    "no quote": "○ Not checked: {reason}.\nOpen the page and check what it says.",
+}
+
+
+def source_markers(a, company, checks=None):
+    """Numbered source markers next to an activity (or the profile). Since 18 Oct (option B) each marker shows the
+    result of the code check of its quotation: ✔ found on the page (the link jumps to the passage, or to the PDF page),
+    ⚠ page read but passage not on it, ○ not checked automatically. Hover shows the quotation of THAT source (no longer
+    the AI's summary). Dead links were removed as sources and are not shown here. Company websites are solid, other
+    public sources dotted (decided 16 Oct)."""
     idx = source_index(company)
-    evidence = a.get("evidence") or ""
+    by_n = {c["n"]: c for c in (a.get("quote_checks") if checks is None else checks) or []}
     out = []
     for n in a.get("source_numbers") or []:
         s = idx.get(n)
-        if not s:
+        if not s or s.get("dead"):
             continue
+        c = by_n.get(n)
+        mark = am.source_check.STATUS_MARK.get(c["result"], "") if c else ""
         kind = s.get("type") or "unlabelled"
         if kind == "provided by user":
-            out.append(f"<span title='{html.escape('Your description (entered in step ①)', quote=True)}' "
-                       "style='font-size:0.85em;opacity:0.8'>[your description]</span>")
+            tip = "Your description (entered in step ①)"
+            if c and c.get("quote"):
+                tip += ("\n\n✔ Passage found in your description:" if c["result"] == "found" else
+                        "\n\n⚠ Passage NOT found in your description:") + f"\n“{c['quote'][:600]}”"
+            tip = html.escape(tip, quote=True).replace("\n", "&#10;")
+            out.append(f"<span title='{tip}' style='font-size:0.85em;opacity:0.8'>[your description]{mark}</span>")
             continue
-        tip = f"{s.get('title', '')}\n{am.site_of(s.get('url'))} · {SOURCE_KIND.get(kind, kind)}"
-        if evidence and evidence not in ("not stated", "added by user"):
-            tip += f"\n\nPassage used for this activity: “{evidence[:600]}”"
+        tip = f"{display_title(s)}\n{am.site_of(s.get('url'))} · {SOURCE_KIND.get(kind, kind)}"
+        if s.get("origin") == "text link":
+            tip += "\nLink written by the AI in its notes (not a search citation)"
+        if c and c["result"] in QUOTE_TIP:
+            page = f" (PDF page {c['page']})" if c.get("page") else ""
+            tip += "\n\n" + QUOTE_TIP[c["result"]].format(page=page, quote=(c.get("quote") or "")[:600],
+                                                         reason=(c.get("reason") or "").rstrip("."))
+        elif not c:
+            tip += "\n\nNot checked (source check off, or mapped before 18 Oct). Open the page and check."
         tip = html.escape(tip, quote=True).replace("\n", "&#10;")
         style = ("text-decoration:none;font-size:0.85em" if kind == "company" else
                  "text-decoration:underline dotted;opacity:0.75;font-size:0.85em")
-        out.append(f"<a href='{html.escape(s.get('url', ''), quote=True)}' target='_blank' title='{tip}' "
-                   f"style='{style}'>[{n}]</a>")
-    if not out:
+        href = (c or {}).get("link") or s.get("url", "")
+        out.append(f"<a href='{html.escape(href, quote=True)}' target='_blank' title='{tip}' "
+                   f"style='{style}'>[{n}]{mark}</a>")
+    if a.get("no_available_source") and not out:
+        out.append("<span title='Every source the search gave for this activity no longer exists (page not found). "
+                   "The activity is kept, but nothing available supports it.' style='font-size:0.85em'>"
+                   "⚠ no available source: verify, or ask the company</span>")
+    elif not out:
         out.append("<span style='font-size:0.85em;opacity:0.8'>added by you</span>" if a.get("origin") == "added by user"
                    else "<span title='No source returned by the search supports this activity' "
                         "style='font-size:0.85em'>⚠ no source</span>")
     return " ".join(out)
 
 
-SOURCES_LEGEND = ("Sources: [n] solid = the company's own website, [n] dotted = other public source. Hover over a "
-                  "number to see the page and the passage used; click to open it.")
+SOURCES_LEGEND = ("Sources: [n] solid = the company's own website, [n] dotted = other public source. ✔ the quoted "
+                  "passage was found on the page (a click opens it there, or at the PDF page) · ⚠ the page was read, "
+                  "but the passage is not on it · ○ could not be checked automatically. Hover over a number to see the "
+                  "quotation. Links that no longer exist are not used (listed under “Company profile, all sources”).")
+
+
+def quote_lines(act, who):
+    """The quotations behind an activity, each with its source marker and check result (for 'Why?')."""
+    lines = []
+    for c in act.get("quote_checks") or []:
+        if c.get("quote") and c["result"] != "dead":
+            mark = am.source_check.STATUS_MARK.get(c["result"], "")
+            page = f", PDF page {c['page']}" if c.get("page") else ""
+            note = {"found": "", "not found": " · probably translated, not found on the page" if c.get("translated")
+                    else " · not found on the page", "not checked": " · not checked"}.get(c["result"], "")
+            lines.append(f"> “{esc(c['quote'][:500])}” :gray[(source {c['n']} {mark}{page}{note})]")
+    return lines
 
 
 # =============================================================== step ① companies
@@ -551,15 +609,27 @@ def activity_line(a, company):
     if a.get("excluded"):
         return (f"~~**{esc(capital(a['product']))}**~~ {stage_text(a)} · *not relevant to this deal:* "
                 f"{esc(a.get('exclusion_reason', ''))} {markers}")
-    if rules.is_gap(a):
-        return (f"**{esc(rules.gap_name(a))}** · ❔ *named in the sources, but what it offers is not stated* · question "
-                f"for the company; use “Edit” to add the product if you know it (until then it is not compared) {markers}")
+    if rules.is_gap(a):        # 18 Oct (Linda): the bold part names the activity, as on every other line
+        level = a.get("value_chain_level")
+        known = level in rules.VALUE_CHAIN_LEVELS and level != "other"
+        line = f"**{'Products not stated' if known else 'Activity not stated'}**"
+        if known:
+            line += f" {stage_text(a)} · {esc(everyday(a))}"
+        brands = [b for b in a.get("brands") or [] if b and b != "not stated"]
+        entity = (a.get("entity") or "").strip()
+        if brands:
+            line += f" · brands: {esc(', '.join(brands[:4]))}" + more_items(brands, 4)
+        elif entity and entity.lower() != "not stated":
+            line += f" · company: {esc(entity)}"
+        return (f"{line} · ❔ *named in the sources, but what it offers is not stated*: a question for the company; use "
+                f"“Edit” to add the product if you know it (until then it is not compared) {markers}")
     includes = [i for i in a.get("includes") or [] if i]
     if rules.category(a) == "other":
         items = [short_item(i) for i in includes]
         return (f"**Other activities** {stage_text(a)} · {'; '.join(esc(i) for i in items[:4])}{more_items(items, 4)} "
                 f"{markers}")
-    line = f"**{esc(capital(a['product']))}** {stage_text(a)} · {esc(everyday(a))}"
+    what = everyday(a)          # empty for the level "other": no empty " · " (18 Oct)
+    line = f"**{esc(capital(a['product']))}** {stage_text(a)}" + (f" · {esc(what)}" if what else "")
     raw = [i for i in includes if i.strip().lower() != a["product"].strip().lower()]
     if raw:
         line += f" · e.g. {', '.join(esc(i) for i in raw[:3])}" + more_items(raw, 3)
@@ -568,6 +638,10 @@ def activity_line(a, company):
         line += f" · brands: {esc(', '.join(brands[:4]))}" + more_items(brands, 4)
     if a.get("status") == "in development":
         line += " · *in development*"
+    hint = rules.level_hint(a)
+    if hint:
+        line += (f" · <span title='{html.escape(hint, quote=True)}' style='cursor:help;text-decoration:underline "
+                 f"dotted'>⚠ level of trade?</span>")
     return f"{line} {markers}"
 
 
@@ -713,6 +787,7 @@ def edit_activity(company, idx):
         else:
             if new != acts[idx] and new.get("origin") == "search":
                 new["edited_by_user"] = True
+            new["level_checked"] = True         # saved in the edit form: the lawyer has seen the level (18 Oct)
             acts[idx] = new
         ss.acts_version += 1
         st.rerun()
@@ -762,6 +837,43 @@ def stage_activities(ai):
         c2.button("Back to the assessment without these changes →", on_click=go_to, args=(3,))
 
 
+SOURCE_STATE = {
+    "readable": "read",
+    "blocked": "○ could not be checked automatically",
+    "no text": "○ could not be checked automatically",
+    "error": "○ could not be checked automatically",
+    "off": "○ not checked",
+}
+
+
+def sources_list(found):
+    """All sources of one company with the result of the check; links that no longer exist are listed apart, as
+    'no longer available (cited by the search, not used)', and not as links (18 Oct, Linda)."""
+    check = found.get("source_check") or {}
+    st.markdown(f"**Sources** · {found.get('model', '')} · accessed {found.get('date', '')}"
+                + (f" · checked by the app on the same day ({check.get('seconds')} s)" if check.get("checked") else ""))
+    live = [s for s in found["sources"] if not s.get("dead")]
+    dead = [s for s in found["sources"] if s.get("dead")]
+    for s in live:
+        c = s.get("check") or {}
+        link = f"[{esc(display_title(s))}]({s['url']})" if s.get("url") else esc(s["title"])
+        state = SOURCE_STATE.get(c.get("state"), "")
+        if c.get("state") == "readable" and c.get("kind") == "pdf" and c.get("pages"):
+            state = f"read (PDF, {c['pages']} pages)"
+        detail = f" ({c['reason']})" if c.get("reason") and c.get("state") != "readable" else ""
+        if c.get("state") == "readable" and c.get("reason"):
+            detail = f" ({c['reason']})"
+        origin = " · :gray[link written by the AI, not a search citation]" if s.get("origin") == "text link" else ""
+        st.markdown(f"[{s['n']}] {link} · *{SOURCE_KIND.get(s.get('type'), s.get('type') or 'unlabelled')}*"
+                    + origin + (f" · :gray[{esc(state)}{esc(detail)}]" if state else ""))
+    if dead:
+        st.markdown("**✖ No longer available** (cited by the search, not used: the page or domain no longer exists, "
+                    "so what it said can no longer be checked)")
+        for s in dead:
+            st.markdown(f":gray[source {s['n']}: {esc(display_title(s))} · {esc((s.get('check') or {}).get('reason', ''))}]"
+                        f"  \n:gray[`{s.get('url', '')}`]")
+
+
 def company_block(ai, c, index):
     name = c["name"]
     m = ss.mapped[name]
@@ -779,7 +891,8 @@ def company_block(ai, c, index):
             st.error(m["error"])
         profile = profile_of(name)
         if profile.strip():
-            psrc = {"source_numbers": ext.get("profile_source_numbers") or [], "evidence": ""}
+            psrc = {"source_numbers": ext.get("profile_source_numbers") or [],
+                    "quote_checks": ext.get("profile_quote_checks") or []}
             st.markdown(esc(profile) + (" " + source_markers(psrc, name) if psrc["source_numbers"] else ""),
                         unsafe_allow_html=True)
         elif not m["error"]:
@@ -793,7 +906,12 @@ def company_block(ai, c, index):
                 edit_activity(name, i)
         if not acts:
             st.caption("No activities.")
-        main_acts = [a for a in acts if rules.category(a) == "main" and not a.get("excluded")]
+        named = ext.get("named_without_activity") or []
+        if named:               # 18 Oct: names without a described activity, one quiet line instead of activity lines
+            more = f" and {len(named) - 8} more" if len(named) > 8 else ""
+            st.caption("Also named in the sources, without a described activity: " + "; ".join(esc(n) for n in named[:8])
+                       + more + ". Add an activity if one of them matters for this deal.")
+        main_acts = [a for a in acts if rules.category(a) == "main" and not a.get("excluded") and not rules.is_gap(a)]
         hints = [f"“{main_acts[i]['product']}” and “{main_acts[j]['product']}”"
                  for i, j in rules.possible_duplicates(main_acts)]
         if hints:
@@ -809,10 +927,7 @@ def company_block(ai, c, index):
                          on_change=_store_profile, args=(name, key))
             found = m.get("search") or {}
             if found.get("sources"):
-                st.markdown(f"**Sources** · {found.get('model', '')} · accessed {found.get('date', '')}")
-                for s in found["sources"]:
-                    link = f"[{esc(s['title'])}]({s['url']})" if s.get("url") else esc(s["title"])
-                    st.markdown(f"[{s['n']}] {link} · *{SOURCE_KIND.get(s.get('type'), s.get('type') or 'unlabelled')}*")
+                sources_list(found)
             st.markdown("**Map this company again** (replaces its profile and activities; the other companies "
                         "are kept)")
             r1, r2 = st.columns(2)
@@ -1158,8 +1273,11 @@ def pair_details(r, target, portco):
         evidence = act.get("evidence") or ""
         text = (f"*{esc(who)}:* **{esc(act['product'])}** {stage_text(act)} {source_markers(act, who)}  \n"
                 f":gray[{esc(everyday(act))}" + (f" · includes: {includes}" if includes else "") + "]")
+        quotes = quote_lines(act, who)
+        if quotes:
+            text += "\n\n" + "\n\n".join(quotes)
         if evidence and evidence not in ("not stated", "added by user"):
-            text += f"  \n> {esc(evidence[:500])}"
+            text += f"\n\n:gray[The AI's summary of the sources (not a quotation): {esc(evidence[:500])}]"
         st.markdown(text, unsafe_allow_html=True)
     if DEV_MODE:
         s = r["sims"]
@@ -1519,6 +1637,17 @@ def deployment_check(ai):
                                                        for h in res["hits"])))
     except Exception as e:  # noqa: BLE001
         rows.append(("ChromaDB / retrieval", "✖", f"{type(e).__name__}: {e}"))
+    try:                                      # option B: can the server open public pages and read PDFs? (18 Oct)
+        import pypdf
+        t = time.time()
+        page = am.source_check.fetch("https://example.com/")
+        ok = page["state"] in ("readable", "no text")
+        rows.append(("Source check", "✔" if ok else "✖",
+                     f"{'on' if am.source_check.CHECK_SOURCES else 'OFF (CHECK_SOURCES=0)'} · test page "
+                     f"{'opened' if ok else 'not opened: ' + page['reason']} in {time.time() - t:.1f} s · "
+                     f"pypdf {pypdf.__version__}"))
+    except Exception as e:  # noqa: BLE001
+        rows.append(("Source check", "✖", f"{type(e).__name__}: {e}"))
     return rows
 
 
@@ -1566,8 +1695,9 @@ This tool prepares a first screen in three steps:
 market definitions.
 
 The result is a working document for a lawyer to verify, not a legal conclusion. The facts about each company carry
-their sources (hover over the numbers); the assessment is the AI's reasoning on anonymised descriptions, shown under
-“Details”."""
+their sources: hover over a number to see the passage quoted from that page. The app opens each page and checks
+the quotation word for word (✔ found, ⚠ not found, ○ could not be checked); pages that no longer exist are not used.
+The assessment is the AI's reasoning on anonymised descriptions, shown under “Details”."""
 
 STEPS = {1: "Companies", 2: "Activities", 3: "Preliminary assessment"}
 SCROLL_TOP = """<script>

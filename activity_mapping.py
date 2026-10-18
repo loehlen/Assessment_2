@@ -24,6 +24,7 @@ from urllib.parse import urlparse
 
 import rules
 import schemas
+import sources as source_check      # option B: checks the cited pages and quotations (18 Oct)
 from ai_client import setting
 
 # Development only: saved Sol searches (spec section 8, dev profile): the seven test companies of 14 Oct, and any
@@ -79,6 +80,20 @@ def guard(text, permitted, companies, allowed=()):
 def clean_url(url):
     url = re.sub(r"([?&])utm_source=openai(&|$)", lambda m: m.group(1) if m.group(2) else "", url)
     return url.rstrip("?&")
+
+
+TEXT_LINK = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+)\)")
+
+
+def text_links(notes):
+    """Links the search wrote into its text as [title](url) (18 Oct: with the quotation rule, Luna often writes its
+    links into the text without attaching them as citations; for three companies the app then saw no source at all).
+    They become sources too, marked as such; the source check opens each one, so a made-up or dead link is removed
+    and its quotation must still be found on the page."""
+    seen = {}
+    for title, url in TEXT_LINK.findall(notes or ""):
+        seen.setdefault(clean_url(url.rstrip(".,;")), title.strip())
+    return seen
 
 
 def cited_sources(resp):
@@ -193,20 +208,28 @@ def merge_searches(name, model, runs):
     """One research record from one or two searches: the notes under a heading each, the sources merged by address
     and numbered once (the first search's numbering first). Each source records which search returned it."""
     from datetime import date
-    numbered, found_by = {}, {}
+    numbered, found_by, cited = {}, {}, set()
     for k, r in enumerate(runs, 1):
-        for s in r.get("sources") or []:
+        for s in r.get("sources") or []:        # attached citations first
             if s["url"] not in numbered:
                 numbered[s["url"]] = s.get("title") or s["url"]
             found_by.setdefault(s["url"], []).append(k)
-    sources = [{"n": i + 1, "url": u, "title": t, "searches": found_by[u]} for i, (u, t) in enumerate(numbered.items())]
+            cited.add(s["url"])
+        for url, title in text_links(r.get("notes")).items():     # then links written only in the text (18 Oct)
+            if url not in numbered:
+                numbered[url] = title or url
+            if k not in found_by.setdefault(url, []):
+                found_by[url].append(k)
+    sources = [{"n": i + 1, "url": u, "title": t, "searches": found_by[u]}
+               | ({} if u in cited else {"origin": "text link"}) for i, (u, t) in enumerate(numbered.items())]
     if len(runs) == 1:
         notes = runs[0]["notes"]
     else:
         notes = "\n\n".join(f"## Search {k}: {r['focus']}\n\n" + (r["notes"] or f"(this search failed: {r.get('error')})")
                              for k, r in enumerate(runs, 1))
     return {"company": name, "model": model, "date": date.today().isoformat(), "notes": notes, "sources": sources,
-            "searches": [{"focus": r["focus"], "sources": len(r.get("sources") or []), "characters": len(r["notes"] or ""),
+            "searches": [{"focus": r["focus"], "sources": len(r.get("sources") or []),
+                          "text_links": len(text_links(r.get("notes"))), "characters": len(r["notes"] or ""),
                           "error": r.get("error")} for r in runs]}
 
 
@@ -254,6 +277,7 @@ def extract(ai, company, found, companies):
     data = resp.output_parsed.model_dump()
     data["warnings"] = []
     data["extracted_activities"] = len(data["activities"])
+    move_gaps(data, company)                                          # 18 Oct: no "not stated" lines any more
     data["activities"] = consolidate(ai, name, data["activities"], data["warnings"])
     data["activities"] = rules.merge_other(data["activities"])        # exactly one "Other activities" line
     valid = {s["n"] for s in found["sources"]}
@@ -266,12 +290,58 @@ def extract(ai, company, found, companies):
     return data
 
 
+def move_gaps(data, company=None):
+    """Names the sources mention without saying what they offer are not activities (18 Oct, Linda: activity + source is
+    enough for the lawyer). They are shown as one caption under the company ('named_without_activity').
+    - A line the extraction still returns with product "not stated" is moved there; what is known about it (level of
+      trade) is kept in brackets. Its brand or company name was the group's own, so it is added to 'group_companies'
+      (name removal before the comparison, 🔗 relationship check), as before.
+    - Names the extraction lists itself are shown only if they are also among its own 'group_companies' (first live
+      run, 18 Oct: partners and customers such as other food groups were listed; added to the group list, they would
+      have been removed as "names of the company" and could have caused false 🔗 notes). They are never added to
+      'group_companies' by code.
+    - Not shown either: names that carry the company's own name (national, holding or sales companies of the group;
+      first live run: 28 of them for the target) and names already on an activity line (brand or company)."""
+    group = [g for g in data.get("group_companies") or [] if g]
+    in_group = {g.strip().lower() for g in group}
+    named = [n.strip() for n in data.get("named_without_activity") or []
+             if n and n.strip() and n.strip().lower() in in_group]
+    from_lines = []
+    keep = []
+    for a in data.get("activities") or []:
+        if not rules.is_gap(a):
+            keep.append(a)
+            continue
+        label = rules.gap_name(a)
+        if label == rules.GAP_FALLBACK:         # nothing to name: nothing to show or to remove
+            continue
+        from_lines += [p.strip() for p in label.split(",") if p.strip()]
+        level = a.get("value_chain_level")
+        if level in rules.VALUE_CHAIN_LEVELS and level != "other":
+            label += f" ({level}; products not stated)"
+        named.append(label)
+    data["activities"] = keep
+    own = [n.lower() for n in (names_of(company) if company else []) if len(n) >= 3]
+    covered = [b.lower() for a in keep for b in (a.get("brands") or []) if b and len(b) >= 3 and b != "not stated"]
+    covered += [e.strip().lower() for a in keep for e in (a.get("entity") or "").split(",") if len(e.strip()) >= 3]
+    shown = []
+    for n in dict.fromkeys(named):
+        low = re.sub(r"\s*\(.*\)$", "", n).lower()
+        if any(re.search(rf"(?<!\w){re.escape(w)}(?!\w)", low) for w in own + covered):
+            continue
+        shown.append(n)
+    data["named_without_activity"] = shown
+    data["group_companies"] = list(dict.fromkeys(group + from_lines))
+    return data
+
+
 def consolidate(ai, name, activities, warnings):
     """Code check of the limit of rules.MAX_MAIN main activities (decided 15 Oct). If the extraction returned more,
     ONE extra call (same company, no other names) merges the main activities; the 'other' activities are left to
     code. If that call fails or still returns too many, the longer list is kept with a warning: nothing is lost."""
-    main = [a for a in activities if rules.category(a) == "main"]
-    other = [a for a in activities if rules.category(a) == "other"]
+    gaps = [a for a in activities if rules.is_gap(a)]      # 18 Oct: lines without a product are not merged away
+    main = [a for a in activities if rules.category(a) == "main" and not rules.is_gap(a)]
+    other = [a for a in activities if rules.category(a) == "other" and not rules.is_gap(a)]
     if len(main) <= rules.MAX_MAIN:
         return activities
     try:
@@ -290,7 +360,7 @@ def consolidate(ai, name, activities, warnings):
     if len(merged) > rules.MAX_MAIN:
         warnings.append(f"Still {len(merged)} main activities after merging; please check whether some belong "
                         "together.")
-    return merged + other
+    return merged + other + gaps
 
 
 # =============================================================== one company, end to end
@@ -334,6 +404,8 @@ def map_company(ai, company, companies, use_saved=False):
             return result
         data = extract(ai, company, found, companies)
         label_sources(found["sources"], company, data.get("group_companies"))
+        # option B (18 Oct): open the cited pages, check the quotations in code, remove dead links
+        found["source_check"] = source_check.check(found, data, pasted)
         result["extraction"] = data
     except Blocked as e:
         result["error"] = str(e)

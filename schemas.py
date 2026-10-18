@@ -35,6 +35,13 @@ Prefer sources in this order: the company's own websites, annual and sustainabil
 official registers and filings; established news and trade media. Use business directories and data aggregators only
 for a fact that no better source gives, and say that the fact comes from such a site."""
 
+QUOTE_RULE = """Support what the company sells, to whom and for which use with a short passage copied WORD FOR WORD from
+the page, in quotation marks, directly followed by your citation of that page (cite with the web search, as usual).
+Copy the words exactly as they appear on the page (no rewording, no shortening inside the quotation); one or two
+sentences at most. After each quotation, say in your own words, concretely, which products or services it means and
+who buys them, even if the page itself is vague. Other facts (headquarters, owners, figures) need a citation, not a
+quotation."""
+
 GAP_RULE = """Only report what the sources say; write "not stated" where they say nothing. If the public sources say little or
 nothing about the company, say so and stop: a gap is an acceptable answer, a guess is not."""
 
@@ -65,7 +72,8 @@ Describe every activity, also those outside the company's main business, and for
 - the product or service, what it is used for and its main inputs or raw materials
 - at which level of trade the company sells it (e.g. raw materials, ingredients for other producers,
   finished products, wholesale, own shops or online shop)
-- who buys it directly from the company, and who finally uses it
+- who buys it directly from the company, and whether those buyers use it as an input to produce their own goods or
+  services, resell it, or use it themselves; and who finally uses it
 - how it is sold (sales channels)
 - in which countries it is sold, especially in the European Economic Area
 - whether it is on the market or still in development
@@ -73,6 +81,7 @@ Also state where the group is headquartered (city and country) and who owns it, 
 employees) with its year or reporting period and its source.
 Name the group companies and brands, and any partnership, supply or distribution agreement with other companies
 that the sources mention.
+{QUOTE_RULE}
 {GAP_RULE}"""
 
 
@@ -90,15 +99,17 @@ controls.
 {start} Then look specifically for:
 - smaller brands and product lines, brands the group owns but presents separately, recent launches and acquisitions
 - sales to other businesses: ingredients, components or products for other manufacturers; products for professional,
-  foodservice, hospitality or industrial customers; private-label or contract manufacturing for retailers or others
+  hospitality or industrial customers; private-label or contract manufacturing for retailers or others
 - own retail and hospitality: own shops, outlets, cafes, restaurants, visitor centres, online shops
 - side businesses offered to third parties, e.g. licensing, services, energy, property, logistics, training
 - joint ventures, partnerships, supply or distribution agreements with other companies
 - activities still in development
 For each activity found, describe the product or service and what it is used for, the level of trade at which the
-company sells it, who buys it directly and who finally uses it, how it is sold, in which countries (especially in the
+company sells it, who buys it directly (and whether they use it as an input for their own production, resell it or use
+it themselves) and who finally uses it, how it is sold, in which countries (especially in the
 European Economic Area), and whether it is on the market or still in development.
 Also state where the group is headquartered (city and country), and give every figure with its year and source.
+{QUOTE_RULE}
 {GAP_RULE}"""
 
 
@@ -113,7 +124,8 @@ where it is based (city and country), who owns it or which group it belongs to, 
 and number of employees only if the notes state them, always with their year or reporting period (e.g. "sales of
 EUR 712 million in 2025"). If two sources give different figures, give the most recent one with its year. Names are allowed here. Do not repeat claims about its
 market position or "its market" (e.g. "a leading player in the global snacks market"); say what it does.
-profile_source_numbers: the sources used for the profile.
+profile_source_numbers: the sources used for the profile; profile_quotes: for each of them one quotation from the
+notes, copied character for character (same rule as "quotes" below).
 
 ACTIVITIES: work in two steps.
 
@@ -121,15 +133,17 @@ Step 1, form the lines. One line = one BUSINESS AREA of the company at one level
 as one line of a first overview. Start from how the company presents and groups its business (divisions, segments,
 the sections of its website); ignore purely geographic segments.
 Split a business area ONLY when its level of trade differs, into these groups:
-  (1) inputs for other producers (raw materials, ingredients, semi-finished or intermediate products);
-  (2) goods made for resale or for business use (sold to retailers, wholesalers, foodservice or other businesses);
+  (1) inputs: goods sold to businesses that use them as an input to produce their own goods or services (raw
+      materials, ingredients, components, semi-finished goods), whatever the goods are called;
+  (2) goods for end users: goods the company makes and sells, directly or through retailers and wholesalers, to end
+      users, i.e. consumers or businesses that use them themselves rather than as an input;
   (3) own retail and hospitality (own shops, outlets, own online shop, cafes, restaurants, catering);
   (4) other services;
 and keep a product that is still in development as its own line. Wholesale of goods made by others is also its own
 line.
 Do NOT split by type of product: different products of one business area at one level of trade are ONE line, and
-every product type goes into "includes" (e.g. one line "paints and coatings" at the level "finished products" with
-includes "interior wall paint, exterior paint, varnishes, wood stains, trade packs"). Also merge brands, product lines, formats,
+every product type goes into "includes" (e.g. one line "office furniture" at the level "finished products" with
+includes "desks, office chairs, storage cabinets, conference tables, spare parts"). Also merge brands, product lines, formats,
 channels, customer groups (branded, private label, corporate gifts), countries and group companies doing the same
 thing (name them all in "entity"). When unsure whether two lines belong together, MERGE them.
 "includes" must list every product type, format and customer group covered, in generic words, so that nothing is
@@ -147,22 +161,26 @@ category_reason: one short sentence applying this definition.
 
 Fields:
 - business_area: how the company itself groups this activity (division, segment), else "not stated".
-- sector: the broad sector in plain words (e.g. "food", "frozen food", "real estate"). Only for sorting the overview.
+- sector: the broad sector in plain words (e.g. "machinery", "textiles", "real estate"). Only for sorting the overview.
 - entity: the group companies or brands that carry this activity (comma-separated).
 - brands: brand names used for this activity. Brand names go ONLY here (and in the company profile).
 - product: a short generic name of WHAT the business area offers, i.e. the product or service and, where helpful,
-  its use (e.g. "paints and coatings", "frozen ready meals and vegetables", "cocoa powder and cocoa butter"). Do NOT
+  its use (e.g. "office furniture", "bicycles and bicycle parts", "nitrogen fertilisers"). Do NOT
   put the buyers or the channel into the name (no "sold to businesses", "supplied to the trade", "for retailers"):
   the level of trade and the direct customers are separate fields and are shown next to the name. Only own retail
-  and hospitality may say so in the name (e.g. "own shops and cafes for chocolate"). If the same products appear at
+  and hospitality may say so in the name (e.g. "own shops and repair workshops for bicycles"). If the same products appear at
   two levels of trade, the two names may be alike; the level tells them apart.
-- A brand, business or group company that the notes name without saying what it offers: do not guess a product.
-  List it as its own line with product "not stated", includes [], its name in "brands" or "entity", and
-  description "The sources name it but do not say what it offers." Code shows it as a question for the company.
-- includes: every product type, format and customer group covered, in generic words (e.g. "interior wall paint",
-  "varnishes", "trade packs", "private label", "corporate gifts"), else [].
+- A brand, business or group company: if ANY source in the notes says what it offers, also an older one, put it on
+  the matching line (in "brands" or "entity"); if that description comes only from an older source, add its year to
+  the description (e.g. "products as described in 2020"). Only if the notes say nothing at all about what it offers:
+  do not guess a product and do NOT make a line for it; put its name into "named_without_activity" instead.
+  "named_without_activity" is ONLY for the group's own brands and businesses. Leave out legal entities that are just
+  national, holding, finance or sales companies of the group, and never list partners, customers, suppliers or other
+  companies there.
+- includes: every product type, format and customer group covered, in generic words (e.g. "office chairs",
+  "storage cabinets", "spare parts", "private label", "corporate gifts"), else [].
 - product, includes, description, intended_use, customer_details, sales_channels: generic words, NO company or brand
-  names, including the names of customers, suppliers, partners or retailers (write "a biscuit manufacturer", not its
+  names, including the names of customers, suppliers, partners or retailers (write "a tile manufacturer", not its
   name). Describe what the products are, their key characteristics and, if stated, their price positioning; and what
   the direct customers use them for.
 - main_inputs: the main raw materials or inputs, if stated or obvious from the description, else ["not stated"].
@@ -170,10 +188,15 @@ Fields:
   {"; ".join(f"{k} = {v}" for k, v in VALUE_CHAIN_LEVELS.items())}.
 - direct_customers: who buys directly FROM THE COMPANY, at its own level of trade (not the end consumer of a
   product sold through shops): {"; ".join(f"{k} = {v}" for k, v in DIRECT_CUSTOMER_TYPES.items())}.
-- customer_details: specifics the list cannot express (e.g. "bakeries and confectioners", "travel retail",
-  "hotels and restaurants"), without naming individual customers, else "not stated".
+- customer_details: specifics the list cannot express (e.g. "dental practices", "travel retail",
+  "construction companies"), without naming individual customers, else "not stated".
 - end_users, sales_channels, countries_of_sale ("not stated" if the sources give none), status.
-- source_numbers: only numbers from the numbered source list; evidence: a short quote or paraphrase.
+- source_numbers: only numbers from the numbered source list.
+- quotes: for each source number you use, ONE passage that the research notes put in quotation marks right before
+  that source's link, copied character for character (do not reword, shorten or join passages). If the notes give no
+  quotation for a source, leave that source out of "quotes". For a description provided by the user, copy one
+  sentence of that description word for word. Code checks every quotation on the page itself.
+- evidence: one sentence in your own words summarising what the sources say (shown as a summary, not a quotation).
 - group_companies: subsidiaries and brands of the group named in the notes.
 
 Rules:
@@ -181,6 +204,11 @@ Rules:
 - Never adopt the company's own description of "its market" (e.g. "we compete in the global snacks market")
   as a market definition; describe the activity instead.
 - Write "not stated" instead of guessing."""
+
+
+class SourceQuote(BaseModel):
+    source_number: int = Field(description="A number from the numbered source list")
+    quote: str = Field(description="A passage copied word for word from the quotation the notes give for this source")
 
 
 class Activity(BaseModel):
@@ -205,13 +233,21 @@ class Activity(BaseModel):
     countries_of_sale: list[str] = Field(description="Countries named in the sources, or ['not stated']")
     status: Status
     source_numbers: list[int] = Field(description="Only numbers from the numbered source list")
-    evidence: str = Field(description="Short quote or paraphrase from the sources")
+    quotes: list[SourceQuote] = Field(description="Per source number one passage copied word for word from the "
+                                                  "quotations in the notes; [] if the notes quote none")
+    evidence: str = Field(description="One sentence summarising what the sources say, in your own words")
 
 
 class ActivityList(BaseModel):
     company_profile: str = Field(description="2-3 factual sentences introducing the company group; names allowed")
     profile_source_numbers: list[int] = Field(description="Only numbers from the numbered source list")
+    profile_quotes: list[SourceQuote] = Field(description="Per profile source one passage copied word for word from "
+                                                          "the quotations in the notes; [] if none")
     group_companies: list[str] = Field(description="Subsidiaries and brands of the group named in the notes")
+    named_without_activity: list[str] = Field(description="The group's own brands or businesses that the notes name "
+                                                          "without saying what they offer (names only; no national, "
+                                                          "holding or sales companies, no partners or customers); "
+                                                          "[] if none")
     activities: list[Activity]
 
 
@@ -222,12 +258,15 @@ class ActivityGroup(BaseModel):
 CONSOLIDATION_INSTRUCTIONS = f"""You receive the main activities of ONE company group, extracted for the first overview of a
 competition-law overlap screen. There are more than {MAX_MAIN}. Merge them into AT MOST {MAX_MAIN} main activities.
 One activity = one business area of the company at one level of trade. Its product name says what it offers, never
-who buys it ("cocoa powder and cocoa butter", not "cocoa products sold to businesses"). Split ONLY by level of trade: (1) inputs for
-other producers, (2) goods made for resale or business use, (3) own retail and hospitality, (4) other services;
+who buys it ("nitrogen fertilisers", not "fertilisers sold to farmers"). Split ONLY by level of trade: (1) inputs: goods
+sold to businesses that use them as an input to produce their own goods or services, (2) goods for end users, sold
+directly or through retailers and wholesalers to consumers or to businesses that use them themselves, (3) own retail and
+hospitality, (4) other services;
 keep a product in development separate. Merge everything else; when unsure, merge.
 When you merge lines: give a product name that covers all of them; "includes" keeps every item of the merged lines,
 including their former product names; combine description, intended_use, main_inputs, direct_customers,
-customer_details, sales_channels and countries_of_sale; source_numbers is the union; evidence is a short combination.
+customer_details, sales_channels and countries_of_sale; source_numbers is the union; quotes keeps every quotation of
+the merged lines unchanged; evidence is a short combination.
 Keep every field rule: no company, brand, customer or supplier names except in "brands" and "entity".
 Return only the merged main activities, with category "main"."""
 
