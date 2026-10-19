@@ -1788,7 +1788,8 @@ def market_lines(groups, who, rec):
         if not m:
             continue
         line = (f"**{esc(capital(m['name']))}** · *{prec.BASIS_LABEL[g['basis']]}*"
-                + (" · *left open*" if m.get("conclusion") == "left open" else "")
+                + (f" · *{prec.CONCLUSION_LABEL[m['conclusion']]}*" if m.get("conclusion") in ("left open", prec.NOT_STATED)
+                   else "")
                 + f"  \n:gray[{esc(who)}: {esc(listing(g['items'], 3))}]"
                 + f"  \n{esc(prec.cite_range(m['product_paragraphs'], paras, short=True))}")
         out.append(line)                 # 20 Oct (Linda): geography is stage ⑤, not shown here
@@ -1840,7 +1841,8 @@ def paragraphs_popover(view, rec, target, portco):
                 continue
             seen.append(m["market_id"])
             st.markdown(f"**{esc(capital(m['name']))}** · {prec.BASIS_LABEL[g['basis']]} · "
-                        f"{'definition left open' if m.get('conclusion') == 'left open' else 'defined'}")
+                        f"{prec.CONCLUSION_LABEL.get(m.get('conclusion'), 'defined')}"
+                        + (" (from another search of this activity)" if m.get("conclusion_from") else ""))
             if m.get("summary"):
                 st.caption(f"The AI's summary of the paragraphs (not a quotation): {esc(m['summary'])}")
             for pid in m["product_paragraphs"]:
@@ -1919,6 +1921,8 @@ def precedent_line(r, target, portco):
         return ""
     if v["left_open"]:
         text += " · a definition was left open"
+    if v.get("not_stated"):
+        text += " · a conclusion is not in the retrieved paragraphs"
     return "  \n" + text
 
 
@@ -1965,6 +1969,9 @@ def search_trail(r, target, portco):
         st.markdown("*Where the AI placed this row's products:*  \n" + "  \n".join(placed))
     if rec.get("rejected"):
         st.markdown("*Corrected by the code checks:* " + "; ".join(esc(x) for x in rec["rejected"]))
+    if rec.get("conclusions_taken"):
+        st.markdown("*Conclusion taken from another search of this activity (code):* "
+                    + "; ".join(esc(x) for x in rec["conclusions_taken"]))
     st.markdown("**What the AI saw in step ④** (per type of product: its products, numbered by activity, no names; the "
                 "paragraphs follow in the audit log)")
     for t in types:
@@ -2031,7 +2038,8 @@ def precedent_rows():
                 "only_target": [(g["market"] or {}).get("name") for g in view["verdict"]["only_a"]],
                 "only_portco": [(g["market"] or {}).get("name") for g in view["verdict"]["only_b"]],
                 "different_markets_under_the_precedent": view["verdict"]["different"],
-                "left_open": view["verdict"]["left_open"]},
+                "left_open": view["verdict"]["left_open"],
+                "conclusion_not_in_paragraphs": view["verdict"].get("not_stated", False)},
             "error": view.get("error") or ""}
     return out
 
@@ -2192,6 +2200,8 @@ def audit_json(snap):
         log["stage_4_market_definitions"] = {
             "settings": {"max_attempts": prec.MAX_ATTEMPTS, "types_per_search": prec.MAX_TYPES,
                          "reflection": "one call per type of product", "max_paragraphs_per_type": prec.MAX_PARAGRAPHS,
+                         "conclusion": "only as stated in a paragraph sent; otherwise taken in code from the same market "
+                                       "in another search of the same activity",
                          "query_forms": list(prec.QUERY_FORMS), "hits_per_form": prec.HITS_PER_FORM,
                          "unit": "one search per target activity"},
             "searches": snap["precedents"], "rows": snap["precedent_rows"]}

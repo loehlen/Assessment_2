@@ -60,6 +60,10 @@ STOP_WORDS = {
     "failed": "the call failed",
 }
 BASIS_LABEL = {"precedent": "Precedent", "analogy": "Analogy", "none": "No precedent"}
+# 20 Oct (fix A): the reflection may only report a conclusion that a paragraph it was sent states
+NOT_STATED = "not stated in these paragraphs"
+CONCLUSION_LABEL = {"defined": "defined", "left open": "definition left open",
+                    NOT_STATED: "conclusion not in the retrieved paragraphs"}
 
 # The product-market checklist of the Market Definition Notice (2024), shown as questions for the lawyer where the
 # corpus has no precedent (spec section 9; the paragraph numbers were checked against the Notice on 14-15 Oct).
@@ -373,9 +377,42 @@ def run_unit(ai, unit, names, retriever, corpus=None):
     errors = [t["error"] for t in record["types"] if t.get("error")]
     if errors and not record["markets"] and len(errors) == len(types):
         record["error"] = "; ".join(dict.fromkeys(errors))
+    record["conclusions_taken"] = complete_conclusions(record["markets"])
     cited = {pid for m in record["markets"].values() for pid in m["product_paragraphs"]}
     record["paragraphs"] = {pid: _para_view(paras_all[pid], paras_all, corpus) for pid in cited if pid in paras_all}
     return record
+
+
+def complete_conclusions(markets):
+    """Fix A (20 Oct): a market whose conclusion is not in the paragraphs of its own call takes the conclusion of the
+    SAME market found by another call of the same search (same name, or one name ending with the other and both citing
+    the same decision), with that call's paragraphs, so the citation shows where the conclusion is stated. Only if the
+    other calls agree; a conclusion an AI call did state is never changed. Code, no AI call. Returns what was taken."""
+    taken = []
+    for mid, m in markets.items():
+        if m.get("conclusion") != NOT_STATED:
+            continue
+        donors = [o for oid, o in markets.items() if oid != mid and o.get("conclusion") in ("defined", "left open")
+                  and _same_market(m, o)]
+        found = {o["conclusion"] for o in donors}
+        if len(found) != 1:
+            continue
+        m["conclusion"] = found.pop()
+        m["conclusion_from"] = [o["market_id"] for o in donors]
+        m["product_paragraphs"] = _sorted_ids(set(m["product_paragraphs"]) |
+                                              {pid for o in donors for pid in o["product_paragraphs"]})
+        taken.append(f"{mid} ({m['name']}): '{m['conclusion']}' taken from {', '.join(m['conclusion_from'])}")
+    return taken
+
+
+def _same_market(m, o):
+    a, b = _market_key(m.get("name")), _market_key(o.get("name"))
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    cases = lambda x: {pid.split("-")[0] for pid in x.get("product_paragraphs") or []}
+    return (a.endswith(b) or b.endswith(a)) and bool(cases(m) & cases(o))
 
 
 def assign_types(plan, index, unit, names):
@@ -628,12 +665,19 @@ def row_view(r, record, overrides, effective_status, dismissed_parts):
             # the precedent puts the two companies' items into different markets: shown, never deleted (spec section 8)
             "different": bool(ka and kb and not both and _same_call(record, r, items)),
             "left_open": any((g["market"] or {}).get("conclusion") == "left open" for g in a + b if g["market"]),
+            "not_stated": any((g["market"] or {}).get("conclusion") == NOT_STATED for g in a + b if g["market"]),
         }
     return view
 
 
+MARKET_PREFIX = re.compile(r"^(the\s+)?(relevant\s+)?(product\s+)?markets?\s+(for|of)\s+(the\s+)?")
+
+
 def _market_key(name):
-    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+    """'Market for tablets', 'the market for tablets' and 'tablets' are one market (20 Oct)."""
+    name = MARKET_PREFIX.sub("", (name or "").lower().strip())
+    name = re.sub(r"\s+markets?$", "", name)
+    return re.sub(r"[^a-z0-9]", "", name)
 
 
 def _same_call(record, r, items):

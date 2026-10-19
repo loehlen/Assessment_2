@@ -378,8 +378,10 @@ Sort the items into TYPES OF PRODUCT: 1 to 8 types, each ONE type of product or 
 Commission decision would use for it (e.g. "nitrogen fertilisers", "electric bicycles", "office chairs"). Never combine
 different types of product in one type. Put items of the same type from different activities into the SAME type (a
 type is searched once, and its items are then placed in markets together). Assign EVERY item id to exactly one type;
-an item that fits no other type gets a type of its own. Generic words only: never a company, brand or place name. The
-search questions are built from your types in code.
+an item that fits no other type gets a type of its own. Sort by what an item IS, not by what it is used for or who
+buys it: an item that names only a use or a customer group (e.g. "parts for bicycles") belongs to the type of its
+activity's product. Generic words only: never a company, brand or place name. The search questions are built from
+your types in code.
 For each type give the level of trade at which its items are sold: {"; ".join(f"{k} = {v}" for k, v in VALUE_CHAIN_LEVELS.items())};
 or "any" if they are sold at several levels."""
 
@@ -414,8 +416,11 @@ A segment that the Commission examined separately is a market of its own (e.g. "
 - market_id: "M1", "M2", ... (any order)
 - name: the market in the Commission's words (e.g. "supply of nitrogen fertilisers to distributors")
 - product_paragraphs: the ids of the paragraphs that define or discuss this product market, copied from the list
-- conclusion: "defined" if the Commission concluded on this market (also where it found separate markets); "left open"
-  if it left the exact product market definition open
+- conclusion: what a paragraph IN THE LIST says the Commission concluded on this market: "defined" if a paragraph
+  states that it is (or that it falls within) a relevant product market (also where separate markets were found);
+  "left open" if a paragraph states that the exact product market definition was left open; "not stated in these
+  paragraphs" if the paragraphs describe or discuss the market but none of them states the Commission's conclusion.
+  Never infer a conclusion that no paragraph in the list states
 - summary: one factual sentence on what the paragraphs say about this market, including any segment that was found to
   be separate or left open
 placements: one entry for EVERY item id in the list:
@@ -424,8 +429,13 @@ placements: one entry for EVERY item id in the list:
   "fertilisers" when the paragraphs define nitrogen and phosphate fertilisers as separate markets), or [] if no market
   in the paragraphs fits it
 - basis: "precedent" if the market was defined for this type of product at this level of trade; "analogy" if it was
-  defined for a related but different product, or at another level of trade, so that a lawyer might apply it by
-  analogy (e.g. a market for conventional bicycles, for a folding electric bicycle); "none" together with market_ids []
+  defined for the same product at another level of trade, or for a different product that is similar in what it is
+  and in what it does for the customer (its characteristics and its function), so that a lawyer might apply the
+  Commission's reasoning by analogy (e.g. a market for conventional bicycles, for a folding electric bicycle); "none"
+  together with market_ids []. Sharing customers, being used in the same end product or being an input for the same
+  product is NOT a basis for an analogy: different components of one end product are not analogous (e.g. a market for
+  bicycle tyres is no analogy for bicycle saddles, although both are sold to bicycle makers). If an item names only a
+  use or a customer group (e.g. "parts for bicycles"), judge the product of its activity line
 - reason: a few words why (e.g. "same product, sold to retailers")
 rewrite_queries: if any item has no market, 1 or 2 TYPES OF PRODUCT to search for next (one type per entry, in other
 terminology a decision might use, or the related product a decision might have defined), each with the level of trade
@@ -443,7 +453,8 @@ class MarketFound(BaseModel):
     market_id: str = Field(description="M1, M2, ...")
     name: str = Field(description="The market in the Commission's words")
     product_paragraphs: list[str] = Field(description="Ids of the paragraphs on this product market, from the list")
-    conclusion: Literal["defined", "left open"]
+    conclusion: Literal["defined", "left open", "not stated in these paragraphs"] = Field(
+        description="What a paragraph in the list says the Commission concluded; never inferred")
     summary: str = Field(description="One factual sentence on what the paragraphs say about this market")
 
 
