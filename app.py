@@ -278,12 +278,20 @@ def source_markers(a, company, checks=None):
         tip = f"{display_title(s)}\n{am.site_of(s.get('url'))} · {SOURCE_KIND.get(kind, kind)}"
         if s.get("origin") == "text link":
             tip += "\nLink written by the AI in its notes (not a search citation)"
-        if c and c["result"] in QUOTE_TIP:
+        if c and c["result"] == "found" and c.get("context"):
+            # 19 Oct: the passage in its surroundings, marked » «, so it can be checked by hovering in any browser
+            page = f" (PDF page {c['page']})" if c.get("page") else ""
+            tip += (f"\n\n✔ Quotation found on the page{page}, in context:\n{context_text(c['context'], '»', '«')}"
+                    "\n\nClick to open the page there.")
+        elif c and c["result"] in QUOTE_TIP:
             page = f" (PDF page {c['page']})" if c.get("page") else ""
             tip += "\n\n" + QUOTE_TIP[c["result"]].format(page=page, quote=(c.get("quote") or "")[:600],
                                                          reason=(c.get("reason") or "").rstrip("."))
         elif not c:
             tip += "\n\nNot checked (source check off, or mapped before 18 Oct). Open the page and check."
+        if c and c.get("moved_from"):        # 19 Oct: found on this source, although attached to another one
+            tip += (f"\n(The extraction had attached this passage to source {c['moved_from']}; the app found it on "
+                    "this page instead.)")
         tip = html.escape(tip, quote=True).replace("\n", "&#10;")
         style = ("text-decoration:none;font-size:0.85em" if kind == "company" else
                  "text-decoration:underline dotted;opacity:0.75;font-size:0.85em")
@@ -316,8 +324,18 @@ def quote_lines(act, who):
             page = f", PDF page {c['page']}" if c.get("page") else ""
             note = {"found": "", "not found": " · probably translated, not found on the page" if c.get("translated")
                     else " · not found on the page", "not checked": " · not checked"}.get(c["result"], "")
-            lines.append(f"> “{esc(c['quote'][:500])}” :gray[(source {c['n']} {mark}{page}{note})]")
+            ctx = c.get("context") if c["result"] == "found" else None
+            if ctx:              # 19 Oct: the passage in bold, in its surroundings on the page
+                text = (f"{esc(ctx['before'])}**{esc(ctx['passage'])}**{esc(ctx['after'])}").strip()
+                lines.append(f"> {text} :gray[(source {c['n']} {mark}{page}, the passage in bold)]")
+            else:
+                lines.append(f"> “{esc(c['quote'][:500])}” :gray[(source {c['n']} {mark}{page}{note})]")
     return lines
+
+
+def context_text(ctx, left, right):
+    """A found passage in its surroundings as plain text, the passage between the two marks."""
+    return f"{ctx['before']}{left}{ctx['passage']}{right}{ctx['after']}".strip()
 
 
 # =============================================================== step ① companies
@@ -641,11 +659,21 @@ def activity_line(a, company):
         line += f" · brands: {esc(', '.join(brands[:4]))}" + more_items(brands, 4)
     if a.get("status") == "in development":
         line += " · *in development*"
-    hint = rules.level_hint(a)
+    hint = rules.level_hint(a, own_names(company))
     if hint:
-        line += (f" · <span title='{html.escape(hint, quote=True)}' style='cursor:help;text-decoration:underline "
+        line += (f" · <span title='{html.escape(hint, quote=True)}' style='text-decoration:underline "
                  f"dotted'>⚠ level of trade?</span>")
     return f"{line} {markers}"
+
+
+def own_names(company):
+    """The company's own names, for the level hint (19 Oct): entered name, other names and their parts, group companies
+    and the brands of its lines that are not at wholesale level."""
+    c = next((x for x in ss.get("companies") or [] if x["name"] == company), {"name": company})
+    group = (((ss.get("mapped") or {}).get(company) or {}).get("extraction") or {}).get("group_companies") or []
+    brands = [b for a in (ss.get("acts") or {}).get(company, []) if a.get("value_chain_level") != "wholesale / distribution"
+              for b in a.get("brands") or [] if b and b != "not stated"]
+    return am.names_of(c) + [g for g in group if g] + brands
 
 
 def more_items(items, shown):
@@ -653,7 +681,7 @@ def more_items(items, shown):
     if len(items) <= shown:
         return ""
     tip = html.escape("All items: " + "; ".join(items), quote=True)
-    return (f" <span title='{tip}' style='text-decoration:underline dotted;cursor:help'>"
+    return (f" <span title='{tip}' style='text-decoration:underline dotted'>"
             f"(+{len(items) - shown} more)</span>")
 
 
@@ -997,6 +1025,8 @@ def name_word_review():
     if not found:
         return
     keep = set(ss.get("keep_words") or [])
+    ordinary = [f for f in found if f.get("lower_case")]
+    names = [f for f in found if not f.get("lower_case")]
     with st.container(border=True):
         st.markdown(f"**Names that are also used as words in the descriptions** · {plural(len(found), 'word')}")
         st.caption("Before the comparison, every company name, brand and group company is removed from the descriptions, "
@@ -1005,15 +1035,31 @@ def name_word_review():
                    "only if it describes the product rather than identifying the company. The entered names and other "
                    "names are always removed; a part of a name (e.g. “Black” in “Black & Decker”) can be kept if it is "
                    "an ordinary word here.")
-        for f in found:
-            ex = "; ".join(f"{esc(c)}: “{esc(around(t, f['word']))}”" for c, t in f["examples"])
-            key = f"keep_{ss.acts_version}_{f['word']}"
-            st.checkbox(f"Keep “{f['word']}” as an ordinary word", value=f["word"].lower() in keep, key=key,
-                        help=f"{capital(f.get('kind', 'brand or group company'))} of {f['company']}.",
-                        on_change=_store_keep,
-                        args=(f["word"], key))
-            what = "part of the name" if f.get("kind") == "part of the name" else "brand or group company"
-            st.caption(f"{what} of {esc(f['company'])} · used in: {ex}")
+        for f in ordinary:
+            keep_word_box(f, keep)
+        if names:
+            # 19 Oct: words that appear only capitalised are almost always names that slipped into a description; they
+            # stay removed unless the lawyer opens the list and keeps one
+            label = (f"{plural(len(names), 'name')} that appear only as names in the descriptions "
+                     "(removed; open to keep one)")
+            if ordinary:
+                with st.expander(label):
+                    for f in names:
+                        keep_word_box(f, keep)
+            else:
+                st.caption(label.replace("open to keep one", "tick one only if it is an ordinary word"))
+                for f in names:
+                    keep_word_box(f, keep)
+
+
+def keep_word_box(f, keep):
+    ex = "; ".join(f"{esc(c)}: “{esc(around(t, f['word']))}”" for c, t in f["examples"])
+    key = f"keep_{ss.acts_version}_{f['word']}"
+    st.checkbox(f"Keep “{f['word']}” as an ordinary word", value=f["word"].lower() in keep, key=key,
+                help=f"{capital(f.get('kind', 'brand or group company'))} of {f['company']}.",
+                on_change=_store_keep, args=(f["word"], key))
+    what = "part of the name" if f.get("kind") == "part of the name" else "brand or group company"
+    st.caption(f"{what} of {esc(f['company'])} · used in: {ex}")
 
 
 def activity_problems():

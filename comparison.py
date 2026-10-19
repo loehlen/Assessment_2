@@ -15,6 +15,7 @@ benchmark.py can check the app's results too).
 """
 import hashlib
 import json
+import re
 import uuid
 
 import rules
@@ -97,7 +98,7 @@ def names_used_as_words(companies, activities, group_companies):
             kinds.setdefault(n.lower(), "brand or group company")
     found = []
     for word, owner in owners.values():
-        examples = []
+        examples, lower = [], False
         for c in companies:
             for a in activities.get(c["name"], []):
                 for f in GENERIC_FIELDS:
@@ -105,10 +106,24 @@ def names_used_as_words(companies, activities, group_companies):
                     for text in (values if isinstance(values, list) else [values]):
                         if text and rules.find_names(str(text), [word]):
                             examples.append((c["name"], str(text)))
+                            lower = lower or used_in_lower_case(str(text), word)
         if examples:
-            found.append({"word": word, "company": owner, "kind": kinds[word.lower()],
+            found.append({"word": word, "company": owner, "kind": kinds[word.lower()], "lower_case": lower,
                           "examples": list(dict.fromkeys(examples))[:3]})
-    return sorted(found, key=lambda x: x["word"].lower())
+    return sorted(found, key=lambda x: (not x["lower_case"], x["word"].lower()))
+
+
+def used_in_lower_case(text, word):
+    """Whether the word appears at least once starting with a lower-case letter ("cacaofruit ingredients"). 19 Oct: in
+    the TC1 run on Cloud 5 of 6 words in the review box were brand names the extraction had written into a description
+    ("Ghirardelli baking products"), always capitalised; the one ordinary product word appeared in lower case. Scripts
+    without upper and lower case simply never count as lower case, so such a word stays in the folded list (removed by
+    default, the safe side)."""
+    for m in re.finditer(r"(?<!\w)" + re.escape(word) + r"(?!\w)", text, re.IGNORECASE):
+        first = m.group(0)[:1]
+        if first.islower():
+            return True
+    return False
 
 
 def anonymise(activities, names):

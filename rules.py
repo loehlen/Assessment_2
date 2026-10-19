@@ -32,7 +32,9 @@ VALUE_CHAIN_LEVELS = {
                              "result), whatever the goods are called",
     "finished products": "goods the company makes and sells, directly or through distributors, to end users: "
                          "consumers, or businesses that use them themselves rather than as an input",
-    "wholesale / distribution": "reselling goods made by others to businesses",
+    # 19 Oct: TC1 run on Cloud made a line "wholesale distribution of own chocolate" (own goods sold via distributors)
+    "wholesale / distribution": "reselling goods made by OTHER companies to businesses (selling the company's own goods "
+                                "through its own sales companies or distributors is not wholesale)",
     "retail": "selling to consumers through own shops, outlets or an own online shop",
     "services": "services rather than goods",
     "other": "fits none of the above",
@@ -309,12 +311,25 @@ def category(activity):
     return "main"
 
 
-def level_hint(activity):
+def level_hint(activity, own_names=()):
     """A hint for step ② (18 Oct, Linda: only if rare; 5 of 183 activities in the audits so far): 'finished products'
     although the only buyers named are manufacturers or processors, i.e. businesses that probably use the goods as an
     input (Vertical Guidelines para 287). The tool proposes, the lawyer decides: nothing is changed, and the hint
-    disappears once the activity has been saved in the edit form (even unchanged)."""
-    if activity.get("value_chain_level") != "finished products" or activity.get("level_checked"):
+    disappears once the activity has been saved in the edit form (even unchanged).
+    19 Oct, second case: "wholesale / distribution" although every brand on the line is the company's own (own_names:
+    its entered names, group companies and the brands of its other lines). Wholesale means reselling goods made by
+    others; selling one's own goods through own sales companies or distributors is not wholesale."""
+    if activity.get("level_checked"):
+        return ""
+    if activity.get("value_chain_level") == "wholesale / distribution":
+        brands = [b for b in activity.get("brands") or [] if b and b != "not stated"]
+        if brands and own_names and all(find_names(b, own_names) for b in brands):
+            return ("Level of trade possibly not “wholesale”: the brands on this line are the company's own. Wholesale "
+                    "means reselling goods made by other companies; selling one's own goods through own sales "
+                    "companies, distributors or retailers keeps the level of the goods (usually “finished products”). "
+                    "Check, and correct with “Edit” if needed.")
+        return ""
+    if activity.get("value_chain_level") != "finished products":
         return ""
     buyers = {c for c in activity.get("direct_customers") or [] if c and c != "not stated"}
     if "manufacturers / processors" in buyers and buyers <= {"manufacturers / processors", "other businesses"}:

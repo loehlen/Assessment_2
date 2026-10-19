@@ -122,7 +122,7 @@ company (its main business, and what lies beyond it): combine them, and never li
 COMPANY PROFILE (company_profile): 2-3 factual sentences, the way the company would introduce itself: who it is,
 where it is based (city and country), who owns it or which group it belongs to, and its main business areas; revenue
 and number of employees only if the notes state them, always with their year or reporting period (e.g. "sales of
-EUR 712 million in 2025"). If two sources give different figures, give the most recent one with its year. Names are allowed here. Do not repeat claims about its
+EUR 240 million in 2024"). If two sources give different figures, give the most recent one with its year. Names are allowed here. Do not repeat claims about its
 market position or "its market" (e.g. "a leading player in the global snacks market"); say what it does.
 profile_source_numbers: the sources used for the profile; profile_quotes: for each of them one quotation from the
 notes, copied character for character (same rule as "quotes" below).
@@ -139,8 +139,9 @@ Split a business area ONLY when its level of trade differs, into these groups:
       users, i.e. consumers or businesses that use them themselves rather than as an input;
   (3) own retail and hospitality (own shops, outlets, own online shop, cafes, restaurants, catering);
   (4) other services;
-and keep a product that is still in development as its own line. Wholesale of goods made by others is also its own
-line.
+and keep a product that is still in development as its own line, with what the notes say about it (e.g. a planned launch
+date). Wholesale of goods made by OTHER companies is also its own line. Selling the company's OWN goods (through its own sales companies, distributors, wholesalers or retailers) is never
+wholesale: those goods keep the level of the goods themselves.
 Do NOT split by type of product: different products of one business area at one level of trade are ONE line, and
 every product type goes into "includes" (e.g. one line "office furniture" at the level "finished products" with
 includes "desks, office chairs, storage cabinets, conference tables, spare parts"). Also merge brands, product lines, formats,
@@ -262,7 +263,9 @@ who buys it ("nitrogen fertilisers", not "fertilisers sold to farmers"). Split O
 sold to businesses that use them as an input to produce their own goods or services, (2) goods for end users, sold
 directly or through retailers and wholesalers to consumers or to businesses that use them themselves, (3) own retail and
 hospitality, (4) other services;
-keep a product in development separate. Merge everything else; when unsure, merge.
+keep a product in development separate. Selling the company's OWN goods (through its own sales companies, distributors, wholesalers or retailers) is never
+wholesale: those goods keep the level of the goods themselves.
+Merge everything else; when unsure, merge.
 When you merge lines: give a product name that covers all of them; "includes" keeps every item of the merged lines,
 including their former product names; combine description, intended_use, main_inputs, direct_customers,
 customer_details, sales_channels and countries_of_sale; source_numbers is the union; quotes keeps every quotation of

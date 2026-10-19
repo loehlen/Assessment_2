@@ -271,30 +271,103 @@ def find(quote, page):
     return (_in(parts, words_only(page["text"])), None) if page.get("text") else (False, None)
 
 
+ELLIPSIS = re.compile(r"\.\.\.|\u2026|\[\.\.\.\]|\(\.\.\.\)")
+EDGE = "\"'“”„«»‘’.,;:!?()[] "
+
+
+def _frag(tokens):
+    """Words for a text fragment, encoded: ',', '&' and '-' are encoded too, so they never read as fragment syntax."""
+    return urllib.parse.quote(" ".join(tokens).strip(EDGE), safe="").replace("-", "%2D")
+
+
 def link_to(url, quote, pdf_page):
-    """A link that jumps to the passage: '#page=N' for a PDF, a text fragment ('#:~:text=start,end') for a web page
-    (most browsers highlight it; others just open the page)."""
+    """A link that jumps to the passage.
+    Web page: a text fragment ('#:~:text=start,end'), which most browsers highlight. 19 Oct: the start and the end are
+    at least six words each (before, the start was cut at the first '&' or dash, so "Lindt & Sprungli ..." started at
+    the single word "Lindt", and the browser highlighted from the first "Lindt" on the page to the end of the quotation).
+    A quotation of at most 12 words is matched whole; with an ellipsis, the start comes from the first part and the end
+    from the last part.
+    PDF: '#page=N' (every browser); 19 Oct also '&search=...&phrase=true', which the PDF viewer of Firefox uses to
+    highlight the passage (other browsers ignore it and open the page)."""
     base = url.split("#")[0]
+    parts = [p.split() for p in ELLIPSIS.split(quote or "") if p.strip()]
     if pdf_page:
-        return f"{base}#page={pdf_page}"
-    first = re.split(r"\.\.\.|\u2026|\[\.\.\.\]", quote or "")[0]
-    segs, cur = [], []          # runs of words between bare marks (a dash on its own would break the fragment)
-    for t in first.split():
-        if re.search(r"\w", t):
-            cur.append(t)
-        elif cur:
-            segs, cur = segs + [cur], []
-    if cur:
-        segs.append(cur)
-    if not segs:
+        words = [w for w in (parts[0] if parts else []) if re.search(r"\w", w)][:6]
+        search = f"&search={_frag(words)}&phrase=true" if len(words) >= 3 else ""
+        return f"{base}#page={pdf_page}{search}"
+    if not parts:
         return url
-    edge = "\"'“”„«»‘’.,;:!?()"
-    enc = lambda w: urllib.parse.quote(" ".join(w).strip(edge), safe="")   # noqa: E731 - ',' '-' '&' encoded
-    if len(segs) == 1 and len(segs[0]) <= 10:
-        frag = enc(segs[0])
+    if len(parts) == 1 and len(parts[0]) <= 12:
+        frag = _frag(parts[0])
     else:
-        frag = f"{enc(segs[0][:5])},{enc(segs[-1][-5:])}"
-    return f"{base}#:~:text={frag}"
+        frag = f"{_frag(parts[0][:6])},{_frag(parts[-1][-6:])}"
+    return f"{base}#:~:text={frag}" if frag else url
+
+
+def _find_read(quote, page):
+    """Like find(), but only on what has already been read (for a PDF: the pages already turned into text), so that
+    looking at the company's other sources (19 Oct) never starts reading another long PDF."""
+    parts = _parts(quote)
+    if not parts:
+        return False, None
+    pdf = page.get("pdf")
+    if pdf:
+        for i, t in enumerate(list(pdf.texts)):
+            if t and _in(parts, words_only(t)):
+                return True, i + 1
+        return False, None
+    return (_in(parts, words_only(page["text"])), None) if page.get("text") else (False, None)
+
+
+CONTEXT_CHARS = 160          # characters shown before and after a found passage
+PASSAGE_CHARS = 450
+
+_INVISIBLE = dict.fromkeys(map(ord, "\u00ad\u200b\u200c\u200d\ufeff"))
+
+
+def _pattern(words):
+    return re.compile(r"(?<!\w)" + r"[\W_]+".join(re.escape(w) for w in words) + r"(?!\w)", re.IGNORECASE)
+
+
+def context_of(quote, page, pdf_page=None):
+    """The found passage in its surroundings, taken from the text the check has read (19 Oct, Linda: the lawyer can
+    verify by hovering, in every browser, without opening a long report; browsers cannot highlight inside PDFs).
+    Returns {"before", "passage", "after"} or None if the passage cannot be located in the original text (e.g. a word
+    a PDF split at a line end). The words must follow each other as in find(); only punctuation, spaces and line
+    breaks may differ."""
+    if pdf_page and page.get("pdf"):
+        texts = page["pdf"].texts
+        text = texts[pdf_page - 1] if 0 < pdf_page <= len(texts) else ""
+    else:
+        text = page.get("text") or ""
+    text = unicodedata.normalize("NFKC", html.unescape(text)).translate(_INVISIBLE)
+    text = re.sub(r"(\w)-[ \t]*\n\s*(\w)", r"\1\2", text)      # words a PDF split at a line end, as in norm()
+    parts = [words_only(p).split() for p in ELLIPSIS.split(quote or "")]
+    parts = [p for p in parts if p]
+    if not parts or not text:
+        return None
+    first = _pattern(parts[0]).search(text)
+    if not first:
+        return None
+    start, end = first.span()
+    if len(parts) > 1:
+        last = _pattern(parts[-1]).search(text, first.end())
+        if last and last.end() - start <= PASSAGE_CHARS * 2:
+            end = last.end()
+
+    def clean(t):
+        return re.sub(r"\s+", " ", t)
+
+    before = clean(text[max(0, start - CONTEXT_CHARS):start])
+    after = clean(text[end:end + CONTEXT_CHARS])
+    if start > CONTEXT_CHARS:
+        before = "…" + before.split(" ", 1)[-1] if " " in before else "…" + before
+    if end + CONTEXT_CHARS < len(text):
+        after = (after.rsplit(" ", 1)[0] if " " in after else after) + "…"
+    passage = clean(text[start:end])
+    if len(passage) > PASSAGE_CHARS:
+        passage = passage[:PASSAGE_CHARS].rsplit(" ", 1)[0] + " …"
+    return {"before": before.lstrip(), "passage": passage, "after": after.rstrip()}
 
 
 # =============================================================== checking one company
@@ -353,9 +426,33 @@ def check(found, data, pasted=""):
                 ok, pdf_page = find(q, page)
                 if ok:
                     out.append({"n": n, "result": "found", "quote": q, "page": pdf_page,
+                                "context": context_of(q, page, pdf_page),
                                 "link": link_to(s["url"], q, pdf_page) if s.get("url") else ""})
                     break
             else:
+                # 19 Oct: the extraction sometimes attaches a quotation to the wrong source number (TC1 on Cloud: a
+                # sentence of the "at a glance" page under the annual report page). The other sources of the company
+                # were opened anyway: if the passage is on one of them, it is credited to that source, and this source
+                # is marked as having no quotation of its own.
+                moved = None
+                for m, (s2, page2) in by_n.items():
+                    if m == n or s2.get("dead") or s2["check"]["state"] != "readable" or s2.get("type") == "provided by user":
+                        continue
+                    for q in given[n]:
+                        ok, pdf_page = _find_read(q, page2)
+                        if ok:
+                            moved = (m, s2, q, pdf_page)
+                            break
+                    if moved:
+                        break
+                if moved:
+                    m, s2, q, pdf_page = moved
+                    out.append({"n": n, "result": "no quote", "quote": "",
+                                "reason": f"the quotation given for this source was found on source {m} instead"})
+                    out.append({"n": m, "result": "found", "quote": q, "page": pdf_page, "moved_from": n,
+                                "context": context_of(q, page2, pdf_page),
+                                "link": link_to(s2["url"], q, pdf_page) if s2.get("url") else ""})
+                    continue
                 pdf = page.get("pdf")
                 short = pdf is not None and pdf.cut_short()
                 share = share_on_page(given[n][0], page)
@@ -373,9 +470,21 @@ def check(found, data, pasted=""):
 
     def apply(holder, num_key, quote_key, checks_key, dead_key):
         numbers = [n for n in holder.get(num_key) or [] if n in by_n]
-        holder[checks_key] = checks(numbers, holder.get(quote_key))
+        results = checks(numbers, holder.get(quote_key))
+        # a source credited with a quotation found on it (19 Oct) joins the activity's sources; if it already was one,
+        # its own check is replaced by the one that found the passage
+        moved_to = {c["n"] for c in results if c.get("moved_from")}
+        kept, seen = [], set()
+        for c in results:
+            if c.get("moved_from") and c["n"] not in seen:
+                seen.add(c["n"])
+                kept.append(c)
+            elif not c.get("moved_from") and c["n"] not in moved_to:
+                kept.append(c)
+        results = kept
+        holder[checks_key] = results
         holder[dead_key] = [n for n in numbers if n in dead]
-        holder[num_key] = [n for n in numbers if n not in dead]
+        holder[num_key] = [n for n in numbers if n not in dead] + sorted(moved_to - set(numbers))
         return bool(numbers) and not holder[num_key]
 
     apply(data, "profile_source_numbers", "profile_quotes", "profile_quote_checks", "profile_dead_sources")
