@@ -19,6 +19,7 @@ except ImportError:
 import json
 import math
 import re
+import threading
 from collections import Counter
 from pathlib import Path
 
@@ -32,6 +33,25 @@ RRF_K = 60                                       # standard constant of reciproc
 
 
 # =============================================================== chunking
+MIN_TAIL_TOKENS = 30      # 20 Oct: a last piece shorter than this is merged back (Notice (23) left "This is analysed in
+                          # the competitive assessment." as a 7-word chunk of its own)
+# 20 Oct: footnotes that only cite (earlier cases, questionnaire replies, the Form CO) are kept with the paragraph for
+# display and the audit, but no longer embedded: in 34 paragraphs the footnotes were longer than the text, and the key
+# defining paragraphs looked like lists of case names to the vector search (M.7120 (30): 18 words of text, 79 of
+# footnotes). A footnote that says something (a finding, an example "where the Commission ...", a quotation, a second
+# sentence) stays in the embedding. Legal citation patterns only, no sector knowledge.
+CITATION_ONLY = re.compile(r"^\s*(see,?\s+(also\s+|for example,?\s+|in particular\s+|e\.g\.,?\s+)?)?(case\b|cases\b|"
+                           r"comp/m|m\.\s?\d|commission decision|decision of|replies to|reply to|response to|ibid|"
+                           r"form co|judgment|order of|oj\b|answers? to|minutes)", re.I)
+SUBSTANCE = re.compile(r"\bwhere\b|left open|conclud|consider|\bfound\b|distinction|separate|segment|substitut|\bprice|"
+                       r"stated|indicated|explained|[\"“]\w|[a-z0-9\)]\.\s+[\"“A-Z][a-z]")
+
+
+def embedded_footnote(text):
+    """Whether a footnote goes into the embedded text (False for a footnote that only cites)."""
+    return not (CITATION_ONLY.search(text or "") and not SUBSTANCE.search(text or ""))
+
+
 def chunk_corpus(paragraphs):
     """One chunk per paragraph; paragraphs above MAX_TOKENS are split with semchunk at the most structural
     break points. Every chunk keeps its paragraph number, so pinpoint citations stay exact."""
@@ -49,7 +69,9 @@ def chunk_corpus(paragraphs):
     chunks = []
     for p in paragraphs:
         pieces = [p["text"]] if count(p["text"]) <= MAX_TOKENS else chunker(p["text"])
-        notes = " ".join(f"[fn {f['n']}] {f['text']}" for f in p["footnotes"])
+        if len(pieces) > 1 and count(pieces[-1]) < MIN_TAIL_TOKENS:      # no orphan tail (20 Oct)
+            pieces = pieces[:-2] + [pieces[-2] + " " + pieces[-1]]
+        notes = " ".join(f"[fn {f['n']}] {f['text']}" for f in p["footnotes"] if embedded_footnote(f["text"]))
         for k, piece in enumerate(pieces):
             chunks.append({
                 "id": f"{p['id']}#{k}", "paragraph_id": p["id"], "case": p["case"], "para": p["para"],
@@ -133,6 +155,7 @@ class Retriever:
     def __init__(self, embed, collection=COLLECTION):
         import chromadb
         self.embed = embed
+        self._lock = threading.Lock()
         self.client = chromadb.PersistentClient(path=str(CHROMA_DIR))
         self.col = self.client.get_collection(collection)
         self.paragraphs = {p["id"]: p for p in json.loads(CORPUS_FILE.read_text(encoding="utf-8"))}
@@ -141,8 +164,9 @@ class Retriever:
         self.bm25 = BM25([" ".join([p["section"]] + p["headings"] + [p["text"]]) for p in self.paragraphs.values()])
 
     def _vector(self, query, n):
-        res = self.col.query(query_embeddings=self.embed([query]), n_results=n,
-                             include=["metadatas", "distances"])
+        vector = self.embed([query])             # the API request runs outside the lock (20 Oct)
+        with self._lock:                         # one read of the index at a time (stage 4 searches in parallel)
+            res = self.col.query(query_embeddings=vector, n_results=n, include=["metadatas", "distances"])
         ranked, seen = [], set()
         for meta, dist in zip(res["metadatas"][0], res["distances"][0]):
             pid = meta["paragraph_id"]

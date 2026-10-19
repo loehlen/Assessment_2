@@ -364,39 +364,49 @@ def comparison_input(abstract_a, abstract_b):
 # kept rows, on both sides (Linda, 20 Oct), so that one market keeps one name across the rows and code can say where
 # the precedent puts the items of the two companies. The calls contain anonymised items only: no company names and no
 # company labels (the items of several companies are listed by activity number). Examples come from sectors outside
-# the test set (decided 18 Oct).
+# the test set (decided 18 Oct). Product markets only: geography is stage 5 (Linda, 20 Oct).
+# 20 Oct, after the runs on the baselines: the AI names TYPES OF PRODUCT, one per query; code turns each into two search
+# questions (precedents.QUERY_FORMS). Queries that mixed several products and described them in product words found the
+# paragraphs that DESCRIBE the products, not those that DEFINE their market (TC1, TC2: "left open" where the Commission
+# had defined the market).
 QueryLevel = Literal[tuple(VALUE_CHAIN_LEVELS) + ("any",)]
 
-QUERY_INSTRUCTIONS = f"""You help a competition lawyer find how the European Commission defined relevant markets in its past
-merger decisions. You receive products and services ("items") of one or more business activities, described without
-company names; each activity comes with its level of trade and its direct customers.
-Write 2 to 4 search queries for a search over the market definition sections of Commission merger decisions. Each query
-covers one group of closely related items (one type of product at one level of trade) and uses the terminology of a
-Commission decision, e.g. "relevant product market for nitrogen fertilisers", "whether city bicycles and electric
-bicycles belong to the same product market", "geographic market for the supply of office furniture to businesses".
-Together the queries cover every item; items of the same type share one query. Use generic product words only: never a
-company, brand or place name.
-For each query give the level of trade of its items: {"; ".join(f"{k} = {v}" for k, v in VALUE_CHAIN_LEVELS.items())};
-or "any" if its items are sold at several levels."""
+QUERY_INSTRUCTIONS = f"""You help a competition lawyer find how the European Commission defined relevant product markets in its
+past merger decisions. You receive products and services ("items") of one or more business activities, described without
+company names; each item has an id such as [2.3], and each activity comes with its level of trade and direct customers.
+Sort the items into TYPES OF PRODUCT: 1 to 8 types, each ONE type of product or service, named in the generic words a
+Commission decision would use for it (e.g. "nitrogen fertilisers", "electric bicycles", "office chairs"). Never combine
+different types of product in one type. Put items of the same type from different activities into the SAME type (a
+type is searched once, and its items are then placed in markets together). Assign EVERY item id to exactly one type;
+an item that fits no other type gets a type of its own. Generic words only: never a company, brand or place name. The
+search questions are built from your types in code.
+For each type give the level of trade at which its items are sold: {"; ".join(f"{k} = {v}" for k, v in VALUE_CHAIN_LEVELS.items())};
+or "any" if they are sold at several levels."""
 
 
 class SearchQuery(BaseModel):
-    query: str = Field(description="A search query in Commission terminology, generic product words, no names")
-    level: QueryLevel = Field(description="The level of trade of the items the query covers, or 'any'")
+    products: str = Field(description="ONE type of product or service, in generic Commission terminology, no names")
+    level: QueryLevel = Field(description="The level of trade at which these items are sold, or 'any'")
+    item_ids: list[str] = Field(description="The ids of the items of this type, e.g. ['1.2', '3.1']")
 
 
 class QueryPlan(BaseModel):
-    queries: list[SearchQuery] = Field(description="2 to 4 queries that together cover every item")
+    queries: list[SearchQuery] = Field(description="1 to 8 types of product; every item id in exactly one of them")
+
+
+class RewriteQuery(BaseModel):
+    products: str = Field(description="ONE type of product or service to search next, generic words, no names")
+    level: QueryLevel = Field(description="The level of trade, or 'any'")
 
 
 REFLECTION_INSTRUCTIONS = """You help a competition lawyer with the step "What did the European Commission find?" of an
 overlap screen. You receive:
-(1) ITEMS: products and services of several business activities, without company names, each with an id such as [2.3],
-    grouped by activity, with the activity's level of trade and direct customers;
+(1) ITEMS: products and services of ONE type, from one or more business activities, without company names, each with an
+    id such as [2.3], grouped by activity, with the activity's level of trade and direct customers;
 (2) PARAGRAPHS: paragraphs retrieved from European Commission merger decisions, each with its id such as [M.1234-56]
     (case number and paragraph number), the decision's title and year, and its section.
 Report only what the paragraphs say. Do not use knowledge from outside the paragraphs, and do not assess whether the
-businesses compete.
+businesses compete. Only the PRODUCT market is asked for here; ignore the geographic market.
 
 markets: every relevant product market that the paragraphs define or consider for products of the types of the items.
 A segment that the Commission examined separately is a market of its own (e.g. "electric bicycles" next to
@@ -406,29 +416,27 @@ A segment that the Commission examined separately is a market of its own (e.g. "
 - product_paragraphs: the ids of the paragraphs that define or discuss this product market, copied from the list
 - conclusion: "defined" if the Commission concluded on this market (also where it found separate markets); "left open"
   if it left the exact product market definition open
-- geographic_scope: the geographic market as these paragraphs state it (e.g. "national", "EEA-wide", "at least EEA-wide,
-  exact scope left open", "catchment areas of about 500 km around plants"), or "not stated in these paragraphs"
-- geographic_paragraphs: the ids of the paragraphs on the geographic market, or []
 - summary: one factual sentence on what the paragraphs say about this market, including any segment that was found to
   be separate or left open
 placements: one entry for EVERY item id in the list:
 - item_id: copied from the list, e.g. "2.3"
-- market_id: the market that covers this item, or "none" if no market in the paragraphs fits it
+- market_ids: the market or markets that cover this item (several where the item spans several markets, e.g. an item
+  "fertilisers" when the paragraphs define nitrogen and phosphate fertilisers as separate markets), or [] if no market
+  in the paragraphs fits it
 - basis: "precedent" if the market was defined for this type of product at this level of trade; "analogy" if it was
   defined for a related but different product, or at another level of trade, so that a lawyer might apply it by
-  analogy (e.g. a market for conventional bicycles, for a folding electric bicycle); "none" together with market_id
-  "none"
+  analogy (e.g. a market for conventional bicycles, for a folding electric bicycle); "none" together with market_ids []
 - reason: a few words why (e.g. "same product, sold to retailers")
-rewrite_queries: if any item is "none", 1 to 3 new search queries that might find a definition for those items (broader
-or narrower terms, other terminology a decision might use, or the related product a decision might have defined), each
-with the level of trade or "any"; otherwise [].
+rewrite_queries: if any item has no market, 1 or 2 TYPES OF PRODUCT to search for next (one type per entry, in other
+terminology a decision might use, or the related product a decision might have defined), each with the level of trade
+or "any"; [] if every item has a market, or if the paragraphs concern products entirely unrelated to the items.
 Rules:
 - Cite only paragraph ids that appear in the list. Never invent an id.
 - The level of trade matters: a market for a product sold to manufacturers is not the market for the same product sold
   to consumers, unless the paragraphs say so. A market that groups several levels or products only applies if the
   paragraphs say so.
 - If decisions say different things about one market, keep them as separate markets and say so in the summaries.
-- A gap is an acceptable answer: if nothing fits an item, use "none". A guess is not."""
+- A gap is an acceptable answer: if nothing fits an item, use []. A guess is not."""
 
 
 class MarketFound(BaseModel):
@@ -436,14 +444,12 @@ class MarketFound(BaseModel):
     name: str = Field(description="The market in the Commission's words")
     product_paragraphs: list[str] = Field(description="Ids of the paragraphs on this product market, from the list")
     conclusion: Literal["defined", "left open"]
-    geographic_scope: str = Field(description="As the paragraphs state it, or 'not stated in these paragraphs'")
-    geographic_paragraphs: list[str] = Field(description="Ids of the paragraphs on the geographic market, or []")
     summary: str = Field(description="One factual sentence on what the paragraphs say about this market")
 
 
 class Placement(BaseModel):
     item_id: str = Field(description="The item's id, copied from the list, e.g. '2.3'")
-    market_id: str = Field(description="A market_id from 'markets', or 'none'")
+    market_ids: list[str] = Field(description="market_ids from 'markets' that cover this item; [] if none fits")
     basis: Literal["precedent", "analogy", "none"]
     reason: str = Field(description="A few words why")
 
@@ -451,4 +457,5 @@ class Placement(BaseModel):
 class Reflection(BaseModel):
     markets: list[MarketFound]
     placements: list[Placement] = Field(description="One entry for every item id")
-    rewrite_queries: list[SearchQuery] = Field(description="New queries if any item is 'none', else []")
+    rewrite_queries: list[RewriteQuery] = Field(description="Types of product to search next if any item has no "
+                                                            "market, else []")

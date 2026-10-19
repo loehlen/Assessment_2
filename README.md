@@ -46,5 +46,5 @@ no real transaction is implied.
 | `schemas.py` | the AI instructions and the fixed answer forms |
 | `examples.py` | the inputs of the example buttons |
 | `precedents.py` | step ④: one search per target activity (queries, hybrid retrieval, reflection, at most one rewrite), the citation and item checks, and the row text |
-| `ingest.py`, `build_corpus.py`, `build_index.py`, `retrieval.py`, `corpus/` | the decision corpus and its ChromaDB index (used by step ④) |
+| `ingest.py`, `build_corpus.py`, `build_index.py`, `retrieval.py`, `corpus/` | the decision corpus: `corpus/paragraphs.json` (the 265 paragraphs with footnotes), `corpus/chroma/` (the ChromaDB index with the 267 chunks and their embeddings, used by step ④), `corpus/chunks.json` (the same chunks, readable, without vectors) and `corpus/corpus_report.md` |
 | `test_compare.py`, `benchmark.py`, `save_searches.py`, `retrieval_check.py`, `no_rag_check.py`, `test_results/` | development tools and test results |

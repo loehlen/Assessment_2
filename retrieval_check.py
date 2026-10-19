@@ -10,6 +10,12 @@ Compares three configurations on test queries whose correct paragraphs are known
 The queries are worded the way the app will generate them: generic product descriptions in Commission
 terminology, without company names. Cost: a few query embeddings, well under USD 0.01.
 Output: test_results/retrieval_check_<time>.md (a table for A3).
+
+    python retrieval_check.py --forms      (added 20 Oct) the stage 4 question: for 11 markets of the test cases, does
+                                           a paragraph that DEFINES the market reach the top 5 of the decisions, with
+                                           (A) product words, (B) the Commission's question, (C) both, top 3 each, as
+                                           the app does since 20 Oct (precedents.QUERY_FORMS)? Hybrid search, as in the
+                                           app. Output: test_results/query_forms_<time>.md. Cost: about 22 embeddings.
 """
 from datetime import datetime
 from pathlib import Path
@@ -98,7 +104,62 @@ def report(results):
     return path
 
 
+# (type of product as the AI would name it, level, paragraphs that DEFINE the market or leave it open)
+SEMI = ["M.6872-21", "M.6872-22", "M.7120-30", "M.7120-31", "M.7408-44", "M.7408-45"]
+FORM_CASES = [
+    ("cocoa butter", "intermediate products", SEMI),
+    ("cocoa liquor, cocoa butter and cocoa powder", "intermediate products", SEMI),
+    ("cocoa powder", "intermediate products", SEMI),
+    ("industrial chocolate", "intermediate products", ["M.6872-24", "M.6872-25", "M.7408-37", "M.7408-42", "M.7408-51"]),
+    ("chocolate compound coatings and fillings", "intermediate products",
+     ["M.7408-46", "M.7408-49", "M.7408-50", "M.7408-51"]),
+    ("chocolate tablets", "finished products", ["M.5644-21", "M.5644-22", "M.5644-23", "M.5644-24"]),
+    ("pralines", "finished products", ["M.5644-21", "M.5644-22", "M.5644-23", "M.5644-24"]),
+    ("powdered chocolate drinks", "finished products", ["M.5644-35", "M.5644-36", "M.5644-37", "M.5644-38"]),
+    ("chocolate confectionery sold to travel retailers", "finished products", ["M.5644-39", "M.5644-40", "M.5644-41"]),
+    ("procurement of cocoa beans", "raw materials", ["M.7120-17", "M.7120-23", "M.7120-24", "M.7120-55", "M.6872-14"]),
+    ("cocoa-free chocolate alternative", "intermediate products", ["M.7408-46", "M.7408-49", "M.7408-50", "M.7408-51"]),
+]
+
+
+def run_forms():
+    import precedents
+    r = retrieval.Retriever(openai_embed)
+
+    def top(question, level, k):
+        res = r.search(question, k=10, level=level)
+        return [h["paragraph"]["id"] for h in res["hits"]
+                if h["paragraph"]["source_type"] == precedents.SOURCE_DECISION][:k]
+    rows, score = [], {"A product words": 0, "B Commission question": 0, "C both, top 3 each (the app)": 0}
+    for products, level, gold in FORM_CASES:
+        a = top(precedents.QUERY_FORMS[0].format(p=products), level, 5)
+        b = top(precedents.QUERY_FORMS[1].format(p=products), level, 5)
+        c = list(dict.fromkeys(a[:3] + b[:3]))
+        cells = []
+        for key, found in zip(score, (a, b, c)):
+            ok = bool(set(gold) & set(found))
+            score[key] += ok
+            cells.append(("✔ " if ok else "✖ ") + ", ".join(found))
+        rows.append((products, gold, cells))
+    stamp = datetime.now().strftime("%Y%m%d-%H%M")
+    L = [f"# Stage 4 query forms ({stamp})", "", "Hybrid search (vectors + BM25), as in the app; a defining paragraph "
+         "among the decision paragraphs kept (top 5; C: top 3 of each question).", "",
+         "| Form | Defining paragraph found |", "|---|---|"] + [f"| {k} | {v}/{len(FORM_CASES)} |" for k, v in score.items()]
+    L += ["", "| Type of product (correct) | " + " | ".join(score) + " |", "|---" * (len(score) + 1) + "|"]
+    L += [f"| {p} ({', '.join(g[:3])}…) | " + " | ".join(cells) + " |" for p, g, cells in rows]
+    L += ["", f"Query embeddings: {USAGE['calls']} calls ({USAGE['cached']} from cache), {USAGE['tokens']:,} tokens"]
+    path = Path("test_results") / f"query_forms_{stamp}.md"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text("\n".join(L) + "\n", encoding="utf-8")
+    return score, path
+
+
 if __name__ == "__main__":
+    import sys
+    if "--forms" in sys.argv:
+        score, path = run_forms()
+        print(score, "report:", path)
+        raise SystemExit
     res = run()
     for name, rows in res.items():
         print(f"{name}: {sum(r['hit'] for r in rows)}/{len(rows)} in top 3"

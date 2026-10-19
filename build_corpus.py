@@ -76,13 +76,27 @@ CORRECTIONS = [
      "why": "line-end hyphenation"},
     {"case": "Notice", "para": 51, "footnote": 78, "replace": ("pre- impregnated", "pre-impregnated"),
      "why": "line-end hyphenation"},
+    # M.6872: the unnumbered headings "Relevant product markets" (before (10)) and "Relevant geographic markets" (before
+    # (26)) were not recognised, so (10)-(25) carried only the generic section "Market definition", while M.7120's
+    # equivalent paragraphs say "Relevant product market"; section and headings are part of the keyword search and the
+    # embedded context header (found on 20 Oct when the defining paragraphs (21)-(22) ranked low)
+    {"case": "M.6872", "paras": (10, 25), "section": "Relevant product market",
+     "insert_heading": ("A. Relevant market definitions", "Relevant product markets"), "why": "heading not recognised"},
+    {"case": "M.6872", "paras": (26, 37), "section": "Relevant geographic market",
+     "insert_heading": ("A. Relevant market definitions", "Relevant geographic markets"), "why": "heading not recognised"},
 ]
 
 
 def apply_corrections(records):
     for c in CORRECTIONS:
         for r in records:
-            if r["case"] == c["case"] and r["para"] == c["para"]:
+            if c.get("paras") and r["case"] == c["case"] and c["paras"][0] <= r["para"] <= c["paras"][1]:
+                r["section"] = c.get("section", r["section"])
+                after, heading = c.get("insert_heading") or (None, None)
+                if heading and heading not in r["headings"] and after in r["headings"]:
+                    r["headings"].insert(r["headings"].index(after) + 1, heading)
+                continue
+            if r["case"] == c["case"] and r["para"] == c.get("para"):
                 if c.get("remove") and c["remove"] in r["text"]:
                     r["text"] = r["text"].replace(c["remove"], "").rstrip()
                 if c.get("add_note") and c["add_note"] not in r["footnotes"]:

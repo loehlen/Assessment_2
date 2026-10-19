@@ -28,15 +28,26 @@ of the screen; such names are recorded in the audit log.
 import hashlib
 import json
 import re
-import threading
 
 import rules
 import schemas
 
 MAX_ATTEMPTS = 2          # one rewrite of the queries (Linda, 20 Oct); version 8 planned three attempts
-HITS_PER_QUERY = 5        # decision paragraphs kept per query (the Notice states principles and is not searched here)
-POOL_PER_QUERY = 10       # hits asked from the retriever per query, before the Notice is left out
-MAX_PARAGRAPHS = 30       # paragraphs per reflection call (hits first, then their neighbours)
+MAX_TYPES = 8             # types of product per search: one small reflection each (Linda, 20 Oct: option B)
+MAX_EXTRA = 4             # items the query step left unassigned: searched on their own, at most this many
+MAX_REWRITE = 2           # types of product in the rewrite of one type
+# 20 Oct: every type of product is searched with two questions, built in code. The test on the corpus (keyword search,
+# 11 markets of the test cases): product words alone found a DEFINING paragraph in the top 5 in 9 of 11 cases, the
+# Commission's question in 11 of 11, but it also pulls in definitions of other products; the top 3 of each: 11 of 11,
+# with the product-specific paragraphs kept. The wording is legal, not sector knowledge.
+QUERY_FORMS = ("relevant product market for {p}", "whether {p} constitutes a separate relevant product market")
+HITS_PER_FORM = 3         # decision paragraphs kept per question (the Notice states principles and is not searched here)
+POOL_PER_QUERY = 10       # hits asked from the retriever per question, before the Notice is left out
+MAX_PARAGRAPHS = 14       # paragraphs per reflection of one type (its hits first, then their neighbours); +8 in the
+                          # second attempt. 20 Oct (Linda, option B): one focused call per type of product with a few
+                          # paragraphs, as in the class code and the chatbot, instead of 30-40 products against up to
+                          # 40 paragraphs in one call (the compound paragraph was in that call, but ChoViva was missed)
+TYPE_PARALLEL = 4         # types of one search run at the same time (the AI gate allows 8 requests at once in all)
 FALLBACK_ITEMS = 8        # items of an "Other activities" line used when a row names no items
 SOURCE_DECISION = "Commission decision"
 
@@ -184,6 +195,25 @@ def unit_input(unit, names):
     return text, index, rules.find_names(text, names)
 
 
+def items_text(unit, names, only=None):
+    """The item list for some item ids only (one type of product), with the same numbering as unit_input and only the
+    activities that have items in it."""
+    lines = []
+    for k, e in enumerate(unit["activities"], start=1):
+        ids = [(f"{k}.{j}", item) for j, item in enumerate(e["items"], start=1) if only is None or f"{k}.{j}" in only]
+        if not ids:
+            continue
+        a = e["activity"]
+        customers = rules._join(a.get("direct_customers"))
+        details = a.get("customer_details") or "not stated"
+        if details != "not stated":
+            customers += f" ({details})"
+        lines.append(f"Activity {k}: {a.get('product', 'not stated')} · level of trade: "
+                     f"{a.get('value_chain_level', 'not stated')} · direct customers: {customers}")
+        lines += [f"[{iid}] {item}" for iid, item in ids] + [""]
+    return rules.redact("\n".join(lines).strip(), names)
+
+
 def paragraphs_text(paragraphs):
     """The retrieved paragraphs as the reflection sees them: id, decision, year, section, text and footnotes."""
     out = []
@@ -239,28 +269,34 @@ def ai_embed_model():
 
 
 # =============================================================== retrieval
-_search_lock = threading.Lock()
+def query_text(q):
+    """The type of product of a query (older records, before 20 Oct, kept a full query under 'query')."""
+    return (q.get("products") or q.get("query") or "").strip()
 
 
 def retrieve(retriever, queries, use_level):
-    """Runs every query through the hybrid search (spec section 14) and returns (paragraph ids in order, the
-    paragraphs, the trail per query). Only decision paragraphs are kept; each hit brings its neighbours (+/-1)."""
+    """Runs every type of product through the hybrid search (spec section 14), with both questions of QUERY_FORMS,
+    and returns (paragraph ids in order, the paragraphs, the trail per question). Only decision paragraphs are kept;
+    each hit brings its neighbours (+/-1)."""
     order, paras, trail = [], {}, []
     for q in queries:
         level = q.get("level") if use_level and q.get("level") not in (None, "any") else None
-        with _search_lock:                       # one search at a time on the shared index
-            res = retriever.search(q["query"], k=POOL_PER_QUERY, level=level)
-        hits = [h for h in res["hits"] if h["paragraph"].get("source_type") == SOURCE_DECISION][:HITS_PER_QUERY]
-        trail.append({"query": q["query"], "level": q.get("level"), "level_filter": res.get("level_filter"),
-                      "level_filter_dropped": res.get("level_filter_dropped"),
-                      "hits": [{"id": h["paragraph"]["id"], "found_by": h["found_by"], "rank_vector": h["rank_vector"],
-                                "rank_keyword": h["rank_keyword"], "score": h["score"],
-                                "neighbours": [n["id"] for n in h["neighbours"]]} for h in hits]})
-        for h in hits:
-            for p in [h["paragraph"]] + [n for n in h["neighbours"] if n.get("source_type") == SOURCE_DECISION]:
-                if p["id"] not in paras:
-                    paras[p["id"]] = p
-                    order.append(p["id"])
+        for form in QUERY_FORMS:
+            question = form.format(p=query_text(q))
+            res = retriever.search(question, k=POOL_PER_QUERY, level=level)    # the index read is locked inside
+            hits = [h for h in res["hits"] if h["paragraph"].get("source_type") == SOURCE_DECISION][:HITS_PER_FORM]
+            trail.append({"query": question, "products": query_text(q), "level": q.get("level"),
+                          "level_filter": res.get("level_filter"),
+                          "level_filter_dropped": res.get("level_filter_dropped"),
+                          "hits": [{"id": h["paragraph"]["id"], "found_by": h["found_by"],
+                                    "rank_vector": h["rank_vector"], "rank_keyword": h["rank_keyword"],
+                                    "score": h["score"], "neighbours": [n["id"] for n in h["neighbours"]]}
+                                   for h in hits]})
+            for h in hits:
+                for p in [h["paragraph"]] + [n for n in h["neighbours"] if n.get("source_type") == SOURCE_DECISION]:
+                    if p["id"] not in paras:
+                        paras[p["id"]] = p
+                        order.append(p["id"])
     return order, paras, trail
 
 
@@ -294,9 +330,13 @@ def empty_record(unit, text="", index=None, error=""):
 
 
 def run_unit(ai, unit, names, retriever, corpus=None):
-    """The search for one target activity. Returns the record that the table, 'Details' and the audit log read."""
+    """The search for one target activity (option B, Linda 20 Oct): one AI call sorts the products into types of
+    product; then each type is searched and placed on its own (run_type), in parallel; code merges the results.
+    Returns the record that the table, 'Details' and the audit log read."""
+    import concurrent.futures as cf
     text, index, leftover = unit_input(unit, names)
     record = empty_record(unit, text, index)
+    record["types"] = []
     if leftover:
         record["error"] = record["stop"] = STOP_WORDS["blocked"] + f" ({', '.join(leftover)})"
         return record
@@ -306,62 +346,131 @@ def run_unit(ai, unit, names, retriever, corpus=None):
     if plan is None:
         record["error"] = record["stop"] = err
         return record
-    queries = [q for q in plan.get("queries") or [] if (q.get("query") or "").strip()][:4]
-    if not queries:
-        record["error"] = record["stop"] = "the query call returned no query"
+    types = assign_types(plan, index, unit, names)
+    record["unassigned_searched"] = [t["item_ids"][0] for t in types if t.get("extra")]
+    record["not_searched"] = [i for i in index if not any(i in t["item_ids"] for t in types)]
+    if not types:
+        record["error"] = record["stop"] = "the query step returned no type of product"
         return record
-    pool, paras, best = [], {}, None
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        guard = rules.find_names(" ".join(q["query"] for q in queries), names)
-        if guard:                                # a query is AI text: checked like everything else that is sent
-            record["stop"] = STOP_WORDS["blocked"] + f" ({', '.join(guard)})"
-            break
-        order, found, trail = retrieve(retriever, queries, use_level=(attempt == 1))
-        new = [pid for pid in order if pid not in paras]
-        step = {"attempt": attempt, "queries": queries, "level_filter": attempt == 1, "retrieval": trail,
-                "new_paragraphs": new}
-        record["attempts"].append(step)
-        if attempt > 1 and not new:
-            record["stop"] = STOP_WORDS["same paragraphs"]
-            break
-        paras.update(found)
-        pool = list(dict.fromkeys(pool + _pool_order(order, trail)))[:MAX_PARAGRAPHS + 10 * (attempt - 1)]
-        # 20 Oct (Linda): the decisions are public text and pass unchanged, even where they name a company of the
-        # screen (M.6872 is Barry Callebaut / Petra Foods). The guard checks what the app and the AI write (the items
-        # and the queries), not the paragraphs; screen names found in the paragraphs are recorded for the audit log.
-        raw = paragraphs_text([paras[p] for p in pool])
-        step["screen_names_in_paragraphs"] = rules.find_names(raw, names)
-        prompt = "ITEMS\n" + text + "\n\nPARAGRAPHS\n" + raw
-        data, err = _call(ai, "reflect", schemas.Reflection, schemas.REFLECTION_INSTRUCTIONS, prompt, names,
-                          guard_text="ITEMS\n" + text)
-        step["reflection_prompt"] = prompt
-        step["paragraphs_sent"] = list(pool)
-        if data is None:
-            step["error"] = err
-            record["stop"] = STOP_WORDS["failed"] + f" ({err})"
-            break
-        step["reflection"] = data
-        best = check(data, index, set(pool), paras)
-        step["checked"] = {"placed": sum(1 for p in best["placements"].values() if p["market_id"] != "none"),
-                           "items": len(index), "rejected": best["rejected"]}
-        open_items = [i for i, p in best["placements"].items() if p["market_id"] == "none"]
-        if not open_items:
-            record["stop"] = STOP_WORDS["all placed"]
-            break
-        if attempt == MAX_ATTEMPTS:
-            record["stop"] = STOP_WORDS["attempts"]
-            break
-        queries = [q for q in data.get("rewrite_queries") or [] if (q.get("query") or "").strip()][:3]
-        if not queries:
-            record["stop"] = STOP_WORDS["no rewrite"]
-            break
-    if best is None:
-        record["error"] = record["error"] or record["stop"]
-        return record
-    record["markets"], record["placements"], record["rejected"] = best["markets"], best["placements"], best["rejected"]
-    cited = {pid for m in best["markets"].values() for pid in m["product_paragraphs"] + m["geographic_paragraphs"]}
-    record["paragraphs"] = {pid: _para_view(paras[pid], paras, corpus) for pid in cited if pid in paras}
+    with cf.ThreadPoolExecutor(TYPE_PARALLEL) as ex:
+        results = list(ex.map(lambda t: run_type(ai, t, unit, index, names, retriever), types))
+    paras_all = {}
+    for k, (t, res) in enumerate(zip(types, results), start=1):
+        prefix = f"T{k}."
+        res["markets"] = {prefix + mid: dict(m, market_id=prefix + mid) for mid, m in res["markets"].items()}
+        res["placements"] = {iid: dict(p, market_ids=[prefix + m for m in p["market_ids"]])
+                             for iid, p in res["placements"].items()}
+        record["markets"].update(res["markets"])
+        record["placements"].update(res["placements"])
+        record["rejected"] += [f"{t['products']}: {x}" for x in res["rejected"]]
+        paras_all.update(res.pop("paras"))
+        record["types"].append({**t, **{k2: v for k2, v in res.items() if k2 not in ("markets", "placements")}})
+    for iid in record["not_searched"]:
+        record["placements"][iid] = {"market_ids": [], "basis": "none",
+                                     "reason": "not searched: the query step assigned it to no type of product"}
+    stops = [t["stop"].split(":")[0] for t in record["types"]]
+    record["stop"] = f"{len(types)} types of product: " + ", ".join(f"{s} ×{stops.count(s)}" for s in dict.fromkeys(stops))
+    errors = [t["error"] for t in record["types"] if t.get("error")]
+    if errors and not record["markets"] and len(errors) == len(types):
+        record["error"] = "; ".join(dict.fromkeys(errors))
+    cited = {pid for m in record["markets"].values() for pid in m["product_paragraphs"]}
+    record["paragraphs"] = {pid: _para_view(paras_all[pid], paras_all, corpus) for pid in cited if pid in paras_all}
     return record
+
+
+def assign_types(plan, index, unit, names):
+    """The types of product of the query step, checked in code: only item ids that exist, each item in one type only
+    (the first that names it); a type without valid items is dropped. Items the query step left out are searched on
+    their own (their own words as the type, the level of their activity), at most MAX_EXTRA of them."""
+    types, seen = [], set()
+    for q in (plan.get("queries") or [])[:MAX_TYPES]:
+        ids = [i.strip().strip("[]") for i in q.get("item_ids") or []]
+        ids = [i for i in dict.fromkeys(ids) if i in index and i not in seen]
+        if not ids or not query_text(q):
+            continue
+        seen.update(ids)
+        types.append({"products": query_text(q), "level": q.get("level") or "any", "item_ids": ids})
+    level_of = {e["aid"]: e["activity"].get("value_chain_level") or "any" for e in unit["activities"]}
+    for iid in [i for i in index if i not in seen][:MAX_EXTRA]:
+        aid, item = index[iid]
+        types.append({"products": rules.redact(item, names), "level": level_of.get(aid, "any"), "item_ids": [iid],
+                      "extra": True})
+    return types
+
+
+def run_type(ai, t, unit, index, names, retriever):
+    """One type of product: retrieval (both questions), one small reflection on its items only, the loop with its three
+    STOP conditions (Lab 2), the citation and item checks. Never raises: an error is returned with the type."""
+    sub = {i: index[i] for i in t["item_ids"]}
+    text = items_text(unit, names, only=set(sub))
+    out = {"items_text": text, "attempts": [], "stop": "", "error": "", "kept_attempt": 0, "markets": {},
+           "placements": {}, "rejected": [], "paras": {}}
+    try:
+        queries = [{"products": t["products"], "level": t["level"]}]
+        pool, paras, best = [], {}, None
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            guard = rules.find_names(" ".join(query_text(q) for q in queries) + "\n" + text, names)
+            if guard:                            # AI text and app text: checked like everything else that is sent
+                out["stop"] = STOP_WORDS["blocked"] + f" ({', '.join(guard)})"
+                break
+            order, found, trail = retrieve(retriever, queries, use_level=(attempt == 1))
+            new = [pid for pid in order if pid not in paras]
+            step = {"attempt": attempt, "queries": queries, "level_filter": attempt == 1, "retrieval": trail,
+                    "new_paragraphs": new}
+            out["attempts"].append(step)
+            if attempt > 1 and not new:
+                out["stop"] = STOP_WORDS["same paragraphs"]
+                break
+            paras.update(found)
+            pool = list(dict.fromkeys(pool + _pool_order(order, trail)))[:MAX_PARAGRAPHS + 8 * (attempt - 1)]
+            # 20 Oct (Linda): the decisions are public text and pass unchanged, even where they name a company of the
+            # screen; the guard checks what the app and the AI write; such names are recorded for the audit log.
+            raw = paragraphs_text([paras[p] for p in pool])
+            step["screen_names_in_paragraphs"] = rules.find_names(raw, names)
+            prompt = "ITEMS\n" + text + "\n\nPARAGRAPHS\n" + raw
+            data, err = _call(ai, "reflect", schemas.Reflection, schemas.REFLECTION_INSTRUCTIONS, prompt, names,
+                              guard_text="ITEMS\n" + text)
+            step["reflection_prompt"] = prompt
+            step["paragraphs_sent"] = list(pool)
+            if data is None:
+                step["error"] = err
+                out["stop"] = STOP_WORDS["failed"] + f" ({err})"
+                break
+            step["reflection"] = data
+            result = check(data, sub, set(pool), paras)
+            placed = sum(1 for p in result["placements"].values() if ids_of(p))
+            step["checked"] = {"placed": placed, "items": len(sub), "rejected": result["rejected"]}
+            # keep the better attempt (20 Oct): a second attempt can place FEWER items; on a tie the later one
+            if best is None or placed >= sum(1 for p in best["placements"].values() if ids_of(p)):
+                best, out["kept_attempt"] = result, attempt
+            if placed == len(sub):
+                out["stop"] = STOP_WORDS["all placed"]
+                break
+            if attempt == MAX_ATTEMPTS:
+                out["stop"] = STOP_WORDS["attempts"]
+                break
+            queries = [{"products": query_text(q), "level": q.get("level") or "any"}
+                       for q in data.get("rewrite_queries") or [] if query_text(q)][:MAX_REWRITE]
+            if not queries:
+                out["stop"] = STOP_WORDS["no rewrite"]
+                break
+        if best is None:
+            out["error"] = out["stop"]
+        else:
+            out["markets"], out["placements"], out["rejected"] = best["markets"], best["placements"], best["rejected"]
+        out["paras"] = paras
+    except Exception as e:  # noqa: BLE001 - one type failing must not lose the others
+        out["error"] = out["stop"] = f"the search failed: {type(e).__name__}: {e}"
+    return out
+
+
+def ids_of(p):
+    """The markets a placement names: 'market_ids' since 20 Oct (several per item), 'market_id' in older records."""
+    if not p:
+        return []
+    if "market_ids" in p:
+        return [m for m in p["market_ids"] or [] if m and m != "none"]
+    return [p["market_id"]] if p.get("market_id") not in (None, "", "none") else []
 
 
 def check(data, index, pool, paras):
@@ -374,21 +483,19 @@ def check(data, index, pool, paras):
         mid = (m.get("market_id") or "").strip()
         if not mid or mid.lower() == "none":
             continue
-        prod, geo = [], []
-        for field, keep in (("product_paragraphs", prod), ("geographic_paragraphs", geo)):
-            for raw in m.get(field) or []:
-                pid = norm_id(raw)
-                if pid in pool and paras.get(pid, {}).get("source_type") == SOURCE_DECISION:
-                    if pid not in keep:
-                        keep.append(pid)
-                else:
-                    rejected.append(f"{mid}: paragraph {raw} was not among the paragraphs retrieved")
+        prod = []
+        for raw in m.get("product_paragraphs") or []:
+            pid = norm_id(raw)
+            if pid in pool and paras.get(pid, {}).get("source_type") == SOURCE_DECISION:
+                if pid not in prod:
+                    prod.append(pid)
+            else:
+                rejected.append(f"{mid}: paragraph {raw} was not among the paragraphs retrieved")
         if not prod:
             rejected.append(f"{mid} ({m.get('name', '')}): no valid paragraph left, market not used")
             continue
         markets[mid] = {"market_id": mid, "name": m.get("name") or "not stated", "conclusion": m.get("conclusion"),
-                        "product_paragraphs": _sorted_ids(prod), "geographic_scope": m.get("geographic_scope") or "",
-                        "geographic_paragraphs": _sorted_ids(geo), "summary": m.get("summary") or ""}
+                        "product_paragraphs": _sorted_ids(prod), "summary": m.get("summary") or ""}
     placements = {}
     for p in data.get("placements") or []:
         iid = (p.get("item_id") or "").strip().strip("[]")
@@ -397,18 +504,25 @@ def check(data, index, pool, paras):
             continue
         if iid in placements:
             continue
-        mid = (p.get("market_id") or "none").strip()
+        wanted = p.get("market_ids") if "market_ids" in p else [p.get("market_id")]
+        mids = []
+        for mid in wanted or []:
+            mid = (mid or "").strip()
+            if not mid or mid == "none":
+                continue
+            if mid in markets:
+                if mid not in mids:
+                    mids.append(mid)
+            else:
+                rejected.append(f"item {iid}: market {mid} not available")
         basis = p.get("basis") or "none"
-        if mid != "none" and mid not in markets:
-            rejected.append(f"item {iid}: market {mid} not available")
-            mid, basis = "none", "none"
-        if mid == "none":
+        if not mids:
             basis = "none"
         elif basis == "none":
             basis = "analogy"           # placed but not called a precedent: the weaker label, for the lawyer to check
-        placements[iid] = {"market_id": mid, "basis": basis, "reason": p.get("reason") or ""}
+        placements[iid] = {"market_ids": mids, "basis": basis, "reason": p.get("reason") or ""}
     for iid in index:
-        placements.setdefault(iid, {"market_id": "none", "basis": "none", "reason": "not placed by the reflection"})
+        placements.setdefault(iid, {"market_ids": [], "basis": "none", "reason": "not placed by the reflection"})
     return {"markets": markets, "placements": placements, "rejected": rejected}
 
 
@@ -454,17 +568,20 @@ def cite_range(ids, paras, short=False):
 
 
 def side_markets(record, aid, items):
-    """For one side of a row: [(market or None, basis, [items])], items grouped by the market they were placed in."""
+    """For one side of a row: [{market_id, market, basis, items}], items grouped by the market(s) they were placed in
+    (an item placed in several markets appears in each)."""
     by_item = {(v[0], v[1]): iid for iid, v in (record.get("index") or {}).items()}
+    markets = record.get("markets") or {}
     groups = {}
     for item in items:
         iid = by_item.get((aid, item))
         p = (record.get("placements") or {}).get(iid) if iid else None
-        mid = p["market_id"] if p else "none"
-        basis = p["basis"] if p else "none"
-        g = groups.setdefault(mid, {"market": (record.get("markets") or {}).get(mid), "basis": set(), "items": []})
-        g["basis"].add(basis)
-        g["items"].append(item)
+        mids = [m for m in ids_of(p) if m in markets] or ["none"]
+        basis = p["basis"] if p and mids != ["none"] else "none"
+        for mid in mids:
+            g = groups.setdefault(mid, {"market": markets.get(mid), "basis": set(), "items": []})
+            g["basis"].add(basis)
+            g["items"].append(item)
     out = []
     for mid, g in groups.items():
         basis = "precedent" if "precedent" in g["basis"] else "analogy" if "analogy" in g["basis"] else "none"
@@ -488,18 +605,48 @@ def row_view(r, record, overrides, effective_status, dismissed_parts):
     d = r["decision"]
     off = set(dismissed_parts(r, overrides))
     if d.get("horizontal") and "horizontal" not in off and effective_status(r, overrides) == "candidate":
-        ma = {g["market_id"] for g in a if g["market_id"] != "none"}
-        mb = {g["market_id"] for g in b if g["market_id"] != "none"}
-        both = ma & mb
+        # 20 Oct (option B): each type of product is placed in its own call, which names its own markets. Markets of
+        # different calls count as one market only if they have the same name; "different markets under the
+        # precedent" is claimed only if products of both sides were placed in the SAME call (never across calls)
+        key = {mid: _market_key(m["name"]) for mid, m in (record.get("markets") or {}).items()}
+        ka = {key.get(g["market_id"], g["market_id"]) for g in a if g["market_id"] != "none"}
+        kb = {key.get(g["market_id"], g["market_id"]) for g in b if g["market_id"] != "none"}
+        both = ka & kb
+        basis_b = {}
+        for g in b:
+            k = key.get(g["market_id"], g["market_id"])
+            basis_b[k] = "precedent" if g["basis"] == "precedent" and basis_b.get(k, "precedent") == "precedent" else g["basis"]
+        seen = set()
         view["verdict"] = {
-            "both": [g for g in a if g["market_id"] in both],
-            "only_a": [g for g in a if g["market_id"] in ma - both],
-            "only_b": [g for g in b if g["market_id"] in mb - both],
+            # a market both sides share counts as "precedent" only if it is a precedent for both; otherwise the line
+            # says "by analogy" (TC1: Ritter's bars were placed in "tablets" only by analogy)
+            "both": [dict(g, basis="precedent" if g["basis"] == basis_b.get(key.get(g["market_id"])) == "precedent"
+                          else "analogy") for g in a if key.get(g["market_id"]) in both
+                     and not (key.get(g["market_id"]) in seen or seen.add(key.get(g["market_id"])))],
+            "only_a": [g for g in a if g["market_id"] != "none" and key.get(g["market_id"], g["market_id"]) in ka - both],
+            "only_b": [g for g in b if g["market_id"] != "none" and key.get(g["market_id"], g["market_id"]) in kb - both],
             # the precedent puts the two companies' items into different markets: shown, never deleted (spec section 8)
-            "different": bool(ma and mb and not both),
+            "different": bool(ka and kb and not both and _same_call(record, r, items)),
             "left_open": any((g["market"] or {}).get("conclusion") == "left open" for g in a + b if g["market"]),
         }
     return view
+
+
+def _market_key(name):
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
+def _same_call(record, r, items):
+    """Whether at least one product of each side of the row was placed in the same reflection call. Records from before
+    option B had one call for all products."""
+    types = record.get("types")
+    if not types:
+        return True
+    by_item = {(v[0], v[1]): iid for iid, v in (record.get("index") or {}).items()}
+    call_of = {iid: k for k, t in enumerate(types) for iid in t["item_ids"]}
+    ca = {call_of.get(by_item.get((r["a"]["aid"], i))) for i in items["a"]} - {None}
+    cb = {call_of.get(by_item.get((r["b"]["aid"], i))) for i in items["b"]} - {None}
+    return bool(ca & cb)
 
 
 def decisions_cited(view, record):
@@ -508,7 +655,7 @@ def decisions_cited(view, record):
     out = {}
     for g in (view or {}).get("a", []) + (view or {}).get("b", []):
         m = g.get("market") or {}
-        for pid in m.get("product_paragraphs", []) + m.get("geographic_paragraphs", []):
+        for pid in m.get("product_paragraphs", []):
             p = paras.get(pid)
             if p:
                 out[p["case"]] = f"{p['case']} ({p['date'][:4]})"

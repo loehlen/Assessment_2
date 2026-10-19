@@ -1534,6 +1534,7 @@ def portco_section(i, p, target, pairs, status, rv):
                 section_body(t_acts, rows_of, is_out, pairs, status, rv, target, p, n_portco, nested=True)
         else:
             section_body(t_acts, rows_of, is_out, pairs, status, rv, target, p, n_portco, nested=False)
+        no_precedent_box(pairs, target, p)
 
 
 def section_body(t_acts, rows_of, is_out, pairs, status, rv, target, p, n_portco, nested):
@@ -1588,9 +1589,9 @@ STEP3_TEXT = ("For each portfolio company, the table shows which of its activiti
               "“Why?” shows the reasons and lets you add a pair back.")
 STEP4_TEXT = ("The column “Commission market definition” now shows how the European Commission defined the markets of "
               "the products in each row you kept, with the paragraphs of its decisions (“Paragraphs” shows their text). "
-              "One search per activity of the target covers all its rows: the AI wrote the search queries and placed "
-              "each product in a market that the retrieved paragraphs define, and the code checked that every cited "
-              "paragraph was actually retrieved. **Precedent**: defined for this product · **Analogy**: defined for a "
+              "One search per activity of the target covers all its rows: the AI sorted their products into types of "
+              "product; each type was searched in the decisions and placed in the markets the retrieved paragraphs "
+              "define, in a call of its own; the code checked that every cited paragraph was actually retrieved. **Precedent**: defined for this product · **Analogy**: defined for a "
               "related product, to apply with care · **No precedent**: no decision in the corpus fits; the questions of "
               "the Market Definition Notice are listed for you. A past decision is a starting point, not a rule "
               "(Notice (14)). The result stays a preliminary overview: you decide.")
@@ -1756,10 +1757,9 @@ def run_precedents(ai):
                 if rec.get("error"):
                     st.write(f"✖ {name}: {rec['error']}")
                 else:
-                    placed = sum(1 for p in rec["placements"].values() if p["market_id"] != "none")
+                    placed = sum(1 for p in rec["placements"].values() if prec.ids_of(p))
                     st.write(f"✔ {name}: {plural(len(rec['markets']), 'market')}, {placed} of "
-                             f"{plural(len(rec['placements']), 'product')} placed · {len(rec['attempts'])} "
-                             f"{'attempt' if len(rec['attempts']) == 1 else 'attempts'} · {rec['stop']}")
+                             f"{plural(len(rec['placements']), 'product')} placed · {rec['stop']}")
         status.update(label=f"Market definitions looked up for {plural(len(todo), 'activity', 'activities')} of the "
                             f"target in {time.time() - t0:.0f} s", state="complete", expanded=False)
     ss.precedents = store
@@ -1791,13 +1791,7 @@ def market_lines(groups, who, rec):
                 + (" · *left open*" if m.get("conclusion") == "left open" else "")
                 + f"  \n:gray[{esc(who)}: {esc(listing(g['items'], 3))}]"
                 + f"  \n{esc(prec.cite_range(m['product_paragraphs'], paras, short=True))}")
-        scope = (m.get("geographic_scope") or "").strip()
-        if scope and not scope.lower().startswith("not stated"):
-            geo = f"Geography: {esc(scope)}"
-            if m.get("geographic_paragraphs"):
-                geo += f" · {esc(prec.cite_range(m['geographic_paragraphs'], paras, short=True))}"
-            line += f"  \n{geo}"
-        out.append(line)
+        out.append(line)                 # 20 Oct (Linda): geography is stage ⑤, not shown here
     return out
 
 
@@ -1827,7 +1821,7 @@ def market_cell(r, target, portco):
             lines[idx] = lines[idx].replace(f":gray[{esc(target)}:", f":gray[{esc(target)} and {esc(portco)}:", 1)
     if view["unplaced"]:
         lines.append(f"**No precedent** in the corpus: {esc(listing(view['unplaced'], 3))} :gray[(questions for the "
-                     "lawyer under “Paragraphs”)]")
+                     "lawyer below the table)]")
     cited = prec.decisions_cited(view, rec)
     if cited:
         lines.append(f":gray[Applicable today? {esc(', '.join(cited))}: check (Notice (14))]")
@@ -1849,8 +1843,7 @@ def paragraphs_popover(view, rec, target, portco):
                         f"{'definition left open' if m.get('conclusion') == 'left open' else 'defined'}")
             if m.get("summary"):
                 st.caption(f"The AI's summary of the paragraphs (not a quotation): {esc(m['summary'])}")
-            for pid in m["product_paragraphs"] + [p for p in m["geographic_paragraphs"]
-                                                  if p not in m["product_paragraphs"]]:
+            for pid in m["product_paragraphs"]:
                 p = paras.get(pid)
                 if not p:
                     continue
@@ -1867,10 +1860,34 @@ def paragraphs_popover(view, rec, target, portco):
         st.caption(prec.APPLICABLE_TODAY + " The pinpoint citations were checked: each paragraph was among those the "
                    "search returned. That shows the paragraphs exist, not that they were applied correctly.")
     if view["unplaced"]:
-        st.markdown(f"**No precedent in the corpus** for: {esc(', '.join(view['unplaced']))}. Questions for the lawyer "
-                    "(Market Definition Notice; the tool does not answer them):")
+        st.markdown(f"**No precedent in the corpus** for: {esc(', '.join(view['unplaced']))}. The questions for the "
+                    "lawyer are listed once, below the table of this portfolio company.")
+
+
+def no_precedent_box(pairs, target, portco):
+    """Once per portfolio company (20 Oct; before, in every row): the products of its kept rows for which the corpus has
+    no precedent, and the product-market questions of the Market Definition Notice for the lawyer."""
+    if not ss.get("precedents"):
+        return
+    found = {target: [], portco: []}
+    for r in pairs:
+        _, view = row_view(r)
+        if not view or view.get("error"):
+            continue
+        for who, groups in ((target, view["a"]), (portco, view["b"])):
+            found[who] += [i for g in groups if g["market_id"] == "none" for i in g["items"]]
+    found = {who: list(dict.fromkeys(items)) for who, items in found.items() if items}
+    if not found:
+        return
+    n = sum(len(v) for v in found.values())
+    with st.expander(f"No precedent in the corpus for {plural(n, 'product')} of these rows · questions for the lawyer "
+                     "(Market Definition Notice)"):
+        for who, items in found.items():
+            st.markdown(f"*{esc(who)}:* {esc('; '.join(items))}")
+        st.markdown("The tool does not answer these questions; they are the starting point of a first-principles "
+                    "analysis where no decision applies:")
         rows = ["| | Question | Notice | Public sources |", "|---|---|---|---|"]
-        rows += [f"| {n} | {q} | {para} | {pub} |" for n, q, para, pub in prec.CHECKLIST]
+        rows += [f"| {k} | {q} | {para} | {pub} |" for k, q, para, pub in prec.CHECKLIST]
         st.markdown("\n".join(rows))
         st.caption("Public sources: ✔ answerable from public sources · ◐ partly · ✖ only the company or a market "
                    "investigation can answer it (a question for the company).")
@@ -1887,7 +1904,8 @@ def precedent_line(r, target, portco):
         return ""
 
     def names(groups):
-        return ", ".join(esc((g["market"] or {}).get("name", "")) for g in groups)
+        return ", ".join(esc((g["market"] or {}).get("name", "")) + (" (by analogy)" if g["basis"] == "analogy" else "")
+                         for g in groups)
     if v["different"]:
         text = (f"⚖ **Different markets under the precedent:** {esc(target)}: {names(v['only_a'])} · {esc(portco)}: "
                 f"{names(v['only_b'])}: lawyer review")
@@ -1905,36 +1923,52 @@ def precedent_line(r, target, portco):
 
 
 def search_trail(r, target, portco):
-    """'Details' → step ④: the search of this row's target activity (shared by all its rows), as in the audit log."""
+    """'Details' → step ④: the search of this row's target activity (shared by all its rows), as in the audit log.
+    Since 20 Oct (option B) one small search and reflection per type of product; only the types that contain this
+    row's products are shown."""
     rec, view = row_view(r)
     if not rec or view is None:
         return
-    st.markdown("**Step ④: the search** (one search for all rows of this activity of the target)")
-    st.markdown(f"Ended by: {esc(rec.get('stop') or rec.get('error') or '–')}")
-    for a in rec.get("attempts") or []:
-        qs = "; ".join(f"“{esc(q['query'])}” ({esc(q.get('level') or 'any')})" for q in a["queries"])
-        hits = sorted({h["id"] for t in a["retrieval"] for h in t["hits"]})
-        filt = "with the level-of-trade filter" if a["level_filter"] else "without the level-of-trade filter"
-        dropped = any(t.get("level_filter_dropped") for t in a["retrieval"])
-        st.markdown(f"*Attempt {a['attempt']}* ({filt}{'; no decision at that level, so the filter was dropped' if dropped else ''}): "
-                    f"queries {qs}  \n:gray[paragraphs found: {esc(', '.join(hits) or 'none')} · new: "
-                    f"{len(a.get('new_paragraphs') or [])}]")
-    placed = []
+    st.markdown("**Step ④: the search** (one search for all rows of this activity of the target, split by type of "
+                "product)")
     by_item = {(v[0], v[1]): iid for iid, v in (rec.get("index") or {}).items()}
+    row_ids = {by_item.get((act["aid"], i)) for act, groups in ((r["a"], view["a"]), (r["b"], view["b"]))
+               for g in groups for i in g["items"]}
+    types = [t for t in rec.get("types") or [] if row_ids & set(t["item_ids"])] or rec.get("types") or []
+    if not rec.get("types"):         # a search from before option B (one reflection for all products)
+        types = [{"products": "all products of this activity", "attempts": rec.get("attempts") or [],
+                  "stop": rec.get("stop") or rec.get("error") or "–", "kept_attempt": rec.get("kept_attempt"),
+                  "items_text": rec.get("items_text") or "", "item_ids": list(rec.get("index") or {})}]
+    for t in types:
+        kept_note = (f" · the result of attempt {t['kept_attempt']} is shown (it placed more products)"
+                     if t.get("kept_attempt") and t["kept_attempt"] < len(t.get("attempts") or []) else "")
+        st.markdown(f"*Type of product: “{esc(t['products'])}”* ({esc(t.get('level') or 'any')}"
+                    f"{'; an item the first step left unassigned, searched on its own' if t.get('extra') else ''}) · "
+                    f"ended by: {esc(t.get('stop') or t.get('error') or '–')}{kept_note}")
+        for a in t.get("attempts") or []:
+            qs = "; ".join(f"“{esc(x['query'])}”" for x in a["retrieval"])
+            hits = sorted({h["id"] for x in a["retrieval"] for h in x["hits"]})
+            filt = "with the level-of-trade filter" if a["level_filter"] else "without the level-of-trade filter"
+            dropped = any(x.get("level_filter_dropped") for x in a["retrieval"])
+            st.caption(f"Attempt {a['attempt']} ({filt}{'; no decision at that level, filter dropped' if dropped else ''}): "
+                       f"{qs} · paragraphs found: {esc(', '.join(hits) or 'none')} · new: "
+                       f"{len(a.get('new_paragraphs') or [])} · sent to the AI: {len(a.get('paragraphs_sent') or [])}")
+    placed = []
     for who, act, items in ((target, r["a"], [i for g in view["a"] for i in g["items"]]),
                             (portco, r["b"], [i for g in view["b"] for i in g["items"]])):
-        for item in items:
+        for item in dict.fromkeys(items):
             p = rec["placements"].get(by_item.get((act["aid"], item)), {})
-            m = rec["markets"].get(p.get("market_id"), {})
-            placed.append(f"{esc(who)}: {esc(item)} → {esc(m.get('name') or 'no market')} "
+            ms = [rec["markets"][m]["name"] for m in prec.ids_of(p) if m in rec["markets"]]
+            placed.append(f"{esc(who)}: {esc(item)} → {esc('; '.join(ms) or 'no market')} "
                           f"({prec.BASIS_LABEL.get(p.get('basis', 'none'))}; {esc(p.get('reason') or '')})")
     if placed:
         st.markdown("*Where the AI placed this row's products:*  \n" + "  \n".join(placed))
     if rec.get("rejected"):
         st.markdown("*Corrected by the code checks:* " + "; ".join(esc(x) for x in rec["rejected"]))
-    st.markdown("**What the AI saw in step ④** (the products of all rows of this activity, numbered by activity, no "
-                "names; the paragraphs follow in the audit log)")
-    st.code(rec.get("items_text") or "", language=None, wrap_lines=True)
+    st.markdown("**What the AI saw in step ④** (per type of product: its products, numbered by activity, no names; the "
+                "paragraphs follow in the audit log)")
+    for t in types:
+        st.code(t.get("items_text") or "", language=None, wrap_lines=True)
 
 
 def precedent_summary(units):
@@ -2156,8 +2190,10 @@ def audit_json(snap):
     }
     if snap.get("precedents"):
         log["stage_4_market_definitions"] = {
-            "settings": {"max_attempts": prec.MAX_ATTEMPTS, "hits_per_query": prec.HITS_PER_QUERY,
-                         "max_paragraphs_per_reflection": prec.MAX_PARAGRAPHS, "unit": "one search per target activity"},
+            "settings": {"max_attempts": prec.MAX_ATTEMPTS, "types_per_search": prec.MAX_TYPES,
+                         "reflection": "one call per type of product", "max_paragraphs_per_type": prec.MAX_PARAGRAPHS,
+                         "query_forms": list(prec.QUERY_FORMS), "hits_per_form": prec.HITS_PER_FORM,
+                         "unit": "one search per target activity"},
             "searches": snap["precedents"], "rows": snap["precedent_rows"]}
     if snap.get("loaded_from"):
         log["loaded_from_saved_audit"] = snap["loaded_from"]
