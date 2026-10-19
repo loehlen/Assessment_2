@@ -73,7 +73,7 @@ PROFILES = {
 FALLBACK = {"dev": "gpt-6.1-sol", "final": "gpt-6.1-sol"}   # a different model; final was Luna while Sol extracted
 
 # USD per 1M tokens (input, output). Third-party listings, October 2026: TO VERIFY on OpenAI's pricing page
-# before A3 (spec section 8). Web search tool fees are not included (also to verify).
+# before A3 (spec section 10). The pages a search reads count as input tokens of the search call.
 PRICES_CHECKED = "third-party listings, Oct 2026 (to verify)"
 PRICES = {
     "gpt-6-luna": (0.10, 0.50),
@@ -81,8 +81,14 @@ PRICES = {
     "text-embedding-3-large": (0.13, 0.0),
 }
 
+# 19 Oct: the web search tool is billed per call on top of the tokens: USD 10 per 1,000 calls (third-party listing,
+# checked 13 Oct 2026; TO VERIFY). A TC1 run with two searches per company makes about 50-70 such calls, so the fee
+# is several times the token cost. WEB_SEARCH_FEE in .env / Secrets overrides it.
+WEB_SEARCH_FEE = float(setting("WEB_SEARCH_FEE", "0.01") or 0)    # USD per web search call
+
 TIMEOUT = 300           # seconds; the slowest Sol search took 211 s on 14 Oct
-MAX_PARALLEL = 8        # parallel requests; each one is a separate, stateless call
+MAX_PARALLEL = 8        # requests at once per run (19 Oct: enforced in AI.respond / AI.embed, see _slots); each one
+                        # is a separate, stateless call
 CACHE_DIR = Path("cache")
 
 
@@ -127,6 +133,7 @@ class CallLog:
             s["seconds"] += c["seconds"]
         return {"calls": len(calls), "cached": sum(c["cached"] for c in calls),
                 "cost": round(sum(c["cost"] for c in calls), 4),
+                "search_fees": round(sum(c.get("search_fee", 0.0) for c in calls), 4),
                 "unpriced": sorted({c["model"] for c in calls if not c.get("priced", True)}),
                 "web_searches": sum(c.get("web_searches", 0) for c in calls),
                 "models": sorted({c["model"] for c in calls}), "steps": steps}
@@ -145,6 +152,10 @@ class AI:
         self.cache_dir = Path(cache_dir)
         self._client = None
         self._lock = threading.Lock()
+        # 19 Oct: at most MAX_PARALLEL requests at once, however the steps nest their thread pools (the two searches
+        # per company run inside the pool of companies, which allowed up to 12 searches at once). Matters for the
+        # rate limits of a marker's own key.
+        self._slots = threading.BoundedSemaphore(MAX_PARALLEL)
         # Resolved once, here, so that worker threads never read settings: an override in .env / Secrets
         # (MODEL_COMPARE=gpt-6.1-sol, EFFORT_ASSESS=high) wins over the profile.
         self.models = {s: setting(f"MODEL_{s.upper()}", "") or PROFILES[profile][s][0] for s in STEPS}
@@ -184,17 +195,21 @@ class AI:
         if schema is not None:
             kwargs["text_format"] = schema
         fn = self.client().responses.parse if schema is not None else self.client().responses.create
-        t = time.time()
-        resp = self._with_retry(fn, **kwargs)
-        self._log_response(step, model, resp, time.time() - t, note, names)
+        with self._slots:
+            t = time.time()
+            resp = self._with_retry(fn, **kwargs)
+            seconds = time.time() - t
+        self._log_response(step, model, resp, seconds, note, names)
         return resp
 
     def embed(self, texts, note="", step="embed"):
         """Embeddings for a list of texts (one request). Returns a list of vectors."""
-        t = time.time()
-        resp = self._with_retry(self.client().embeddings.create, model=EMBED_MODEL, input=texts)
+        with self._slots:
+            t = time.time()
+            resp = self._with_retry(self.client().embeddings.create, model=EMBED_MODEL, input=texts)
+            seconds = time.time() - t
         tokens = getattr(getattr(resp, "usage", None), "prompt_tokens", 0) or 0
-        self._add(step, EMBED_MODEL, tokens, 0, time.time() - t, note=note)
+        self._add(step, EMBED_MODEL, tokens, 0, seconds, note=note)
         return [d.embedding for d in resp.data]
 
     def embed_fn(self, step="embed_query"):
@@ -225,8 +240,10 @@ class AI:
     def _add(self, step, model, tokens_in, tokens_out, seconds, cached=False, **extra):
         price = PRICES.get(model)
         cost = 0.0 if cached or price is None else tokens_in / 1e6 * price[0] + tokens_out / 1e6 * price[1]
+        search_fee = 0.0 if cached else extra.get("web_searches", 0) * WEB_SEARCH_FEE      # 19 Oct
         self.log.add(step=step, model=model, **{"in": tokens_in, "out": tokens_out}, seconds=round(seconds, 1),
-                     cost=round(cost, 6), cached=cached, priced=price is not None or cached, **extra)
+                     cost=round(cost + search_fee, 6), search_fee=round(search_fee, 6), cached=cached,
+                     priced=price is not None or cached, **extra)
 
     def log_cached(self, step, model, note="", names=()):
         self._add(step, model, 0, 0, 0, cached=True, note=note, names=list(names))

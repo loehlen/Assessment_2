@@ -136,7 +136,8 @@ def stage_cost(name):
     text = f"{len(calls)} AI calls"
     if USE_CACHE:
         text += f" ({sum(c['cached'] for c in calls)} from the development cache)"
-    text += f" · USD {sum(c['cost'] for c in calls):.4f} (token prices) · {seconds:.0f} s"
+    text += (f" · USD {sum(c['cost'] for c in calls):.4f} (tokens and web search calls, prices to verify) · "
+             f"{seconds:.0f} s")
     unpriced = sorted({c["model"] for c in calls if not c.get("priced", True)})
     if unpriced:
         text += f" · no price for {', '.join(unpriced)}"
@@ -374,6 +375,8 @@ def restore_inputs():
 
 def example_buttons():
     st.markdown("**Try an example**")
+    st.caption("The examples use real companies in a hypothetical portfolio: no real transaction is implied. "
+               "The research and the comparison run live.")
     cols = st.columns(len(examples.EXAMPLES))
     for col, (key, ex) in zip(cols, examples.EXAMPLES.items()):
         col.button(ex["button"], key=f"ex_{key}", help=ex["what"], on_click=fill_example, args=(key,))
@@ -785,7 +788,9 @@ def edit_activity(company, idx):
         if idx is None:
             acts.append(new)
         else:
-            if new != acts[idx] and new.get("origin") == "search":
+            # 19 Oct: extracted activities carry no "origin" (only added ones do: "added by user"), so the earlier
+            # test origin == "search" never fired and the audit log could not show which lines the lawyer changed
+            if new != acts[idx] and new.get("origin") != "added by user":
                 new["edited_by_user"] = True
             new["level_checked"] = True         # saved in the edit form: the lawyer has seen the level (18 Oct)
             acts[idx] = new
@@ -997,15 +1002,18 @@ def name_word_review():
         st.caption("Before the comparison, every company name, brand and group company is removed from the descriptions, "
                    "so that the AI never sees who is involved. Some brands are also ordinary product words (e.g. a brand "
                    "called after its product); removing them can take away what the comparison needs. Tick a word "
-                   "only if it describes the product rather than identifying the company. The entered company names "
-                   "are always removed.")
+                   "only if it describes the product rather than identifying the company. The entered names and other "
+                   "names are always removed; a part of a name (e.g. “Black” in “Black & Decker”) can be kept if it is "
+                   "an ordinary word here.")
         for f in found:
             ex = "; ".join(f"{esc(c)}: “{esc(around(t, f['word']))}”" for c, t in f["examples"])
             key = f"keep_{ss.acts_version}_{f['word']}"
             st.checkbox(f"Keep “{f['word']}” as an ordinary word", value=f["word"].lower() in keep, key=key,
-                        help=f"A brand or group company of {f['company']}.", on_change=_store_keep,
+                        help=f"{capital(f.get('kind', 'brand or group company'))} of {f['company']}.",
+                        on_change=_store_keep,
                         args=(f["word"], key))
-            st.caption(f"{esc(f['company'])}'s brand or group company · used in: {ex}")
+            what = "part of the name" if f.get("kind") == "part of the name" else "brand or group company"
+            st.caption(f"{what} of {esc(f['company'])} · used in: {ex}")
 
 
 def activity_problems():
@@ -1261,8 +1269,10 @@ def pair_details(r, target, portco):
         ca = words_list(_shown(r["a"].get("direct_customers")))
         cb = words_list(_shown(r["b"].get("direct_customers")))
         st.markdown(f"**Direct customers** {r['customers']}  \n{esc(target)} sells to {esc(ca or 'not stated')}; "
-                    f"{esc(portco)} to {esc(cb or 'not stated')} → {CUSTOMER_TEXT[r['customers']]}. Different customer "
-                    "groups alone never make separate markets (Market Definition Notice (88)–(89)).")
+                    f"{esc(portco)} to {esc(cb or 'not stated')} → {CUSTOMER_TEXT[r['customers']]}. A customer group "
+                    "forms a separate market only where suppliers can treat the groups differently and three cumulative "
+                    "conditions are met (Market Definition Notice (88)–(89)), so the score is never a reason on its "
+                    "own to dismiss a row.")
     if "captive" in r["flags"]:
         st.markdown("**Own use:** produced for the group's own use, not sold on the market (draft Merger Guidelines "
                     "para 103(i)). It cannot supply the other company, so a link where it would be the supplier is set "
@@ -1536,15 +1546,19 @@ def stage_overview(ai):
 
 def run_summary():
     """Required output (spec section 10): AI calls, models, cost and time of the run."""
-    calls, cost, seconds, models = 0, 0.0, 0.0, set()
+    calls, cost, fees, searches, seconds, models = 0, 0.0, 0.0, 0, 0.0, set()
     for stage in ("mapping", "confirm"):
         part = stage_calls(stage)
         calls += len(part)
         cost += sum(c["cost"] for c in part)
+        fees += sum(c.get("search_fee", 0.0) for c in part)
+        searches += sum(c.get("web_searches", 0) for c in part)
         seconds += stage_seconds(stage)
         models |= {c["model"] for c in part}
-    return (f"Run summary: {calls} AI calls · models: {', '.join(sorted(models))} · USD {cost:.3f} at token prices "
-            f"(web search fees not included) · {seconds:.0f} s")
+    # 19 Oct: the web search tool's per-call fee is included (ai_client.WEB_SEARCH_FEE, to verify)
+    return (f"Run summary: {calls} AI calls · models: {', '.join(sorted(models))} · USD {cost:.3f} "
+            f"(of which USD {fees:.3f} for {searches} web search calls at USD {ai_client.WEB_SEARCH_FEE:g} each; "
+            f"prices to verify) · {seconds:.0f} s")
 
 
 def benchmark_panel(results):
@@ -1657,9 +1671,10 @@ def dev_sidebar(ai):
         st.caption(f"**DEV_MODE** · profile **{PROFILE}** · cache {'on' if USE_CACHE else 'off'} · "
                    f"saved searches {'on' if USE_SAVED else 'off'}")
         s = ss.log.summary()
-        st.metric("Session cost (USD, token prices)", f"{s['cost']:.4f}")
+        st.metric("Session cost (USD, tokens and web searches)", f"{s['cost']:.4f}")
         st.caption(f"{s['calls']} AI calls ({s['cached']} from cache) · {s['web_searches']} web searches "
-                   f"(search fees not included) · prices: {ai_client.PRICES_CHECKED}")
+                   f"(USD {s['search_fees']:.4f} in search fees at USD {ai_client.WEB_SEARCH_FEE:g} per call) · "
+                   f"prices: {ai_client.PRICES_CHECKED}")
         if s["steps"]:
             st.dataframe(pd.DataFrame([{"Step": k, "Calls": v["calls"], "Cached": v["cached"],
                                         "USD": round(v["cost"], 4)} for k, v in s["steps"].items()]),
@@ -1681,18 +1696,24 @@ INTRO = """When an investor plans to buy a company (the *target*), it must check
 the same or related markets as the companies it already owns (its *portfolio companies*). This matters under EU merger
 control: overlaps can trigger a closer review by the European Commission and require care in sharing information.
 
-This tool prepares a first screen in three steps:
-1. **Activities.** It researches each company separately on public websites, or reads a description you provide, and
-   lists its business areas with their stage in the value chain (raw materials, intermediate products, manufacturing,
-   wholesale, retail, services). You check and correct them.
-2. **Preliminary assessment.** It compares every activity of the target with every activity of each portfolio company.
-   The AI sees descriptions only, never the company names.
-3. **Commission precedents.** It looks up how the European Commission defined the relevant markets in past decisions.
+This tool prepares a first screen, step by step (the numbers match the steps at the top of the page):
+
+① **Companies.** You enter the target and the portfolio companies.
+
+② **Activities.** The tool researches each company separately on public websites, or reads a description you
+provide, and lists its business areas with their stage in the value chain (raw materials, intermediate products,
+manufacturing, wholesale, retail, services). You check and correct them.
+
+③ **Preliminary assessment.** It compares every activity of the target with every activity of each portfolio company.
+The AI sees descriptions only, never the company names.
+
+④ **Commission market definitions** *(being built)*. It will look up how the European Commission defined the relevant
+markets in past decisions.
 
 **Horizontal overlap:** both companies offer the same or substitutable products (potential competitors).
 **Vertical relationship:** one company's products could be an input for the other, or could be resold by it
-(potential supplier and customer). Until step 3, every result is *potential*: not yet checked against the Commission's
-market definitions.
+(potential supplier and customer). Until step ④, every result is *potential*: not yet checked against the
+Commission's market definitions.
 
 The result is a working document for a lawyer to verify, not a legal conclusion. The facts about each company carry
 their sources: hover over a number to see the passage quoted from that page. The app opens each page and checks

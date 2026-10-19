@@ -100,7 +100,7 @@ controls.
 - smaller brands and product lines, brands the group owns but presents separately, recent launches and acquisitions
 - sales to other businesses: ingredients, components or products for other manufacturers; products for professional,
   hospitality or industrial customers; private-label or contract manufacturing for retailers or others
-- own retail and hospitality: own shops, outlets, cafes, restaurants, visitor centres, online shops
+- own retail and hospitality: own shops, outlets, cafes, restaurants, online shops
 - side businesses offered to third parties, e.g. licensing, services, energy, property, logistics, training
 - joint ventures, partnerships, supply or distribution agreements with other companies
 - activities still in development
@@ -188,8 +188,8 @@ Fields:
   {"; ".join(f"{k} = {v}" for k, v in VALUE_CHAIN_LEVELS.items())}.
 - direct_customers: who buys directly FROM THE COMPANY, at its own level of trade (not the end consumer of a
   product sold through shops): {"; ".join(f"{k} = {v}" for k, v in DIRECT_CUSTOMER_TYPES.items())}.
-- customer_details: specifics the list cannot express (e.g. "dental practices", "travel retail",
-  "construction companies"), without naming individual customers, else "not stated".
+- customer_details: specifics the list cannot express (e.g. "dental practices", "bicycle rental companies",
+  "farm cooperatives"), without naming individual customers, else "not stated".
 - end_users, sales_channels, countries_of_sale ("not stated" if the sources give none), status.
 - source_numbers: only numbers from the numbered source list.
 - quotes: for each source number you use, ONE passage that the research notes put in quotation marks right before

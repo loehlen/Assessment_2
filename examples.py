@@ -37,7 +37,11 @@ COMPANIES = {
                "aliases": ["Henkel AG & Co. KGaA"]},
 }
 
-PORTFOLIO = ["Ritter Sport", "Barry Callebaut", "Bahlsen", "FRoSTA"]
+# 19 Oct (Linda): three portfolio companies instead of four, so the screen is less crowded and faster. Bahlsen's
+# rows repeated kinds of row that Ritter Sport already shows (outlets v shops, resale into own shops, a downstream
+# user); FRoSTA stays as the control without a real overlap. Bahlsen stays in COMPANIES, so it can still be added
+# by hand, and benchmark.py marks its rows "–" (not in this run).
+PORTFOLIO = ["Ritter Sport", "Barry Callebaut", "FRoSTA"]
 
 EXAMPLES = {
     "TC1": {"button": "TC1 · Lindt & Sprüngli", "target": "Lindt & Sprüngli", "portfolio": PORTFOLIO,

@@ -40,7 +40,7 @@ VALUE_CHAIN_LEVELS = {
 
 DIRECT_CUSTOMER_TYPES = {
     "consumers": "private individuals buying for their own use",
-    "retailers": "shops and online retailers that resell to consumers (including travel retail)",
+    "retailers": "shops and online retailers that resell to consumers",
     "wholesalers / distributors": "businesses that resell to other businesses",
     "manufacturers / processors": "businesses that use the product to make their own products "
                                   "(including craft businesses)",
@@ -121,7 +121,8 @@ def name_variants(names):
     return {v for v in variants if len(v) >= MIN_NAME_LENGTH}
 
 
-NAME_JOINER = re.compile(r"\s*(?:&|\+|\band\b|\bund\b)\s*", re.IGNORECASE)
+# 19 Oct: "&", "+" and "and" only (language-neutral decision of 18 Oct; "und" removed)
+NAME_JOINER = re.compile(r"\s*(?:&|\+|\band\b)\s*", re.IGNORECASE)
 MIN_PART_LENGTH = 4
 
 
@@ -262,7 +263,9 @@ def customer_overlap(customers_a, customers_b):
     """
     Sorts horizontal candidates by direct customers; never removes a pair.
     ●●● same direct customers, ●●○ partly overlapping, ●○○ different, ? not stated on one side.
-    Different customers alone never make separate markets (Notice (24), (88)-(89)).
+    A customer group forms a distinct market only where suppliers can discriminate between groups and the three
+    cumulative conditions of the Market Definition Notice are met ((24), (88)-(89)); the code cannot check them, so
+    the customer score only sorts and is never a reason to remove a pair.
     """
     a = set(customers_a or []) - {"not stated"}
     b = set(customers_b or []) - {"not stated"}
@@ -551,12 +554,18 @@ def decide(comparison, code_signals, similarity, a=None, b=None):
             (["horizontal (AI: " + relation + ")"] if horizontal else [])
             + [f"vertical: {link} ({found_by[link]})" for link in links]
         )
+    # 19 Oct: blocked and failed calls are checked before "not enough information". compare() records them as "not
+    # enough information", so before this the lawyer saw "the descriptions do not allow a comparison" for them.
+    elif comparison.get("blocked"):
+        status = "unclear"
+        rule = ("Unclear, please check: the call was blocked because a company name was still in a description "
+                "(see the reason)")
+    elif comparison.get("error"):
+        status = "unclear"
+        rule = "Unclear, please check: the comparison call failed (see the reason); compare the two activities by hand"
     elif relation == "not enough information":
         status = "unclear"
         rule = "Unclear, please check: the descriptions do not allow a comparison"
-    elif comparison.get("error") or comparison.get("blocked"):
-        status = "unclear"
-        rule = "Unclear, please check: the comparison call failed or was blocked"
     else:
         status = "screened out"
         rule = (f"Screened out: AI found a different product and no vertical link, and no vertical signal in code "
@@ -603,38 +612,42 @@ def eea_status(countries):
 
 # =============================================================== self-test (no API, no sector)
 if __name__ == "__main__":
-    # Deliberately from a sector outside the test cases, to show that nothing here is sector-specific.
-    paint_maker = {
-        "product": "Interior wall paint", "description": "Water-based emulsion paint in tins.",
-        "intended_use": "Painting interior walls", "main_inputs": ["titanium dioxide", "acrylic binder"],
+    # Deliberately from a sector outside the test cases (19 Oct: bicycles; the earlier paint maker and DIY store were
+    # the other-sector test case), to show that nothing here is sector-specific.
+    bike_maker = {
+        "product": "City bicycles", "description": "Aluminium city bicycles with hub gears.",
+        "intended_use": "Everyday cycling", "main_inputs": ["aluminium frames", "hub gears"],
         "value_chain_level": "finished products", "direct_customers": ["retailers", "other businesses"],
-        "customer_details": "DIY stores; painting contractors", "end_users": "consumers and businesses",
-        "sales_channels": "DIY stores; trade counters", "status": "on the market",
-        "brands": ["Wallglow"], "countries_of_sale": ["Germany", "Switzerland"],
+        "customer_details": "bicycle shops; rental companies", "end_users": "consumers and businesses",
+        "sales_channels": "bicycle shops; direct to fleets", "status": "on the market",
+        "brands": ["Spokewell"], "countries_of_sale": ["Germany", "Switzerland"],
     }
-    hardware_store = {
-        "product": "Retail of DIY and home improvement goods", "description": "Store chain selling paint and tools.",
-        "intended_use": "Home improvement", "main_inputs": ["not stated"], "value_chain_level": "retail",
+    bike_shop = {
+        "product": "Retail of bicycles and accessories", "description": "Shop chain selling bicycles and parts.",
+        "intended_use": "Cycling", "main_inputs": ["not stated"], "value_chain_level": "retail",
         "direct_customers": ["consumers"], "customer_details": "not stated", "end_users": "consumers",
-        "sales_channels": "Own stores; own online shop", "status": "on the market",
+        "sales_channels": "Own shops; own online shop", "status": "on the market",
         "countries_of_sale": ["not stated"],
     }
-    names = ["Wallglow Paints GmbH", "Wallglow", "Hammerhaus AG"]
+    names = ["Spokewell Bikes GmbH", "Spokewell", "Pedalhaus AG", "Gear & Chain Ltd"]
 
-    text, leftover = build_abstract({**paint_maker, "description": "Wallglow emulsion paint in tins."}, names)
+    text, leftover = build_abstract({**bike_maker, "description": "Spokewell city bicycles with hub gears."}, names)
     print(text, "\nnames left:", leftover)
     print("variants:", sorted(name_variants(names)))
-    print("customers paint maker v store:", customer_overlap(paint_maker["direct_customers"],
-                                                              hardware_store["direct_customers"]))
+    print("name parts:", name_parts(names))
+    print("customers bike maker v shop:", customer_overlap(bike_maker["direct_customers"],
+                                                           bike_shop["direct_customers"]))
     sims = {"product": 0.46, "input_a_to_b": 0.10, "input_b_to_a": 0.05}
-    signals = code_vertical_signals(paint_maker, hardware_store, sims)
+    signals = code_vertical_signals(bike_maker, bike_shop, sims)
     print("code signals:", signals)
     ai = {"product_relation": "different product", "vertical_links": []}
     print("decision:", decide(ai, signals, sims["product"]))
     print("decision without signals, close texts (no longer kept):", decide(ai, [], 0.55)["rule"])
     print("decision without signals, distant texts:", decide(ai, [], 0.20)["rule"])
+    print("blocked call:", decide({"product_relation": "not enough information", "vertical_links": [], "blocked": True},
+                                  [], 0.2)["rule"])
     ai_resale = {"product_relation": "different product", "vertical_links": ["B could be resold by A"]}
-    print("AI says the paint maker resells the store's goods:",
-          decide(ai_resale, [], 0.20, a=paint_maker, b=hardware_store)["rule"])
-    print("EEA:", eea_status(paint_maker["countries_of_sale"]), "|", eea_status(["Switzerland"]), "|",
+    print("AI says the bicycle maker resells the shop's goods:",
+          decide(ai_resale, [], 0.20, a=bike_maker, b=bike_shop)["rule"])
+    print("EEA:", eea_status(bike_maker["countries_of_sale"]), "|", eea_status(["Switzerland"]), "|",
           eea_status(["more than 100 countries"]))

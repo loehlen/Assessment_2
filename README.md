@@ -1,43 +1,49 @@
-# Assignment_2_test
-# day3
+# EU Overlap Screen (LAWS90286 Assignment 2)
 
-(**) - redo if you reset codespaces
+A preliminary EU merger control overlap screen: does the target of an acquisition overlap, horizontally or
+vertically, with any of the buyer's portfolio companies? The app researches each company on public sources (or reads
+a description the lawyer provides), lets the lawyer check the activities, and compares every activity of the target
+with every activity of each portfolio company on anonymised descriptions. The result is a working document for a
+lawyer to verify, not a legal conclusion.
 
-1. create virtual environment (**)
-> python -m venv .venv
+> Draft of 19 October 2026. The final README (deployed URL, the test cases with their exact inputs and expected
+> results, the cost per run) follows before submission.
 
-2. activate virtual environment (**)
-> source .venv/bin/activate
+## Run it
 
-3. install dependencies - create requirements.txt file
-> touch requirements.txt
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt      # do NOT overwrite requirements.txt with `pip freeze`
+cp .env.example .env                 # then fill in APP_PASSWORD and OPENAI_API_KEY for development
+streamlit run app.py
+```
 
-4. add to requirements.txt:
-> openai
-> streamlit
-> python-dotenv
-> chromadb
-> pypdf
-> tiktoken
+On Streamlit Cloud: main file `app.py`; the settings of `.env.example` go into the app's Secrets. With `DEV_MODE=0`
+the app asks each user for their own OpenAI API key and uses it only for that session.
 
-5. install requirements (and freeze the versions so you can rely on them) (**)
-> pip install -r requirements.txt
+## Try it
 
-- and freeze the versions (DO THIS EVERYTIME YOU ADD A NEW LIBRARY / PACKAGE TO REQUIREMENTS.TXT)
-> pip freeze > requirements.txt
+The buttons under "Try an example" fill in the test cases. They use real companies in a **hypothetical** portfolio;
+no real transaction is implied.
 
-6. create our environment file (for secrets) (**)
-> touch .env
+| Example | Target | Portfolio |
+|---|---|---|
+| TC1 | Lindt & Sprüngli | Ritter Sport, Barry Callebaut, FRoSTA |
+| TC2 | Planet A Foods | same portfolio |
+| TC3 | Koa | same portfolio |
+| Other sector | Brillux | Hornbach, Sto, Henkel |
 
-7. add to .env file: (**)
-> OPENAI_API_KEY = ""
-> PASSWORD = ""
+## Files
 
-8. add pages folder (to use pages in streamlit)
-> mkdir pages
-
-9. add streamlit entrypoint file
-> touch home.py
-
-10. run streamlit server (**)
-> streamlit run home.py
+| File | Role |
+|---|---|
+| `app.py` | the interface (Streamlit): steps ① companies, ② activities, ③ preliminary assessment |
+| `ai_client.py` | the one gate for every AI call: models per step, retries, call log and cost |
+| `activity_mapping.py` | step ②: confidentiality guard, two web searches and one extraction per company |
+| `sources.py` | opens every cited page or PDF and checks the quoted passages; removes dead links |
+| `comparison.py` | step ③: anonymisation, embeddings, one anonymised pair per AI call |
+| `rules.py` | the sector-neutral rules in plain Python (answer lists, name removal, decision rule) |
+| `schemas.py` | the AI instructions and the fixed answer forms |
+| `examples.py` | the inputs of the example buttons |
+| `ingest.py`, `build_corpus.py`, `build_index.py`, `retrieval.py`, `corpus/` | the decision corpus and its ChromaDB index (for step ④) |
+| `test_compare.py`, `benchmark.py`, `save_searches.py`, `retrieval_check.py`, `no_rag_check.py`, `test_results/` | development tools and test results |

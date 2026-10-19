@@ -50,6 +50,12 @@ STATUS_MARK = {"found": "✔", "not found": "⚠", "no quote": "○", "not check
 
 CACHE_SIZE = 60
 _cache, _lock = {}, threading.Lock()        # url -> fetched page, for this server process (pages change rarely)
+# 19 Oct: memory on Streamlit Cloud is limited and this cache is shared by every session of the server process.
+# Readable PDFs (raw file up to 40 MB plus the PDF reader) are therefore never cached; they live only while one
+# company's check runs. A refusal with HTTP 429 ("too many requests") is temporary and is not cached either.
+# At most FETCH_SLOTS downloads run at once in the whole process, whatever the number of companies or sessions.
+FETCH_SLOTS = 16
+_slots = threading.BoundedSemaphore(FETCH_SLOTS)
 
 
 # =============================================================== page text
@@ -167,6 +173,19 @@ def fetch(url):
     with _lock:
         if url in _cache:
             return _cache[url]
+    with _slots:
+        out = _fetch(url)
+    cacheable = out["state"] in ("readable", "dead", "blocked", "no text", "dns") and out.get("pdf") is None \
+        and out.get("http") != 429
+    if cacheable:
+        with _lock:
+            _cache[url] = out
+            while len(_cache) > CACHE_SIZE:
+                _cache.pop(next(iter(_cache)))
+    return out
+
+
+def _fetch(url):
     out = {"url": url, "state": "error", "reason": "", "kind": None, "text": "", "pdf": None, "pages_total": None}
     try:
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT,
@@ -203,6 +222,7 @@ def fetch(url):
             out["state"], out["reason"] = "dead", f"page not found (HTTP {e.code})"
         elif e.code in (401, 403, 429, 451):
             out["state"], out["reason"] = "blocked", f"the site refused automatic access (HTTP {e.code})"
+            out["http"] = e.code
         else:
             out["reason"] = f"the site returned an error (HTTP {e.code})"
     except Exception as e:  # noqa: BLE001 - DNS, time-out, TLS, connection
@@ -212,11 +232,6 @@ def fetch(url):
             out["reason"] = "the site did not answer in time"
         else:
             out["reason"] = f"could not be opened ({type(e).__name__})"
-    if out["state"] in ("readable", "dead", "blocked", "no text", "dns"):
-        with _lock:
-            _cache[url] = out
-            while len(_cache) > CACHE_SIZE:            # PDFs are kept in memory: only the most recent pages
-                _cache.pop(next(iter(_cache)))
     return out
 
 

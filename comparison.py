@@ -51,11 +51,15 @@ def collect_names(companies, activities, group_companies, keep=()):
     (confirmed) activity lists. activities / group_companies: {company name: [...]}.
     keep (17 Oct, Linda: option b): brands or group company names the lawyer marked as ordinary product words, which
     stay in the descriptions (e.g. "Cacaofruit", a brand that is also the word for the product). The entered names and
-    aliases can never be kept."""
+    aliases can never be kept. A part of an entered name (19 Oct) can be kept when it is an ordinary word in the
+    descriptions ("Black" of "Black & Decker"); a part that is itself an entered name or alias cannot."""
     keep = {k.strip().lower() for k in keep or () if k}
     names = []
     for c in companies:
-        names += [c["name"]] + [a for a in c.get("aliases", []) if a]
+        entered = [c["name"]] + [a for a in c.get("aliases", []) if a]
+        fixed = {v.lower() for v in rules.name_variants(entered)}
+        names += entered + [p for p in rules.name_parts(entered)      # "Lindt" for "Lindt & Sprungli" (18 Oct)
+                            if p.lower() in fixed or p.strip().lower() not in keep]
         names += [g for g in group_companies.get(c["name"], []) if g and g.strip().lower() not in keep]
         for a in activities.get(c["name"], []):
             names += [b for b in a.get("brands") or [] if b and b.strip().lower() not in keep]
@@ -69,10 +73,19 @@ def names_used_as_words(companies, activities, group_companies):
     """Brands and group company names that also appear in the generic fields of the activities, where the extraction
     writes no names (17 Oct). Such a word is either an ordinary product word that happens to be a brand ("Cacaofruit")
     or a name that slipped in; removing it can take away what the comparison needs, so the lawyer decides.
-    Returns [{"word", "company" (whose brand or group company it is), "examples": [(company, text)]}]. Pure code."""
-    entered = {v.lower() for v in rules.name_variants([n for c in companies
-                                                       for n in [c["name"]] + list(c.get("aliases") or []) if n])}
-    owners = {}
+    Since 19 Oct also the parts of entered names ("Black" of "Black & Decker"), which are removed everywhere by default
+    and may be ordinary product words; a part that is itself an entered name or alias is never listed.
+    Returns [{"word", "company" (whose name, brand or group company it is), "kind" ("part of the name" or "brand or
+    group company"), "examples": [(company, text)]}]. Pure code."""
+    typed = [n for c in companies for n in [c["name"]] + list(c.get("aliases") or []) if n]
+    fixed = {v.lower() for v in rules.name_variants(typed)}
+    entered = {v.lower() for v in rules.name_variants(typed + rules.name_parts(typed))}
+    owners, kinds = {}, {}
+    for c in companies:
+        for p in rules.name_parts([c["name"]] + list(c.get("aliases") or [])):
+            if p.lower() not in fixed:
+                owners.setdefault(p.lower(), (p, c["name"]))
+                kinds.setdefault(p.lower(), "part of the name")
     for c in companies:
         for n in list(group_companies.get(c["name"]) or []) + [b for a in activities.get(c["name"], [])
                                                                for b in a.get("brands") or []]:
@@ -81,6 +94,7 @@ def names_used_as_words(companies, activities, group_companies):
             if not n or n.lower() == "not stated" or {v.lower() for v in rules.name_variants([n])} & entered:
                 continue
             owners.setdefault(n.lower(), (n, c["name"]))
+            kinds.setdefault(n.lower(), "brand or group company")
     found = []
     for word, owner in owners.values():
         examples = []
@@ -92,7 +106,8 @@ def names_used_as_words(companies, activities, group_companies):
                         if text and rules.find_names(str(text), [word]):
                             examples.append((c["name"], str(text)))
         if examples:
-            found.append({"word": word, "company": owner, "examples": list(dict.fromkeys(examples))[:3]})
+            found.append({"word": word, "company": owner, "kind": kinds[word.lower()],
+                          "examples": list(dict.fromkeys(examples))[:3]})
     return sorted(found, key=lambda x: x["word"].lower())
 
 
