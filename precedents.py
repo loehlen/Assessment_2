@@ -65,9 +65,11 @@ STOP_WORDS = {
 BASIS_LABEL = {"precedent": "Precedent", "analogy": "Analogy", "none": "No precedent"}
 # 20 Oct (fix A): the reflection may only report a conclusion that a paragraph it was sent states
 NOT_STATED = "not stated in these paragraphs"
+PARTLY = "defined, a further question left open"      # 20 Oct (Linda): decided on one boundary, another left open
+STATED = ("defined", "left open", PARTLY)
 FIT_ONE, FIT_RANGE, FIT_UNCLEAR = "one market", "range across these markets", "one of these, unclear which"
 FIT_SAME = "the same market in different decisions"     # 20 Oct: e.g. "cocoa powder" (M.6872) = "cocoa cake/powder"
-CONCLUSION_LABEL = {"defined": "defined", "left open": "definition left open",
+CONCLUSION_LABEL = {"defined": "defined", "left open": "definition left open", PARTLY: PARTLY,
                     NOT_STATED: "conclusion not in the retrieved paragraphs"}
 
 # The product-market checklist of the Market Definition Notice (2024), shown as questions for the lawyer where the
@@ -392,6 +394,19 @@ def run_unit(ai, unit, names, retriever, corpus=None):
     return record
 
 
+def upgrade_market(m):
+    """Records from before the decided / left-open split (20 Oct) had one 'conclusion' quotation: it becomes the decided
+    or the left-open passage, according to the label. Changes the market in place; idempotent."""
+    if "decided_quote" in m or "conclusion_quote" not in m:
+        return m
+    part = "open" if m.get("conclusion") == "left open" else "decided"
+    for f in ("quote", "paragraph", "quote_found"):
+        m[f"{part}_{f}"] = m.get(f"conclusion_{f}", False if f == "quote_found" else "")
+        other = "decided" if part == "open" else "open"
+        m.setdefault(f"{other}_{f}", False if f == "quote_found" else "")
+    return m
+
+
 def complete_conclusions(markets):
     """Fix A (20 Oct): a market whose conclusion is not in the paragraphs of its own call takes the conclusion of the
     SAME market found by another call of the same search (same name, or one name ending with the other and both citing
@@ -401,17 +416,18 @@ def complete_conclusions(markets):
     for mid, m in markets.items():
         if m.get("conclusion") != NOT_STATED:
             continue
-        donors = [o for oid, o in markets.items() if oid != mid and o.get("conclusion") in ("defined", "left open")
+        donors = [o for oid, o in markets.items() if oid != mid and o.get("conclusion") in STATED
                   and _same_market(m, o)]
         found = {o["conclusion"] for o in donors}
         if len(found) != 1:
             continue
         m["conclusion"] = found.pop()
         m["conclusion_from"] = [o["market_id"] for o in donors]
-        quoted = next((o for o in donors if o.get("conclusion_quote_found")), None)
-        if quoted:                       # the sentence that states it, from the search that found it
-            for f in ("conclusion_quote", "conclusion_paragraph", "conclusion_quote_found"):
-                m[f] = quoted[f]
+        quoted = next((o for o in donors if o.get("decided_quote_found") or o.get("open_quote_found")), None)
+        if quoted:                       # the passages that state it, from the search that found them
+            for part in ("decided", "open"):
+                for f in (f"{part}_quote", f"{part}_paragraph", f"{part}_quote_found"):
+                    m[f] = quoted.get(f, "" if not f.endswith("found") else False)
         m["product_paragraphs"] = _sorted_ids(set(m["product_paragraphs"]) |
                                               {pid for o in donors for pid in o["product_paragraphs"]})
         taken.append(f"{mid} ({m['name']}): '{m['conclusion']}' taken from {', '.join(m['conclusion_from'])}")
@@ -591,7 +607,7 @@ def check(data, index, pool, paras):
         # 20 Oct (Linda): what the Commission defined, in its own words, checked in code like the source quotations of
         # step 2: a quotation counts only if it is in a paragraph that was sent (if it is in another paragraph than
         # the one given, that one is used and the correction is listed)
-        for part in ("conclusion", "scope"):
+        for part in ("decided", "open", "scope"):
             quote, found, where = check_quote(m.get(f"{part}_quote"), m.get(f"{part}_paragraph"), pool, paras)
             markets[mid][f"{part}_quote"] = quote
             markets[mid][f"{part}_paragraph"] = where
@@ -610,7 +626,12 @@ def check(data, index, pool, paras):
                                 "paragraph": pid if pid in pool and paras.get(pid, {}).get("source_type")
                                 == SOURCE_DECISION else ""})
         markets[mid]["reasons"] = reasons
-        extra = {markets[mid]["conclusion_paragraph"], markets[mid]["scope_paragraph"]} | {r["paragraph"] for r in reasons}
+        # the label follows the passages the code found word for word (the AI's own label only if it found none)
+        d, o = markets[mid]["decided_quote_found"], markets[mid]["open_quote_found"]
+        if d or o:
+            markets[mid]["conclusion"] = PARTLY if d and o else "defined" if d else "left open"
+        extra = {markets[mid]["decided_paragraph"], markets[mid]["open_paragraph"], markets[mid]["scope_paragraph"]} \
+            | {r["paragraph"] for r in reasons}
         markets[mid]["product_paragraphs"] = _sorted_ids(set(prod) | {x for x in extra if x})
     placements = {}
     for p in data.get("placements") or []:
@@ -793,7 +814,8 @@ def row_view(r, record, overrides, effective_status, dismissed_parts):
             "only_b": [o["group"] for k, o in mb.items() if k not in ma],
             # the precedent puts the two companies' items into different markets: shown, never deleted (spec section 8)
             "different": bool(ma and mb and not shared and _same_call(record, r, items)),
-            "left_open": any((g["market"] or {}).get("conclusion") == "left open" for g in a + b if g["market"]),
+            "left_open": any((g["market"] or {}).get("conclusion") in ("left open", PARTLY) for g in a + b
+                             if g["market"]),
             "not_stated": any((g["market"] or {}).get("conclusion") == NOT_STATED for g in a + b if g["market"]),
         }
     return view

@@ -418,20 +418,28 @@ market:
 - market_id: "M1", "M2", ... (any order)
 - name: the market in the Commission's words (e.g. "supply of nitrogen fertilisers to distributors")
 - product_paragraphs: the ids of the paragraphs that define or discuss this product market, copied from the list
-- conclusion: what a paragraph IN THE LIST says the Commission concluded on this market: "defined" if a paragraph
-  states that it is (or that it falls within) a relevant product market (also where separate markets were found);
-  "left open" if a paragraph states that the exact product market definition was left open; "not stated in these
-  paragraphs" if the paragraphs describe or discuss the market but none of them states the Commission's conclusion.
-  Never infer a conclusion that no paragraph in the list states
+- The Commission does not define or leave open a market as a whole: it decides some questions about where the
+  market's boundaries lie and may leave others open (e.g. it finds that electric bicycles are a market separate from
+  conventional bicycles, but leaves open whether pedelecs and speed pedelecs are separate within it). Report both:
+- decided_quote / decided_paragraph: the passage that states what the Commission DECIDED about this market (e.g. that
+  it is a separate relevant product market, that it is separate from another product, or that it falls within a wider
+  market), copied WORD FOR WORD from one paragraph of the list, and that paragraph's id; "" and "" if no paragraph in
+  the list states a decision
+- open_quote / open_paragraph: the passage that states which QUESTION about this market the Commission LEFT OPEN,
+  copied WORD FOR WORD from one paragraph of the list, and its id. It must name the question (e.g. "whether electric
+  bicycles form a separate market or belong to a wider market for bicycles can be left open"): if the sentence that
+  leaves it open does not name the question, copy it together with the preceding sentence(s) of the same paragraph
+  that do, as one continuous passage. "" and "" if no paragraph in the list leaves a question open
+- conclusion: "defined" if there is a decided passage only; "left open" if there is an open passage only; "defined, a
+  further question left open" if there are both; "not stated in these paragraphs" if the paragraphs describe or
+  discuss the market but none states a decision or an open question. Never infer what no paragraph in the list states
 - summary: one factual sentence on what the paragraphs say about this market, including any segment that was found to
   be separate or left open
-- conclusion_quote / conclusion_paragraph: the sentence that states the Commission's conclusion on this market,
-  copied WORD FOR WORD from one paragraph of the list, and that paragraph's id; "" and "" if no paragraph states it
 - scope_quote / scope_paragraph: the sentence that says what the market covers (what the products are, e.g. size,
   form, use, customers), copied WORD FOR WORD from one paragraph of the list, and its id; "" and "" if none does
-- reasons: the main reasons the paragraphs give for this market or for separating it from others (e.g. "price per
-  kg", "frequency of purchase", "production equipment"), a few words each, each with the id of the paragraph that
-  gives it; [] if the paragraphs give none. Report only reasons the paragraphs state
+- reasons: the main reasons the paragraphs give for this market or for separating it from others (e.g. "price
+  differences", "different end uses", "separate production lines"), a few words each, each with the id of the
+  paragraph that gives it; [] if the paragraphs give none. Report only reasons the paragraphs state
 placements: one entry for EVERY item id in the list:
 - item_id: copied from the list, e.g. "2.3"
 - market_ids: the market or markets for this item, or [] if no market in the paragraphs fits it. Each product
@@ -442,7 +450,7 @@ placements: one entry for EVERY item id in the list:
   and never name a wider category together with one of its own segments for the same item
 - fit: "one market" if market_ids has one market (or none); "range across these markets" for case (a); "one of these,
   unclear which" for case (b); "the same market in different decisions" if the markets named are one and the same
-  market as described in different decisions (e.g. "cocoa powder" in one decision and "cocoa cake/powder" in another)
+  market as described in different decisions (e.g. "mountain bikes" in one decision and "off-road bicycles" in another)
 - basis: "precedent" if the market was defined for this type of product at this level of trade; "analogy" if it was
   defined for the same product at another level of trade, or for a different product that is similar in what it is
   and in what it does for the customer (its characteristics and its function), so that a lawyer might apply the
@@ -465,7 +473,7 @@ Rules:
 
 
 class MarketReason(BaseModel):
-    reason: str = Field(description="A reason the paragraphs give, in a few words (e.g. 'price per kg')")
+    reason: str = Field(description="A reason the paragraphs give, in a few words (e.g. 'price differences')")
     paragraph: str = Field(description="The id of the paragraph that gives it")
 
 
@@ -473,11 +481,15 @@ class MarketFound(BaseModel):
     market_id: str = Field(description="M1, M2, ...")
     name: str = Field(description="The market in the Commission's words")
     product_paragraphs: list[str] = Field(description="Ids of the paragraphs on this product market, from the list")
-    conclusion: Literal["defined", "left open", "not stated in these paragraphs"] = Field(
-        description="What a paragraph in the list says the Commission concluded; never inferred")
+    conclusion: Literal["defined", "left open", "defined, a further question left open",
+                        "not stated in these paragraphs"] = Field(
+        description="What the paragraphs in the list say the Commission decided and left open; never inferred")
     summary: str = Field(description="One factual sentence on what the paragraphs say about this market")
-    conclusion_quote: str = Field(description="The sentence stating the Commission's conclusion, word for word, or ''")
-    conclusion_paragraph: str = Field(description="The id of the paragraph that contains conclusion_quote, or ''")
+    decided_quote: str = Field(description="The passage stating what the Commission decided, word for word, or ''")
+    decided_paragraph: str = Field(description="The id of the paragraph that contains decided_quote, or ''")
+    open_quote: str = Field(description="The passage naming the question the Commission left open, word for word, "
+                                        "or ''")
+    open_paragraph: str = Field(description="The id of the paragraph that contains open_quote, or ''")
     scope_quote: str = Field(description="The sentence saying what the market covers, word for word, or ''")
     scope_paragraph: str = Field(description="The id of the paragraph that contains scope_quote, or ''")
     reasons: list[MarketReason] = Field(description="The main reasons the paragraphs give, each with its paragraph")

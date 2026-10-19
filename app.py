@@ -1599,11 +1599,12 @@ STEP3_TEXT = ("For each portfolio company, the table shows which of its activiti
               "for each (🔴 / 🟠), so you can dismiss one and keep the other; a note is optional. Both go into the audit "
               "log. The line “No overlap found with” under a target activity names the activities that do not meet it; "
               "“Why?” shows the reasons and lets you add a pair back.")
-STEP4_TEXT = ("Under each row you kept, a blue block now shows how the European Commission defined the markets of the "
-              "products in that row, in the decisions of the corpus, and where that puts the two companies. One search "
-              "per activity of the target covers all its rows: the AI sorted their products into types of product; "
-              "each type was searched in the decisions and placed in the markets the retrieved paragraphs define, in a "
-              "call of its own. The code checked every cited paragraph and every quotation against the decisions.")
+STEP4_TEXT = ("How the European Commission defined the markets of the products in the rows you kept, in the decisions "
+              "of the corpus: first the definitions, decision by decision; then, under each row, where they put the two "
+              "companies' products. One search per activity of the target covers all its rows: the AI sorted their "
+              "products into types of product; each type was searched in the decisions and placed in the markets the "
+              "retrieved paragraphs define, in a call of its own. The code checked every cited paragraph and every "
+              "quotation against the decisions.")
 
 
 @st.cache_data(show_spinner=False)
@@ -1627,8 +1628,9 @@ def stage_overview(ai, step=3):
     st.write(STEP4_TEXT if step == 4 else STEP3_TEXT)
     if step == 4:
         st.markdown(PREF_CSS, unsafe_allow_html=True)         # once per page: the blocks under the rows use it
+        applicable_today()
         with st.expander("How to read step ④", expanded=True):
-            st.markdown(how_to_read())
+            st.markdown(how_to_read(), unsafe_allow_html=True)
         st.write("The dismiss and note fields work as in step ③; the market definitions of a row you add back are "
                  "found with “Update the market definitions” below.")
     if ss.get("acts") and ss.get("confirmed_hash") and activities_hash(ss.acts) != ss.confirmed_hash:
@@ -1660,6 +1662,8 @@ def stage_overview(ai, step=3):
         for a in [ss.confirmed[target][i] for i in display_order(ss.confirmed[target])]:
             st.markdown("- " + activity_line(a, target), unsafe_allow_html=True)
 
+    if step == 4 and ss.get("precedents"):
+        definitions_section()          # 20 Oct (Linda): the law once, before the rows that apply it
     for i, p in enumerate(portcos, start=1):
         portco_section(i, p, target, [r for r in results if r["portco"] == p], status, rv)
 
@@ -1813,36 +1817,52 @@ PREF_CSS = """<style>
 .ccard .qt{font-style:italic}
 .ccard .aiw{opacity:.75}
 .cnote{opacity:.68;font-size:.92em}
-.cblock summary{cursor:pointer;font-weight:600}
+.cblock summary,.dblock summary{cursor:pointer}
+.cblock[open] summary{margin-bottom:.3em}
+.atab{border-collapse:collapse;width:100%;margin:.2em 0 .1em 0;font-size:.95em}
+.atab th,.atab td{border-top:1px solid rgba(128,128,128,.25);border-left:none;border-right:none;border-bottom:none;
+ padding:.3em .55em;vertical-align:top;text-align:left}
+.atab th{font-weight:600;opacity:.8}
+.defs{margin-bottom:.6em}
+.dblock{padding:.35em .9em;border-left:3px solid rgba(26,95,180,.55);background:rgba(26,95,180,.045);
+ border-radius:4px;margin:.25em 0;line-height:1.55}
+.dline{margin-top:.45em;padding-top:.35em;border-top:1px solid rgba(128,128,128,.22)}
+.lbl{opacity:.68}
+.qt{font-style:italic}
+.aiw{opacity:.75}
 </style>"""
 
-HOW_TO_READ = """**How to read step ④.** Under each row you kept, a blue block shows how the European Commission defined the
-markets of the products in that row, in its past merger decisions.
-- **Relevant product market**: all products that customers regard as interchangeable, because of their
-  characteristics, prices and intended use ([Market Definition Notice]({notice}) (12)).
-  If the Commission found two products to be in different markets, it treats them as not competing with each other.
-- **Defined**: the Commission concluded on this market · **definition left open**: it did not have to decide ·
-  **conclusion not in the retrieved paragraphs**: the paragraphs found discuss the market, but none of them states
-  the conclusion (check the decision).
-- **Defined as / Covers / Why separate**: the Commission's own sentences, quoted word for word (the code checked each
-  quotation against the paragraph; *grey text* is the AI's wording where no exact sentence was found).
-- **[M.5644 (24)]**: decision M.5644, paragraph 24. Hover over it to read the paragraph exactly as the AI saw it;
-  click to open the decision.
-- **Precedent**: the market was defined for this kind of product at this level of trade · **by analogy**: defined for
-  the same product at another level of trade, or for a product that does the same job, so it applies only by analogy
-  · **No precedent**: no decision in the corpus fits; the questions of the Notice are listed below each company's
-  table.
-- **Possibly**: a product could belong to one of several markets (e.g. "chocolate bars": countlines or tablets) ·
-  **only through a general term**: only a range or the activity's name leads to the market, so which products are in
-  it is for you to check.
-- A decision describes the market at its time; the Commission starts from it but checks whether it still fits
-  (Notice (14)). The result is a preliminary overview: you decide."""
+HOW_TO_READ = """- **Relevant product market**: all products that customers regard as interchangeable, because of their
+  characteristics, prices and intended use (Market Definition Notice {notice12}). If the Commission found two
+  products to be in different markets, it treats them as not competing with each other.
+- **First the law**: “The Commission's market definitions used in this screen” lists, decision by decision, what the
+  Commission concluded, in its own words, what each market covers and why it was separated. **Defined**: the
+  Commission decided where this market's boundary lies · **definition left open**: it did not have to decide ·
+  **defined, a further question left open**: it decided one boundary (e.g. that the market is separate from another
+  product) and left another open (e.g. whether it belongs to a wider market); both passages are quoted ·
+  **conclusion not in the paragraphs found**: the paragraphs discuss the market but none states a conclusion (check
+  the decision).
+- **Then the application**: under each row, “④” says in one line where the precedent puts the two companies' products;
+  click it for the table: each market, each company's products in it, and the result. Hover over a market name for its
+  definition in short.
+- **Quotations** are the Commission's sentences word for word, checked by the code against the paragraph; *grey text*
+  is the AI's wording where no exact sentence was found. {example}: hover to read the paragraph exactly as the AI
+  saw it, click to open the decision.
+- **Precedent**: defined for this kind of product at this level of trade · **by analogy**: defined for the same product
+  at another level of trade, or for a product that does the same job · **No precedent**: no decision in the corpus
+  fits; the questions of the Notice are listed below each company's table.
+- **?** after a product: it could belong to one of several markets (hover for which) · **(general term)**: only a
+  range or the activity's name leads to the market, so which products are in it is for you to check.
+- The result is a preliminary overview: you decide."""
 
 
 def how_to_read():
-    notice = (corpus_paragraphs().get("Notice-12") or {}).get("url") or ""
-    return HOW_TO_READ.replace("{notice}", notice) if notice.startswith("https://") else \
-        HOW_TO_READ.replace("[Market Definition Notice]({notice})", "Market Definition Notice")
+    """The legend, with live hovers (20 Oct): Notice (12), and as the example a paragraph this screen actually cites."""
+    cited = prec._sorted_ids({pid for pid in screen_paragraphs() if not pid.startswith("Notice")})
+    ex = cited[0] if cited else "Notice-12"
+    case, _, n = ex.rpartition("-")
+    example = f"{para_ref(ex, screen_paragraphs())} is {h(case)}, paragraph {h(n)}"
+    return HOW_TO_READ.replace("{notice12}", para_ref("Notice-12", {})).replace("{example}", example)
 
 
 def h(text):
@@ -1870,7 +1890,8 @@ def para_ref(pid, paras):
     notes = "".join(f"<br><i>Footnote {h(f.get('n'))}:</i> {h(f.get('text'))}" for f in p.get("footnotes") or [])
     meta = " · ".join(x for x in (p.get("section"), p.get("decision")) if x)
     url = p.get("url") if str(p.get("url") or "").startswith("https://") else ""
-    box = (f"<b>{h(p['case'])} {h(p.get('title'))} ({h(str(p.get('date') or '')[:4])}), para ({h(p.get('para'))})</b>"
+    name = p.get("title") if p["case"] == "Notice" else f"{p['case']} {p.get('title')}"
+    box = (f"<b>{h(name)} ({h(str(p.get('date') or '')[:4])}), para ({h(p.get('para'))})</b>"
            + (f"<br><span style='opacity:.7'>{h(meta)}</span>" if meta else "")
            + f"<br>{h(p.get('text'))}{notes}"
            + ("<br><span style='opacity:.7'>The paragraph exactly as the AI saw it. Click to open the decision.</span>"
@@ -1911,112 +1932,260 @@ def row_markets(view):
             e[side] = _merge_group(e[side], g)
     rows = []
     for e in out.values():
-        best = max(e["markets"], key=lambda m: (m.get("conclusion") in ("defined", "left open"),
-                                                bool(m.get("conclusion_quote_found")), bool(m.get("scope_quote_found"))))
+        best = _best(e["markets"])
         paras = {pid for m in e["markets"] for pid in m.get("product_paragraphs") or []}
         rows.append({"market": best, "paragraphs": paras, "a": e["a"], "b": e["b"]})
     return rows
 
 
-CONCLUSION_TEXT = {"defined": "defined by the Commission", "left open": "definition left open by the Commission",
-                   prec.NOT_STATED: "conclusion not in the retrieved paragraphs"}
-BASIS_TIP = {"precedent": "Precedent: the Commission defined this market for this kind of product at this level of trade",
-             "analogy": "By analogy: defined for the same product at another level of trade, or for a product that does "
-                        "the same job; it applies only by analogy"}
+CONCLUSION_TEXT = {"defined": "defined", "left open": "definition left open",
+                   prec.PARTLY: "defined, a further question left open",
+                   prec.NOT_STATED: "conclusion not in the paragraphs found"}
+SETTLED = ("defined", prec.PARTLY)          # a boundary the Commission decided (20 Oct)
 
 
-def _quote_line(label, m, part, paras):
+def decision_of(m):
+    """The decision a market comes from: that of its conclusion sentence, else the one most of its paragraphs cite."""
+    pid = m.get("decided_paragraph") or m.get("open_paragraph") or m.get("conclusion_paragraph")
+    if pid:
+        return pid.rpartition("-")[0]
+    cases = [pid.rpartition("-")[0] for pid in m.get("product_paragraphs") or [] if not pid.startswith("Notice")]
+    return max(set(cases), key=cases.count) if cases else ""
+
+
+def decision_label(case):
+    p = next((x for pid, x in corpus_paragraphs().items() if pid.startswith(case + "-")), None)
+    return f"{case} {p['title']} ({str(p['date'])[:4]})" if p else case
+
+
+def screen_paragraphs():
+    out = {}
+    for rec in (ss.get("precedents") or {}).values():
+        out.update(rec.get("paragraphs") or {})
+    return out
+
+
+def used_markets():
+    """Every market that at least one product of the screen was placed in, merged across the searches by decision and
+    name: {(case, key): {"markets": [...], "name": ...}}."""
+    out = {}
+    for rec in (ss.get("precedents") or {}).values():
+        used = {mid for p in (rec.get("placements") or {}).values() for mid in prec.ids_of(p)}
+        for mid, m in (rec.get("markets") or {}).items():
+            prec.upgrade_market(m)
+            if mid not in used:
+                continue
+            e = out.setdefault((decision_of(m), prec._market_key(m["name"])), {"markets": [], "name": m["name"]})
+            e["markets"].append(m)
+    return out
+
+
+def _best(markets):
+    for m in markets:
+        prec.upgrade_market(m)
+    return max(markets, key=lambda m: (m.get("conclusion") in prec.STATED,
+                                       bool(m.get("decided_quote_found")) + bool(m.get("open_quote_found")),
+                                       bool(m.get("scope_quote_found"))))
+
+
+def _quote(m, part, paras):
     quote, found, pid = m.get(f"{part}_quote"), m.get(f"{part}_quote_found"), m.get(f"{part}_paragraph")
-    if not quote:
-        return ""
-    if found:
-        return f"<br><span class='lbl'>{label}</span> <span class='qt'>“{h(quote)}”</span> {para_ref(pid, paras)}"
-    return (f"<br><span class='lbl'>{label}</span> <span class='aiw'>{h(quote)} (the AI's wording: not found word for "
-            "word in the paragraphs)</span>")
+    if quote and found:
+        return f"<span class='qt'>“{h(quote)}”</span> {para_ref(pid, paras)}"
+    if quote:
+        return f"<span class='aiw'>{h(quote)} (the AI's wording: not found word for word)</span>"
+    return ""
 
 
-def _side_line(who, g):
+def definitions_section():
+    """Step ④, once per screen (20 Oct, Linda): what the Commission defined, decision by decision, separated from how
+    it applies to the rows. Built in code from the stored searches."""
+    used = used_markets()
+    if not used:
+        st.markdown("##### The Commission's market definitions used in this screen")
+        st.caption("None: no decision in the corpus defines a market for the products of this screen. Under each "
+                   "company's table, the questions of the Market Definition Notice are the starting point instead.")
+        return
+    paras = screen_paragraphs()
+    by_case = {}
+    for (case, key), e in used.items():
+        by_case.setdefault(case, []).append(e)
+    parts = []
+    for case in sorted(by_case, key=lambda c: (c == "", c)):
+        entries = sorted(by_case[case], key=lambda e: e["name"].lower())
+        groups = {}
+        for e in entries:
+            groups.setdefault(_best(e["markets"]).get("conclusion") or "defined", []).append(capital(e["name"]))
+        order = ["defined", prec.PARTLY, "left open", prec.NOT_STATED]
+        summary = " · ".join(f"{CONCLUSION_TEXT.get(k, k)}: {', '.join(groups[k])}"
+                             for k in sorted(groups, key=lambda k: order.index(k) if k in order else 9))
+        body = []
+        # what the Commission decided and what it left open, each passage once, with the markets it concerns
+        # (20 Oct, Linda: a decision settles some boundaries of a market and may leave others open)
+        sentences = {}
+        for e in entries:
+            m = _best(e["markets"])
+            found = False
+            for part in ("decided", "open"):
+                if m.get(f"{part}_quote"):
+                    found = True
+                    key = (part, m.get(f"{part}_paragraph"), prec._plain(m.get(f"{part}_quote")))
+                    sentences.setdefault(key, {"m": m, "names": []})["names"].append(capital(e["name"]))
+            if not found and m.get("summary"):
+                sentences.setdefault(("summary", "", e["name"]), {"m": m, "names": [capital(e["name"])]})
+        label = {"decided": "Decided", "open": "Left open", "summary": "AI summary"}
+        for (part, pid, _), s in sorted(sentences.items(), key=lambda x: ["decided", "open", "summary"].index(x[0][0])):
+            q = (_quote(s["m"], part, paras) if part != "summary"
+                 else f"<span class='aiw'>{h(s['m'].get('summary'))}</span>")
+            if q:
+                body.append(f"<div class='dline'><span class='lbl'>{label[part]}</span> "
+                            f"({h(', '.join(s['names']))}): {q}</div>")
+        for e in entries:
+            m = _best(e["markets"])
+            line = f"<b>{h(capital(e['name']))}</b> · {h(CONCLUSION_TEXT.get(m.get('conclusion'), 'defined'))}"
+            cover = _quote(m, "scope", paras)
+            if cover:
+                line += f"<br><span class='lbl'>Covers:</span> {cover}"
+            reasons = {}           # the reasons of the search with the best entry (several searches word them differently)
+            for r in m.get("reasons") or []:
+                reasons.setdefault(r["reason"].strip().rstrip(".").lower(), (r["reason"], set()))[1].add(
+                    r.get("paragraph") or "")
+            if reasons:
+                line += "<br><span class='lbl'>Why separate:</span> " + " · ".join(
+                    f"{h(text)} {para_refs(pids, paras)}" for text, pids in reasons.values())
+            other = {(x.get("conclusion"), x.get("decided_paragraph") or x.get("open_paragraph")) for x in e["markets"]
+                     if x.get("conclusion") != m.get("conclusion") and x.get("conclusion") in prec.STATED}
+            if other:
+                line += ("<br><span class='cnote'>The searches read this differently: another one found "
+                         + "; ".join(f"“{h(CONCLUSION_TEXT[c])}” {para_ref(p, paras) if p else ''}" for c, p in other)
+                         + ". Read both paragraphs.</span>")
+            line += "<br><span class='lbl'>All paragraphs:</span> " + para_refs(
+                {pid for x in e["markets"] for pid in x.get("product_paragraphs") or []}, paras)
+            body.append(f"<div class='dline'>{line}</div>")
+        parts.append(f"<details class='dblock'><summary><b>{h(decision_label(case) if case else 'Other')}</b> · "
+                     f"{h(summary)}</summary>{''.join(body)}</details>")
+    st.markdown("##### The Commission's market definitions used in this screen")
+    st.caption("Decision by decision, in the Commission's own words: what it decided about each market and which "
+               "question it left open (a decision often settles one boundary of a market and leaves another open), "
+               "what each market covers and why it was separated. Under each row, “④” then shows only where the two "
+               "companies' products fall.")
+    st.markdown("<div class='defs'>" + "".join(parts) + "</div>", unsafe_allow_html=True)
+
+
+def market_hover(m, paras):
+    """A market name in a row's table; hover shows its definition in short (the full entry is in the section above)."""
+    case = decision_of(m)
+    box = f"<b>{h(capital(m['name']))}</b> · {h(CONCLUSION_TEXT.get(m.get('conclusion'), 'defined'))}"
+    box += f"<br><span style='opacity:.7'>{h(decision_label(case))}</span>" if case else ""
+    prec.upgrade_market(m)
+    for label, part in (("Decided", "decided"), ("Left open", "open"), ("Covers", "scope")):
+        q, pid = m.get(f"{part}_quote"), m.get(f"{part}_paragraph")
+        if q and m.get(f"{part}_quote_found"):
+            box += f"<br><i>{label}:</i> “{h(q)}” ({h(pid.replace('-', ' (') + ')')})"
+    if not (m.get("decided_quote") or m.get("open_quote")) and m.get("summary"):
+        box += f"<br><i>AI summary:</i> {h(m['summary'])}"
+    box += "<br><span style='opacity:.7'>The full entry is under “The Commission's market definitions” above.</span>"
+    return f"<span class='pref'>{h(capital(m['name']))}<span class='pbox'>{box}</span></span>"
+
+
+def _cell(g):
     if not g:
-        return ""
+        return "–"
     notes = g.get("notes") or {}
     shown = g["items"]
     if g.get("status") != "general":
-        # a general term (the activity name, a range) is named only where nothing more specific leads to the market
         shown = [i for i in g["items"] if "spans several markets" not in notes.get(i, "")] or g["items"]
-    items = ", ".join(h(i) + (f" <span class='cnote'>({h(notes[i])})</span>" if i in notes else "") for i in shown)
-    basis = "precedent" if g["basis"] == "precedent" else "analogy"
-    tag = "Precedent" if basis == "precedent" else "by analogy"
-    return (f"<br><span class='lbl'>{h(who)}:</span> {items} · <span title='{h(BASIS_TIP[basis])}' "
-            f"style='border-bottom:1px dotted'>{tag}</span>")
+    out = []
+    for i in shown:
+        note = notes.get(i, "")
+        if "unclear which" in note:
+            out.append(f"{h(i)}<span title='{h(note)}' style='cursor:help;border-bottom:1px dotted'>?</span>")
+        elif note:
+            out.append(f"{h(i)} <span class='cnote' title='{h(note)}'>(general term)</span>")
+        else:
+            out.append(h(i))
+    text = ", ".join(out)
+    return text + (" · <i>by analogy</i>" if g["basis"] != "precedent" else "")
 
 
-def _status_line(e, target, portco):
-    a, b = e["a"], e["b"]
-    if a and b:
-        st_ = max(a.get("status", "specific"), b.get("status", "specific"), key=STATUS_RANK.get)
-        how = "" if a["basis"] == b["basis"] == "precedent" else " (by analogy for at least one of them)"
-        open_ = e["market"].get("conclusion") != "defined"
-        text = {"specific": (f"→ Both have a product in this market{how}: under this precedent they would compete "
-                             "here (potential horizontal overlap)." if not open_ else
-                             f"→ Both have a product in this category{how}, but the Commission did not conclude on it "
-                             "(see above), so the precedent does not settle whether they compete here."),
-                "possibly": f"→ Possibly both{how}: a product of at least one of them could also belong to another "
-                            "market (see the notes in brackets).",
-                "general": f"→ Both only through a general term{how} (a range or the activity name): which products "
-                           "are in this market is to be checked."}[st_]
-    else:
-        text = f"→ Only {target if a else portco} has products in this market."
-    return f"<br><b>{h(text)}</b>"
+def _result(e, target, portco, roles=None):
+    a, b, conc = e["a"], e["b"], e["market"].get("conclusion")
+    if not (a and b):
+        side = "a" if a else "b"
+        if roles and roles.get(side):        # a vertical row: the market of the supplying or of the buying side
+            return f"{h(target if a else portco)}'s market ({roles[side]})"
+        return f"only {h(target if a else portco)}"
+    st_ = max(a.get("status", "specific"), b.get("status", "specific"), key=STATUS_RANK.get)
+    analogy = "" if a["basis"] == b["basis"] == "precedent" else ", by analogy"
+    if st_ == "general":
+        return "both only through a general term: to be checked"
+    if st_ == "possibly":
+        return f"possibly both{analogy}"
+    if conc == "left open":
+        return f"both{analogy}, but the Commission left the definition open"
+    if conc == prec.NOT_STATED:
+        return f"both{analogy}; conclusion not in the paragraphs found"
+    if conc == prec.PARTLY:
+        return (f"<b>both{analogy}</b>; a further question about this market was left open (hover over the market "
+                "name)")
+    return f"<b>both{analogy}</b>"
 
 
-def market_card(e, rec, target, portco):
-    m, paras = e["market"], rec.get("paragraphs") or {}
-    conc = m.get("conclusion")
-    head = (f"<span class='mname'>{h(capital(m['name']))}</span> · {h(CONCLUSION_TEXT.get(conc, 'defined'))}"
-            + (" <span class='cnote'>(taken from another search of this activity)</span>" if m.get("conclusion_from")
-               else ""))
-    body = _quote_line("Defined as:", m, "conclusion", paras) + _quote_line("Covers:", m, "scope", paras)
-    if not m.get("conclusion_quote") and not m.get("scope_quote") and m.get("summary"):
-        # records from before 20 Oct have no quotations: the AI's one-sentence summary, marked as such
-        body += f"<br><span class='lbl'>AI summary:</span> <span class='aiw'>{h(m['summary'])}</span>"
-    reasons = {}
-    for r in m.get("reasons") or []:
-        reasons.setdefault(r["reason"], set()).add(r.get("paragraph") or "")
-    if reasons:
-        body += "<br><span class='lbl'>Why separate:</span> " + " · ".join(
-            f"{h(k)} {para_refs(v, paras)}" for k, v in reasons.items())
-    body += f"<br><span class='lbl'>All paragraphs:</span> {para_refs(e['paragraphs'], paras)}"
-    body += _side_line(target, e["a"]) + _side_line(portco, e["b"]) + _status_line(e, target, portco)
-    return f"<div class='ccard'>{head}{body}</div>"
+def vertical_roles(r):
+    """For a row whose kept relationship is only vertical: {"a": "supplier side" or "customer side", "b": ...}, from
+    the direction of its links (code). Empty if a horizontal overlap is kept or the links point both ways."""
+    off = set(cmp.dismissed_parts(r, ss.overrides))
+    d = r["decision"]
+    if d.get("horizontal") and "horizontal" not in off:
+        return {}
+    links = [x for x in d.get("vertical_links") or [] if x not in off]
+    ups = {"a" if x in ("A could be an input for B", "A could be resold by B") else "b" for x in links}
+    if len(ups) != 1:
+        return {}
+    up = ups.pop()
+    return {up: "supplier side", ("b" if up == "a" else "a"): "customer side"}
 
 
-def verdict_line(view, target, portco):
-    """The one line at the top of the block: where the precedent puts the two companies (code)."""
-    v = view.get("verdict")
-    if not v:
-        return ""
+def row_summary(entries, view, target, portco, paras=None, roles=None):
+    """The one line of a row's ④, from the same data as its table (code). Market names hover with their definition."""
+    v = view.get("verdict") or {}
+    paras = paras or {}
 
-    def names(groups):
-        return ", ".join(h((g["market"] or {}).get("name", "")) + (" (by analogy)" if g["basis"] == "analogy" else "")
-                         for g in groups)
-    if v["different"]:
-        return (f"⚖ <b>Different markets under the precedent:</b> {h(target)}: {names(v['only_a'])} · {h(portco)}: "
-                f"{names(v['only_b'])}. The Commission would not see these products as competing; lawyer review.")
-    parts = []
-    if v["both"]:
-        parts.append(f"both in {names(v['both'])}")
-    if v.get("possibly"):
-        parts.append(f"possibly both in {names(v['possibly'])}")
-    if v.get("general"):
-        parts.append(f"both only through a general term in {names(v['general'])}")
-    if not parts:
-        return ""
-    return f"⚖ <b>Under the precedent:</b> {h(target)} and {h(portco)}: " + "; ".join(parts) + "."
+    def names(es):
+        return ", ".join(market_hover(e["market"], paras) + (" (by analogy)" if any(
+            x and x["basis"] != "precedent" for x in (e["a"], e["b"])) else "")
+            + (" (a further question left open)" if e["market"].get("conclusion") == prec.PARTLY else "") for e in es)
+    mine = lambda side: ", ".join(market_hover(e["market"], paras) for e in entries if e[side]) or "no precedent"
+    if v.get("different"):
+        return (f"<b>Different markets under the precedent</b>: {h(target)}: {mine('a')} · {h(portco)}: {mine('b')}. "
+                "The Commission would not see these products as competing: lawyer review.")
+    shared = [e for e in entries if e["a"] and e["b"]]
+    if v and shared:
+        rank = lambda e: max(e["a"].get("status", "specific"), e["b"].get("status", "specific"), key=STATUS_RANK.get)
+        conc = lambda e: e["market"].get("conclusion")
+        both = [e for e in shared if rank(e) == "specific" and conc(e) in SETTLED]
+        left = [e for e in shared if rank(e) == "specific" and conc(e) == "left open"]
+        unknown = [e for e in shared if rank(e) == "specific" and conc(e) not in SETTLED + ("left open",)]
+        possibly = [e for e in shared if rank(e) == "possibly"]
+        general = [e for e in shared if rank(e) == "general"]
+        parts = ([f"<b>both in {names(both)}</b>"] if both else []) + \
+                ([f"possibly both in {names(possibly)}"] if possibly else []) + \
+                ([f"both in {names(left)}, whose definition the Commission left open"] if left else []) + \
+                ([f"both in {names(unknown)}; the conclusion is not in the paragraphs found"] if unknown else []) + \
+                ([f"both in {names(general)} only through a general term"] if general else [])
+        return "Under the precedent: " + "; ".join(parts)
+    if roles:
+        up, down = ("a", "b") if roles.get("a") == "supplier side" else ("b", "a")
+        who = {"a": target, "b": portco}
+        return (f"Vertical relationship: {h(who[up])} (supplier side): {mine(up)} → {h(who[down])} (customer side): "
+                f"{mine(down)}")
+    return f"Commission markets: {h(target)}: {mine('a')} · {h(portco)}: {mine('b')}"
 
 
 def commission_block(r, target, portco):
-    """Step ④ under one row (full width): what the Commission defined for the products of this row, and how it
-    applies to the two companies. Assembled in code from the stored search; nothing here is an AI call."""
+    """Step ④ under one row (full width, always collapsed, 20 Oct): one line saying where the precedent puts the two
+    companies' products; opened, a table of the markets, each company's products in them and the result. The law
+    itself is in the section "The Commission's market definitions" above the tables. Code only, no AI call."""
     if not ss.get("precedents"):
         return
     rec, view = row_view(r)
@@ -2031,46 +2200,39 @@ def commission_block(r, target, portco):
         st.markdown(f"④ ✖ :red[The search failed:] {esc(view['error'])}")
         return
     entries = sorted(row_markets(view), key=lambda e: (
-        not (e["a"] and e["b"]),                                   # markets of both companies first
+        not (e["a"] and e["b"]),
         STATUS_RANK.get(max((e["a"] or {}).get("status", "specific"), (e["b"] or {}).get("status", "specific"),
                             key=STATUS_RANK.get), 0),
-        e["market"].get("conclusion") != "defined"))
-    head = "④ What the Commission defined, and how it applies to this row"
-    parts = [f"<div class='chead'>{head}</div>"]
-    line = verdict_line(view, target, portco)
-    if line:
-        parts.append(f"<div>{line}</div>")
-    if not entries:
-        parts.append("<div>No market in the corpus fits the products of this row.</div>")
-    shared = [e for e in entries if e["a"] and e["b"]]
-    single = [e for e in entries if not (e["a"] and e["b"])]
-    parts += [market_card(e, rec, target, portco) for e in shared]
-    if single and shared:
-        # 20 Oct: the markets of only one company are folded (they matter less for the overlap and made the block long)
-        names = ", ".join(h(capital(e["market"]["name"])) for e in single)
-        parts.append(f"<details class='ccard'><summary>Markets of only one of the two companies ({len(single)}): "
-                     f"{names}</summary>" + "".join(market_card(e, rec, target, portco) for e in single) + "</details>")
-    else:
-        # no market of both companies: one folded list per company, so that the line above stays the main message
-        for who, side in ((target, "a"), (portco, "b")):
-            mine = [e for e in single if e[side]]
-            if mine:
-                names = ", ".join(h(capital(e["market"]["name"])) for e in mine)
-                parts.append(f"<details class='ccard'><summary>{h(who)}: {len(mine)} market"
-                             f"{'s' if len(mine) != 1 else ''}: {names}</summary>"
-                             + "".join(market_card(e, rec, target, portco) for e in mine) + "</details>")
+        e["market"].get("conclusion") not in SETTLED, e["market"]["name"].lower()))
+    paras = rec.get("paragraphs") or {}
+    roles = vertical_roles(r)
+    rows = [f"<tr><td>{market_hover(e['market'], paras)} <span class='cnote'>"
+            f"{h(CONCLUSION_TEXT.get(e['market'].get('conclusion'), 'defined'))}</span></td>"
+            f"<td>{_cell(e['a'])}</td><td>{_cell(e['b'])}</td><td>{_result(e, target, portco, roles)}</td></tr>"
+            for e in entries]
     if view["unplaced"]:
-        by_side = [(who, [i for g in groups if g["market_id"] == "none" for i in g["items"]])
-                   for who, groups in ((target, view["a"]), (portco, view["b"]))]
-        parts.append("<div class='ccard'><b>No precedent in the corpus</b> for: "
-                     + " · ".join(f"{h(who)}: {h(', '.join(items))}" for who, items in by_side if items)
-                     + " <span class='cnote'>(the questions of the Market Definition Notice are listed below this "
-                       "company's table)</span></div>")
-    cited = prec.decisions_cited(view, rec)
-    if cited:
-        parts.append(f"<div class='ccard cnote'>Applicable today? {h(', '.join(cited))}: the Commission starts from a "
-                     f"past decision but checks whether it still fits {para_ref('Notice-14', {})}.</div>")
-    st.markdown("<div class='cblock'>" + "".join(parts) + "</div>", unsafe_allow_html=True)
+        side = lambda groups: h(", ".join(i for g in groups if g["market_id"] == "none" for i in g["items"])) or "–"
+        rows.append(f"<tr><td><b>No precedent</b> in the corpus</td><td>{side(view['a'])}</td><td>{side(view['b'])}"
+                    "</td><td class='cnote'>questions of the Notice below this company's table</td></tr>")
+    table = (f"<table class='atab'><tr><th>Market (hover: definition)</th><th>{h(target)}</th><th>{h(portco)}</th>"
+             f"<th>Result</th></tr>{''.join(rows)}</table>")
+    st.markdown(f"<details class='cblock'><summary>④ {row_summary(entries, view, target, portco, paras, roles)}</summary>"
+                f"{table}</details>", unsafe_allow_html=True)
+
+
+def applicable_today():
+    """The intro disclaimer (20 Oct, Linda): once for the screen instead of under every row."""
+    cases = sorted({pid.rpartition("-")[0] for rec in (ss.get("precedents") or {}).values()
+                    for m in (rec.get("markets") or {}).values() for pid in m.get("product_paragraphs") or []
+                    if not pid.startswith("Notice")})
+    if not cases:
+        return
+    years = ", ".join(f"{c}: {decision_label(c).rsplit('(', 1)[-1].rstrip(')')}" for c in cases)
+    st.markdown(f"<div class='cnote' style='opacity:1'><b>Are these decisions still applicable today?</b> The decisions "
+                f"describe each market as it was at the time ({h(years)}). The Commission may start from a past "
+                "decision but is not bound by it, and checks whether the definition still fits, for example after "
+                f"shifts in value chains or digitalisation {para_ref('Notice-14', {})}. Check whether the markets have "
+                "changed since: a precedent is a starting point, not an answer.</div><br>", unsafe_allow_html=True)
 
 
 def no_precedent_box(pairs, target, portco):
@@ -2380,8 +2542,9 @@ def audit_json(snap):
         log["stage_4_market_definitions"] = {
             "settings": {"max_attempts": prec.MAX_ATTEMPTS, "types_per_search": prec.MAX_TYPES,
                          "reflection": "one call per type of product", "max_paragraphs_per_type": prec.MAX_PARAGRAPHS,
-                         "conclusion": "only as stated in a paragraph sent; otherwise taken in code from the same market "
-                                       "in another search of the same activity",
+                         "conclusion": "what the Commission decided and what it left open, each only as a passage quoted "
+                                       "word for word from a paragraph sent (checked in code); otherwise taken in code "
+                                       "from the same market in another search of the same activity",
                          "query_forms": list(prec.QUERY_FORMS), "hits_per_form": prec.HITS_PER_FORM,
                          "unit": "one search per target activity"},
             "searches": snap["precedents"], "rows": snap["precedent_rows"]}
