@@ -1011,8 +1011,14 @@ def around(text, word, width=70):
 
 def _store_keep(word, key):
     keep = set(ss.get("keep_words") or [])
-    (keep.add if ss.get(key) else keep.discard)(word.lower())
-    ss.keep_words = sorted(keep)
+    dropped = set(ss.get("drop_words") or [])
+    if ss.get(key):
+        keep.add(word.lower())
+        dropped.discard(word.lower())
+    else:                       # unticked by the lawyer: never proposed again in this screen (19 Oct)
+        keep.discard(word.lower())
+        dropped.add(word.lower())
+    ss.keep_words, ss.drop_words = sorted(keep), sorted(dropped)
 
 
 def name_word_review():
@@ -1024,17 +1030,31 @@ def name_word_review():
     found = cmp.names_used_as_words(ss.companies, ss.acts, group)
     if not found:
         return
+    # 19 Oct (Linda, option 1): a word that also appears in lower case ("cacaofruit ingredients") is an ordinary
+    # product word, so it is kept by default; the lawyer can untick it. TC3 on Cloud: with the word removed, the AI saw
+    # "[name removed] ingredients" and could not recognise the central horizontal overlap. Words that appear only
+    # capitalised (names that slipped into a description) stay removed unless the lawyer keeps one. Both the proposal
+    # and the lawyer's choice are recorded in the audit log.
     keep = set(ss.get("keep_words") or [])
+    dropped = set(ss.get("drop_words") or [])
+    proposed = set(ss.get("keep_proposed") or [])
+    for f in found:
+        w = f["word"].lower()
+        if f.get("lower_case") and w not in dropped and w not in proposed:
+            proposed.add(w)
+            keep.add(w)
+    ss.keep_words, ss.keep_proposed = sorted(keep), sorted(proposed)
     ordinary = [f for f in found if f.get("lower_case")]
     names = [f for f in found if not f.get("lower_case")]
     with st.container(border=True):
         st.markdown(f"**Names that are also used as words in the descriptions** · {plural(len(found), 'word')}")
         st.caption("Before the comparison, every company name, brand and group company is removed from the descriptions, "
                    "so that the AI never sees who is involved. Some brands are also ordinary product words (e.g. a brand "
-                   "called after its product); removing them can take away what the comparison needs. Tick a word "
-                   "only if it describes the product rather than identifying the company. The entered names and other "
-                   "names are always removed; a part of a name (e.g. “Black” in “Black & Decker”) can be kept if it is "
-                   "an ordinary word here.")
+                   "called after its product); removing them can take away what the comparison needs. A word that "
+                   "the descriptions also use in lower case is ticked for you, because it is probably an ordinary "
+                   "product word: untick it if it identifies the company. Names that appear only as names stay "
+                   "removed. The entered names and other names are always removed; a part of a name (e.g. “Black” in "
+                   "“Black & Decker”) can be kept if it is an ordinary word here.")
         for f in ordinary:
             keep_word_box(f, keep)
         if names:
@@ -1645,6 +1665,7 @@ def audit_snapshot(ai):
             "companies": ss.get("companies"), "mapped": ss.get("mapped"), "relationships": ss.get("relationships"),
             "confirmed": ss.get("confirmed"), "profiles": ss.get("profiles_text"),
             "names": list(ss.get("names") or []), "keep_words": list(ss.get("keep_words") or []),
+            "keep_proposed": list(ss.get("keep_proposed") or []), "drop_words": list(ss.get("drop_words") or []),
             "abstracts": ss.get("profiles_meta"), "results": list(ss.get("results") or []),
             "overrides": dict(ss.get("overrides") or {}), "calls": audit_calls()}
 
@@ -1665,7 +1686,9 @@ def audit_json(snap):
         "stage_2_company_profiles": snap["profiles"],
         "stage_2_confirmed_activities": snap["confirmed"],
         "anonymisation": {"name_variants_removed": sorted(rules.name_variants(snap["names"])),
-                          "kept_as_ordinary_words_by_user": snap["keep_words"],
+                          "kept_as_ordinary_words": snap["keep_words"],
+                          "proposed_by_the_tool (used in lower case)": snap["keep_proposed"],
+                          "unticked_by_user (removed)": snap["drop_words"],
                           "abstracts": snap["abstracts"]},
         "stage_3_factual_comparison": slim,
         "user_overrides": snap["overrides"],
