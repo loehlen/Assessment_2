@@ -35,6 +35,7 @@ import activity_mapping as am
 import ai_client
 import comparison as cmp
 import examples
+import precedents as prec
 import rules
 
 st.set_page_config(page_title="EU Overlap Screen", page_icon="⚖️", layout="wide")
@@ -172,6 +173,8 @@ def do_work(ai, job):
         return True
     if kind == "compare":
         return confirm_activities(ai, job["activities"], [], job["profiles_text"])
+    if kind == "precedents":
+        return run_precedents(ai)
     return True
 
 
@@ -296,6 +299,8 @@ def source_markers(a, company, checks=None):
         style = ("text-decoration:none;font-size:0.85em" if kind == "company" else
                  "text-decoration:underline dotted;opacity:0.75;font-size:0.85em")
         href = (c or {}).get("link") or s.get("url", "")
+        if not str(href).lower().startswith(("http://", "https://")):
+            href = ""                    # 20 Oct: only web links (a loaded audit log could carry anything)
         out.append(f"<a href='{html.escape(href, quote=True)}' target='_blank' title='{tip}' "
                    f"style='{style}'>[{n}]{mark}</a>")
     if a.get("no_available_source") and not out:
@@ -510,6 +515,7 @@ def stage_companies(ai):
              "acquired.")
     restore_inputs()
     example_buttons()
+    loader_box()
     target_card()
     edited = portfolio_card()
     typed_text_warnings(read_companies(edited)[0])
@@ -1200,7 +1206,7 @@ def confirm_activities(ai, activities, problems, profiles_text):
 # definition (grey until stage ④) · preliminary assessment · notes · check. Pairs involving "Other activities" come
 # last and collapsed. Each target activity's block ends with one line naming the activities that do not meet it,
 # with the reasons and "Add back" behind "Why?" (16 Oct, replacing the separate list of pairs without overlap).
-WIDTHS = [1.6, 1.6, 1.25, 3.2, 1.5, 1.15]
+WIDTHS = [1.5, 1.5, 2.3, 3.0, 1.3, 1.15]     # 20 Oct: the market definition column wider (filled in step ④)
 BLOCK_RULE = "<hr style='margin:6px 0 10px 0;border:none;border-top:2px solid rgba(128,128,128,0.45)'>"
 ROW_RULE = "<hr style='margin:4px 0 8px 0;border:none;border-top:1px dashed rgba(128,128,128,0.35)'>"
 FOUND_BY_WORDS = {"AI": "found by the AI", "rule": "found by a code rule", "AI and rule": "found by the AI and a code rule"}
@@ -1364,6 +1370,7 @@ def pair_details(r, target, portco):
                    + (f" · items not found: {'; '.join(rejected)}" if rejected else "") + f" · flags: {r['flags'] or 'none'}")
     st.markdown("**What the AI saw** (no names; the name check ran before the call)")
     st.code(r["prompt"], language=None, wrap_lines=True)
+    search_trail(r, target, portco)
 
 
 def pair_row(r, status, rv, target, portco, first):
@@ -1376,8 +1383,9 @@ def pair_row(r, status, rv, target, portco, first):
     if first:
         cols[0].markdown(table_cell(r["a"], target), unsafe_allow_html=True)
     cols[1].markdown(table_cell(r["b"], portco), unsafe_allow_html=True)
-    cols[2].markdown(":gray[added in step ④]")
-    cols[3].markdown(assessment(r, s, target, portco))
+    with cols[2]:
+        market_cell(r, target, portco)
+    cols[3].markdown(assessment(r, s, target, portco) + precedent_line(r, target, portco))
     with cols[4]:
         key = f"note_{rv}_{pid}"
         st.text_area("Note", value=o.get("note", ""), key=key, placeholder="Note (optional)",
@@ -1561,33 +1569,77 @@ def other_table(t_acts, rows_of, is_out, status, rv, target, p, n_portco):
             target_block(ta, kept_rows, screened, status, rv, target, p, n_portco)
 
 
-def stage_overview(ai):
+def current_overrides():
+    """The lawyer's dismissals, add-backs and notes for the pairs of the current comparison (from the override store,
+    which keeps them across partial updates)."""
+    ss.setdefault("override_store", {})
+    current = {cmp.pair_id(r) for r in ss.results or []}
+    ss.overrides = {pid: dict(o) for pid, o in ss.override_store.items()
+                    if pid in current and (o.get("dismiss") or o.get("add_back") or o.get("note")
+                                           or any((o.get("dismissed_parts") or {}).values()))}
+    return ss.overrides
+
+
+STEP3_TEXT = ("For each portfolio company, the table shows which of its activities meet each activity of the target, "
+              "and how. “Potential” means: not yet checked against the Commission's market definitions, which are added "
+              "in step ④. Where you disagree, tick “Dismiss”; a row with a horizontal and a vertical label has one box "
+              "for each (🔴 / 🟠), so you can dismiss one and keep the other; a note is optional. Both go into the audit "
+              "log. The line “No overlap found with” under a target activity names the activities that do not meet it; "
+              "“Why?” shows the reasons and lets you add a pair back.")
+STEP4_TEXT = ("The column “Commission market definition” now shows how the European Commission defined the markets of "
+              "the products in each row you kept, with the paragraphs of its decisions (“Paragraphs” shows their text). "
+              "One search per activity of the target covers all its rows: the AI wrote the search queries and placed "
+              "each product in a market that the retrieved paragraphs define, and the code checked that every cited "
+              "paragraph was actually retrieved. **Precedent**: defined for this product · **Analogy**: defined for a "
+              "related product, to apply with care · **No precedent**: no decision in the corpus fits; the questions of "
+              "the Market Definition Notice are listed for you. A past decision is a starting point, not a rule "
+              "(Notice (14)). The result stays a preliminary overview: you decide.")
+
+
+@st.cache_data(show_spinner=False)
+def corpus_facts():
+    """What the corpus contains, for the line above the table (no API call)."""
+    try:
+        paras = json.loads(open("corpus/paragraphs.json", encoding="utf-8").read())
+    except Exception:  # noqa: BLE001 - shown as unknown
+        return {"decisions": [], "paragraphs": 0}
+    cases = {}
+    for p in paras:
+        if p.get("source_type") == prec.SOURCE_DECISION:
+            cases[p["case"]] = f"{p['case']} {p['title']} ({p['date'][:4]})"
+    return {"decisions": sorted(cases.values()), "paragraphs": len(paras)}
+
+
+def stage_overview(ai, step=3):
     h1, h2 = st.columns([4, 1], vertical_alignment="center")
-    h1.subheader("③ Preliminary assessment")
+    h1.subheader("④ Commission market definitions" if step == 4 else "③ Preliminary assessment")
     h2.button("← Back to the activities", on_click=go_to, args=(2,), width="stretch")
-    st.write("For each portfolio company, the table shows which of its activities meet each activity of the target, and "
-             "how. “Potential” means: not yet checked against the Commission's market definitions, which are added in "
-             "step ④. Where you disagree, tick “Dismiss”; a row with a horizontal and a vertical label has one box for each "
-             "(🔴 / 🟠), so you can dismiss one and keep the other; "
-             "a note is optional. Both go into the audit log. The line "
-             "“No overlap found with” under a target activity names the activities that do not meet it; “Why?” shows "
-             "the reasons and lets you add a pair back.")
+    st.write(STEP4_TEXT if step == 4 else STEP3_TEXT)
+    if step == 4:
+        st.write("The dismiss and note fields work as in step ③; the market definitions of a row you add back are "
+                 "found with “Update the market definitions” below.")
     if ss.get("acts") and ss.get("confirmed_hash") and activities_hash(ss.acts) != ss.confirmed_hash:
         st.info("You changed the activities after this comparison. Go back to the activities and press “Update the "
                 "comparison”: only the new or changed pairs are compared again, and your dismissals and notes stay.")
+    if ss.get("loaded_from"):
+        lf = ss.loaded_from
+        st.caption(f"Steps ①–③ continued from a saved audit log (created {esc(lf.get('created') or 'unknown')}); "
+                   "no AI call was made to restore them.")
     st.caption(LEGEND)
     if DEV_MODE:
         st.caption(stage_cost("confirm"))
+        if "precedents" in ss.stage_logs:
+            st.caption("Step ④: " + stage_cost("precedents"))
     results = ss.results
     target = ss.companies[0]["name"]
     portcos = [c["name"] for c in ss.companies[1:]]
     rv = ss.results_version
-    ss.setdefault("override_store", {})
-    current = {cmp.pair_id(r) for r in results}
-    ss.overrides = {pid: dict(o) for pid, o in ss.override_store.items()
-                    if pid in current and (o.get("dismiss") or o.get("add_back") or o.get("note")
-                                           or any((o.get("dismissed_parts") or {}).values()))}
+    current_overrides()
     status = {cmp.pair_id(r): cmp.effective_status(r, ss.overrides) for r in results}
+    units, todo = prec_plan()
+    ss.prec_stale = {u["target_aid"] for u in todo}
+    if ss.get("precedents"):
+        precedent_summary(units)
     show_relationships()
 
     with st.expander(f"🎯 Target: {target}"):
@@ -1601,8 +1653,7 @@ def stage_overview(ai):
     if DEV_MODE:
         benchmark_panel(results)
     st.divider()
-    st.button("Find Commission market definitions", type="primary", disabled=True,
-              help="Step ④ (retrieval with the reflection loop) is the next build step.")
+    precedent_button(units, todo)
     snap = audit_snapshot(ai)
     st.download_button("Download the audit log so far (.json)", data=lambda: audit_json(snap),
                        mime="application/json", on_click="ignore",
@@ -1613,7 +1664,7 @@ def stage_overview(ai):
 def run_summary():
     """Required output (spec section 10): AI calls, models, cost and time of the run."""
     calls, cost, fees, searches, seconds, models = 0, 0.0, 0.0, 0, 0.0, set()
-    for stage in ("mapping", "confirm"):
+    for stage in ("mapping", "confirm", "precedents"):
         part = stage_calls(stage)
         calls += len(part)
         cost += sum(c["cost"] for c in part)
@@ -1622,9 +1673,15 @@ def run_summary():
         seconds += stage_seconds(stage)
         models |= {c["model"] for c in part}
     # 19 Oct: the web search tool's per-call fee is included (ai_client.WEB_SEARCH_FEE, to verify)
-    return (f"Run summary: {calls} AI calls · models: {', '.join(sorted(models))} · USD {cost:.3f} "
+    text = (f"Run summary: {calls} AI calls · models: {', '.join(sorted(models)) or 'none'} · USD {cost:.3f} "
             f"(of which USD {fees:.3f} for {searches} web search calls at USD {ai_client.WEB_SEARCH_FEE:g} each; "
             f"prices to verify) · {seconds:.0f} s")
+    lf = ss.get("loaded_from")
+    if lf:                               # 20 Oct: steps ①–③ restored from a saved audit log (their calls were paid then)
+        before = lf.get("calls_before") or {}
+        text += (f" · plus, before loading: {before.get('calls', 0)} AI calls, USD {before.get('cost', 0):.3f} "
+                 f"(the run of {lf.get('created') or 'unknown date'})")
+    return text
 
 
 def benchmark_panel(results):
@@ -1649,6 +1706,406 @@ def benchmark_panel(results):
                                     "Pairs": ", ".join(c["labels"][:6])} for c in checks]), hide_index=True)
 
 
+# =============================================================== stage ④ Commission market definitions (20 Oct)
+# Decided by Linda on 20 Oct: one search per target activity, covering the items of all its kept rows on both sides;
+# at most one rewrite of the queries; tested on the frozen step ③ through the loader below. The search itself is in
+# precedents.py; everything shown here is assembled in code from its stored records.
+def prec_plan():
+    """(units, todo): one unit per target activity with kept rows; todo = those without a search that still covers
+    them (new, changed, or rows added back since). Dismissing a row never forces a new search."""
+    if not ss.get("results"):
+        return [], []
+    target = ss.companies[0]["name"]
+    order = [ss.confirmed[target][k]["aid"] for k in display_order(ss.confirmed[target])]
+    units = prec.search_units(ss.results, ss.get("overrides") or {}, cmp.effective_status, cmp.dismissed_parts,
+                              cmp.pair_id, order)
+    store = ss.get("precedents") or {}
+    return units, [u for u in units if not prec.reusable(store.get(u["target_aid"]), u)]
+
+
+def run_precedents(ai):
+    """Runs the searches that are needed, in parallel (at most 8 AI requests at once), and opens step ④."""
+    import retrieval                       # ChromaDB is loaded only when step ④ runs
+    current_overrides()
+    units, todo = prec_plan()
+    first, t0 = ss.log.mark(), time.time()
+    store = dict(ss.get("precedents") or {})
+    with st.status("Looking up the Commission's market definitions: one search per activity of the target, anonymised "
+                   "products only", expanded=True) as status:
+        kept = [u for u in units if u not in todo]
+        if kept:
+            st.write(f"✔ {plural(len(kept), 'search', 'searches')} kept from before (their rows did not change)")
+        try:
+            retriever = retrieval.Retriever(prec.cached_embed(ai))
+        except Exception as e:  # noqa: BLE001 - nothing is lost; the user can try again
+            status.update(label="The search could not start", state="error")
+            st.error(f"The decision corpus could not be opened: {type(e).__name__}: {e}. Nothing was changed; go back "
+                     "and try again.")
+            st.button("← Back to the assessment", on_click=go_to, args=(3,))
+            return False
+        with cf.ThreadPoolExecutor(ai_client.MAX_PARALLEL) as ex:
+            futures = {ex.submit(prec.run_unit, ai, u, ss.names, retriever, retriever.paragraphs): u for u in todo}
+            for fut in cf.as_completed(futures):
+                u = futures[fut]
+                try:
+                    rec = fut.result()
+                except Exception as e:  # noqa: BLE001 - shown in the row as an error, never as "no precedent"
+                    rec = prec.empty_record(u, error=f"the search failed: {type(e).__name__}: {e}")
+                store[u["target_aid"]] = rec
+                name = capital(u["target_product"])
+                if rec.get("error"):
+                    st.write(f"✖ {name}: {rec['error']}")
+                else:
+                    placed = sum(1 for p in rec["placements"].values() if p["market_id"] != "none")
+                    st.write(f"✔ {name}: {plural(len(rec['markets']), 'market')}, {placed} of "
+                             f"{plural(len(rec['placements']), 'product')} placed · {len(rec['attempts'])} "
+                             f"{'attempt' if len(rec['attempts']) == 1 else 'attempts'} · {rec['stop']}")
+        status.update(label=f"Market definitions looked up for {plural(len(todo), 'activity', 'activities')} of the "
+                            f"target in {time.time() - t0:.0f} s", state="complete", expanded=False)
+    ss.precedents = store
+    log_stage("precedents", first, time.time() - t0)
+    ss.step = 4
+    return True
+
+
+def prec_record(r):
+    return (ss.get("precedents") or {}).get(r["a"].get("aid"))
+
+
+def row_view(r):
+    rec = prec_record(r)
+    if not rec or r["a"].get("aid") in (ss.get("prec_stale") or set()):
+        return rec, None
+    return rec, prec.row_view(r, rec, ss.overrides, cmp.effective_status, cmp.dismissed_parts)
+
+
+def market_lines(groups, who, rec):
+    """One line per market for one side of a row: the market, the basis, the citation and the geography."""
+    paras = rec.get("paragraphs") or {}
+    out = []
+    for g in groups:
+        m = g["market"]
+        if not m:
+            continue
+        line = (f"**{esc(capital(m['name']))}** · *{prec.BASIS_LABEL[g['basis']]}*"
+                + (" · *left open*" if m.get("conclusion") == "left open" else "")
+                + f"  \n:gray[{esc(who)}: {esc(listing(g['items'], 3))}]"
+                + f"  \n{esc(prec.cite_range(m['product_paragraphs'], paras, short=True))}")
+        scope = (m.get("geographic_scope") or "").strip()
+        if scope and not scope.lower().startswith("not stated"):
+            geo = f"Geography: {esc(scope)}"
+            if m.get("geographic_paragraphs"):
+                geo += f" · {esc(prec.cite_range(m['geographic_paragraphs'], paras, short=True))}"
+            line += f"  \n{geo}"
+        out.append(line)
+    return out
+
+
+def market_cell(r, target, portco):
+    """The column "Commission market definition" of one row (step ④), assembled in code from the stored search."""
+    if not ss.get("precedents"):
+        st.markdown(":gray[added in step ④]")
+        return
+    rec, view = row_view(r)
+    if rec and view is None and r["a"].get("aid") in (ss.get("prec_stale") or set()):
+        st.markdown(":gray[changed since the search: press “Update the market definitions” below]")
+        return
+    if view is None:
+        st.markdown(":gray[–]" if not kept(cmp.effective_status(r, ss.overrides)) else
+                    ":gray[not searched yet: press “Update the market definitions” below]")
+        return
+    if view["error"]:
+        st.markdown(f"✖ :red[The search failed:] {esc(view['error'])}")
+        return
+    lines = market_lines(view["a"], target, rec)
+    # a market both sides share is shown once
+    shared = {g["market_id"] for g in view["a"]}
+    lines += market_lines([g for g in view["b"] if g["market_id"] not in shared], portco, rec)
+    for g in view["b"]:
+        if g["market_id"] in shared and g["market"]:
+            idx = next(k for k, x in enumerate(view["a"]) if x["market_id"] == g["market_id"])
+            lines[idx] = lines[idx].replace(f":gray[{esc(target)}:", f":gray[{esc(target)} and {esc(portco)}:", 1)
+    if view["unplaced"]:
+        lines.append(f"**No precedent** in the corpus: {esc(listing(view['unplaced'], 3))} :gray[(questions for the "
+                     "lawyer under “Paragraphs”)]")
+    cited = prec.decisions_cited(view, rec)
+    if cited:
+        lines.append(f":gray[Applicable today? {esc(', '.join(cited))}: check (Notice (14))]")
+    st.markdown("  \n".join(lines) or ":gray[no market found]")
+    with st.popover("Paragraphs"):
+        paragraphs_popover(view, rec, target, portco)
+
+
+def paragraphs_popover(view, rec, target, portco):
+    paras = rec.get("paragraphs") or {}
+    seen = []
+    for who, groups in ((target, view["a"]), (portco, view["b"])):
+        for g in groups:
+            m = g["market"]
+            if not m or m["market_id"] in seen:
+                continue
+            seen.append(m["market_id"])
+            st.markdown(f"**{esc(capital(m['name']))}** · {prec.BASIS_LABEL[g['basis']]} · "
+                        f"{'definition left open' if m.get('conclusion') == 'left open' else 'defined'}")
+            if m.get("summary"):
+                st.caption(f"The AI's summary of the paragraphs (not a quotation): {esc(m['summary'])}")
+            for pid in m["product_paragraphs"] + [p for p in m["geographic_paragraphs"]
+                                                  if p not in m["product_paragraphs"]]:
+                p = paras.get(pid)
+                if not p:
+                    continue
+                link = f" · [decision (PDF)]({p['url']})" if str(p.get("url") or "").startswith("https://") else ""
+                st.markdown(f"**{esc(p['case'])} {esc(p['title'])}, para ({p['para']})** :gray[· {esc(p['date'])} · "
+                            f"{esc(p.get('section') or '')}{' · ' + esc(p['decision']) if p.get('decision') else ''}]"
+                            f"{link}  \n{esc(p['text'])}")
+                for f in p.get("footnotes") or []:
+                    st.caption(f"Footnote {f['n']}: {esc(f['text'])}")
+                for n in p.get("neighbours") or []:
+                    st.caption(f"Neighbouring paragraph ({n['id'].split('-')[1]}): {esc(n['text'][:700])}"
+                               + ("…" if len(n["text"]) > 700 else ""))
+    if seen:
+        st.caption(prec.APPLICABLE_TODAY + " The pinpoint citations were checked: each paragraph was among those the "
+                   "search returned. That shows the paragraphs exist, not that they were applied correctly.")
+    if view["unplaced"]:
+        st.markdown(f"**No precedent in the corpus** for: {esc(', '.join(view['unplaced']))}. Questions for the lawyer "
+                    "(Market Definition Notice; the tool does not answer them):")
+        rows = ["| | Question | Notice | Public sources |", "|---|---|---|---|"]
+        rows += [f"| {n} | {q} | {para} | {pub} |" for n, q, para, pub in prec.CHECKLIST]
+        st.markdown("\n".join(rows))
+        st.caption("Public sources: ✔ answerable from public sources · ◐ partly · ✖ only the company or a market "
+                   "investigation can answer it (a question for the company).")
+
+
+def precedent_line(r, target, portco):
+    """The line under the assessment (code): where the precedent puts the items of the two companies. Shown, never
+    used to remove a row (spec section 8: 'different markets under the precedent')."""
+    if not ss.get("precedents"):
+        return ""
+    _, view = row_view(r)
+    v = (view or {}).get("verdict")
+    if not v:
+        return ""
+
+    def names(groups):
+        return ", ".join(esc((g["market"] or {}).get("name", "")) for g in groups)
+    if v["different"]:
+        text = (f"⚖ **Different markets under the precedent:** {esc(target)}: {names(v['only_a'])} · {esc(portco)}: "
+                f"{names(v['only_b'])}: lawyer review")
+    elif v["both"]:
+        text = f"⚖ **Under the precedent:** both in {names(v['both'])}"
+        if v["only_a"]:
+            text += f"; {esc(target)} also in {names(v['only_a'])} (separate)"
+        if v["only_b"]:
+            text += f"; {esc(portco)} also in {names(v['only_b'])} (separate)"
+    else:
+        return ""
+    if v["left_open"]:
+        text += " · a definition was left open"
+    return "  \n" + text
+
+
+def search_trail(r, target, portco):
+    """'Details' → step ④: the search of this row's target activity (shared by all its rows), as in the audit log."""
+    rec, view = row_view(r)
+    if not rec or view is None:
+        return
+    st.markdown("**Step ④: the search** (one search for all rows of this activity of the target)")
+    st.markdown(f"Ended by: {esc(rec.get('stop') or rec.get('error') or '–')}")
+    for a in rec.get("attempts") or []:
+        qs = "; ".join(f"“{esc(q['query'])}” ({esc(q.get('level') or 'any')})" for q in a["queries"])
+        hits = sorted({h["id"] for t in a["retrieval"] for h in t["hits"]})
+        filt = "with the level-of-trade filter" if a["level_filter"] else "without the level-of-trade filter"
+        dropped = any(t.get("level_filter_dropped") for t in a["retrieval"])
+        st.markdown(f"*Attempt {a['attempt']}* ({filt}{'; no decision at that level, so the filter was dropped' if dropped else ''}): "
+                    f"queries {qs}  \n:gray[paragraphs found: {esc(', '.join(hits) or 'none')} · new: "
+                    f"{len(a.get('new_paragraphs') or [])}]")
+    placed = []
+    by_item = {(v[0], v[1]): iid for iid, v in (rec.get("index") or {}).items()}
+    for who, act, items in ((target, r["a"], [i for g in view["a"] for i in g["items"]]),
+                            (portco, r["b"], [i for g in view["b"] for i in g["items"]])):
+        for item in items:
+            p = rec["placements"].get(by_item.get((act["aid"], item)), {})
+            m = rec["markets"].get(p.get("market_id"), {})
+            placed.append(f"{esc(who)}: {esc(item)} → {esc(m.get('name') or 'no market')} "
+                          f"({prec.BASIS_LABEL.get(p.get('basis', 'none'))}; {esc(p.get('reason') or '')})")
+    if placed:
+        st.markdown("*Where the AI placed this row's products:*  \n" + "  \n".join(placed))
+    if rec.get("rejected"):
+        st.markdown("*Corrected by the code checks:* " + "; ".join(esc(x) for x in rec["rejected"]))
+    st.markdown("**What the AI saw in step ④** (the products of all rows of this activity, numbered by activity, no "
+                "names; the paragraphs follow in the audit log)")
+    st.code(rec.get("items_text") or "", language=None, wrap_lines=True)
+
+
+def precedent_summary(units):
+    records = [ss.precedents[u["target_aid"]] for u in units if u["target_aid"] in ss.precedents]
+    s = prec.summary(records)
+    facts = corpus_facts()
+    text = (f"Searched: {plural(s['searches'], 'activity', 'activities')} of the target, in "
+            f"{plural(len(facts['decisions']), 'Commission decision')} ({esc('; '.join(facts['decisions']))}) · "
+            f"{plural(s['markets'], 'market')} found · products: {s['precedent']} with a precedent, {s['analogy']} by "
+            f"analogy, {s['none']} without a precedent")
+    if s["rejected"]:
+        text += f" · {plural(s['rejected'], 'citation or placement', 'citations or placements')} corrected by the code checks (see “Details”)"
+    st.info(text)
+    if s["errors"]:
+        st.warning("Some searches failed: " + "; ".join(esc(e) for e in s["errors"]) + ". Press “Update the market "
+                   "definitions” to try them again.")
+
+
+def precedent_button(units, todo):
+    store = ss.get("precedents") or {}
+    failed = [u for u in units if (store.get(u["target_aid"]) or {}).get("error")]
+    todo = todo + [u for u in failed if u not in todo]
+    if not units:
+        st.button("Find Commission market definitions", type="primary", disabled=True,
+                  help="No row is kept: nothing to look up.")
+        return
+    if not store:
+        label = (f"Find Commission market definitions ({plural(len(units), 'search', 'searches')}, one per activity "
+                 "of the target)")
+    elif todo:
+        label = (f"Update the market definitions: {plural(len(todo), 'search', 'searches')} for new or changed rows, "
+                 f"{len(units) - len(todo)} kept")
+    else:
+        st.caption("✔ The market definitions are up to date for every row you kept.")
+        return
+    if st.button(label, type="primary"):
+        if failed:          # a failed search is never "reusable": drop it so that it runs again
+            for u in failed:
+                ss.precedents.pop(u["target_aid"], None)
+        start_work("precedents")
+
+
+def precedent_rows():
+    """Per kept row: the markets on each side and the verdict, as the table shows them (for the audit log)."""
+    if not ss.get("precedents") or not ss.get("results"):
+        return {}
+    out = {}
+    for r in ss.results:
+        rec, view = row_view(r)
+        if view is None:
+            continue
+        out[cmp.pair_id(r)] = {
+            "target_activity": r["a"].get("product"), "portco": r["portco"], "portco_activity": r["b"].get("product"),
+            "target_side": [{"market": (g["market"] or {}).get("name"), "basis": g["basis"], "items": g["items"]}
+                            for g in view["a"]],
+            "portco_side": [{"market": (g["market"] or {}).get("name"), "basis": g["basis"], "items": g["items"]}
+                            for g in view["b"]],
+            "verdict": None if not view.get("verdict") else {
+                "both": [(g["market"] or {}).get("name") for g in view["verdict"]["both"]],
+                "only_target": [(g["market"] or {}).get("name") for g in view["verdict"]["only_a"]],
+                "only_portco": [(g["market"] or {}).get("name") for g in view["verdict"]["only_b"]],
+                "different_markets_under_the_precedent": view["verdict"]["different"],
+                "left_open": view["verdict"]["left_open"]},
+            "error": view.get("error") or ""}
+    return out
+
+
+# =============================================================== continue a saved screen (F1, 20 Oct)
+# Linda, 19 Oct: "might even be a good feature to leave, as you might only be interested in step 4". Restores steps
+# ①–③ (and ④, if the file has it) from an audit log downloaded from this app, without any AI call. The file stays
+# with the lawyer; the app stores nothing.
+AUDIT_REQUIRED = ("companies", "stage_1_2_activity_mapping", "stage_2_confirmed_activities",
+                  "stage_3_factual_comparison")
+
+
+def check_audit(data):
+    """The problems that stop a file from being loaded (empty list = it can be loaded)."""
+    if not isinstance(data, dict):
+        return ["the file is not an audit log of this app"]
+    missing = [k for k in AUDIT_REQUIRED if k not in data]
+    if missing:
+        return [f"the file has no {', '.join(missing)} (an audit log downloaded in step ③ or later is needed)"]
+    problems = []
+    companies, confirmed = data["companies"], data["stage_2_confirmed_activities"]
+    if not isinstance(companies, list) or not companies or not all(isinstance(c, dict) and c.get("name")
+                                                                   for c in companies):
+        problems.append("the list of companies is missing or damaged")
+    elif not isinstance(confirmed, dict) or any(c["name"] not in confirmed for c in companies):
+        problems.append("the confirmed activities are missing or damaged")
+    results = data["stage_3_factual_comparison"]
+    if not isinstance(results, list) or not all(isinstance(r, dict) and {"a", "b", "decision", "comparison",
+                                                                         "portco"} <= set(r) for r in results):
+        problems.append("the results of step ③ are missing or damaged")
+    return problems
+
+
+def load_audit(data):
+    """Restores the screen of an audit log into the session (after reset_all). No AI call."""
+    reset_all()
+    for k, v in (("stage_logs", {}), ("pf_version", 0), ("acts_version", 0)):    # removed by reset_all
+        ss.setdefault(k, v)
+    companies, mapped = data["companies"], data["stage_1_2_activity_mapping"] or {}
+    confirmed = data["stage_2_confirmed_activities"]
+    ss.companies = companies
+    ss.mapped = {c["name"]: mapped.get(c["name"]) or {"extraction": {"activities": confirmed[c["name"]]}}
+                 for c in companies}
+    ss.map_keys = {c["name"]: company_key(c) for c in companies}
+    ss.relationships = data.get("existing_relationships") or am.find_relationships(ss.mapped, companies)
+    cmp.ensure_ids(confirmed)
+    ss.acts = copy.deepcopy(confirmed)
+    ss.profiles_text = data.get("stage_2_company_profiles") or {}
+    ss.profiles_edit = {}
+    anon = data.get("anonymisation") or {}
+    ss.keep_words = list(anon.get("kept_as_ordinary_words") or [])
+    ss.keep_proposed = list(anon.get("proposed_by_the_tool (used in lower case)") or [])
+    ss.drop_words = list(anon.get("unticked_by_user (removed)") or [])
+    group = {c["name"]: ((ss.mapped[c["name"]].get("extraction") or {}).get("group_companies") or [])
+             for c in companies}
+    ss.names = cmp.collect_names(companies, confirmed, group, ss.keep_words)
+    ss.profiles_meta = anon.get("abstracts") or {}
+    results = [{k: v for k, v in r.items() if k != "status_after_overrides"} for r in data["stage_3_factual_comparison"]]
+    ss.results = results
+    ss.confirmed = confirmed
+    ss.confirmed_hash = ss.current_hash = activities_hash(confirmed)
+    # the pair results under their content keys, so that "Update the comparison" sends only new or changed pairs
+    ss.pair_cache = {}
+    for r in results:
+        try:
+            ss.pair_cache[(cmp.activity_key(r["a"], r["abstract_a"]), cmp.activity_key(r["b"], r["abstract_b"]))] = r
+        except (KeyError, TypeError):
+            pass
+    ss.vec_cache = {}
+    ss.override_store = {pid: dict(o) for pid, o in (data.get("user_overrides") or {}).items() if isinstance(o, dict)}
+    ss.results_version = 1
+    ss.precedents = dict((data.get("stage_4_market_definitions") or {}).get("searches") or {})
+    before = list(data.get("call_log_before_loading") or []) + list(data.get("call_log") or [])
+    ss.loaded_calls = before
+    ss.loaded_from = {"created": data.get("created"), "loaded": datetime.now().isoformat(timespec="seconds"),
+                      "profile": data.get("profile"), "models": data.get("models"),
+                      "calls_before": {"calls": len(before), "cost": round(sum(c.get("cost", 0) or 0 for c in before), 4)}}
+    ss.acts_version += 1
+    ss.step = 4 if ss.precedents else 3
+
+
+def loader_box():
+    with st.expander("Continue a saved screen (from an audit log downloaded from this app)"):
+        st.caption("Restores the companies, activities and the preliminary assessment of a downloaded audit log "
+                   "(.json), with your dismissals and notes, without any AI call. The current screen is replaced. The "
+                   "file stays with you; the app stores nothing.")
+        up = st.file_uploader("Audit log (.json)", type=["json"], key="audit_upload", label_visibility="collapsed")
+        if up is None:
+            return
+        try:
+            data = json.loads(up.getvalue().decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            st.error(f"The file could not be read as JSON: {e}")
+            return
+        problems = check_audit(data)
+        if problems:
+            st.error("This file cannot be loaded: " + "; ".join(problems) + ".")
+            return
+        target = data["companies"][0]["name"]
+        st.write(f"Audit log of {esc(data.get('created') or 'unknown date')}: target **{esc(target)}**, "
+                 f"{plural(len(data['companies']) - 1, 'portfolio company', 'portfolio companies')}, "
+                 f"{plural(len(data['stage_3_factual_comparison']), 'compared pair')}"
+                 + (", with step ④" if data.get("stage_4_market_definitions") else "") + ".")
+        if st.button("Load this screen", type="primary"):
+            load_audit(data)
+            st.rerun()
+
+
 # =============================================================== audit log
 def audit_calls():
     """Every call of the current screen (since the screen started): the research of each company, including companies
@@ -1667,7 +2124,10 @@ def audit_snapshot(ai):
             "names": list(ss.get("names") or []), "keep_words": list(ss.get("keep_words") or []),
             "keep_proposed": list(ss.get("keep_proposed") or []), "drop_words": list(ss.get("drop_words") or []),
             "abstracts": ss.get("profiles_meta"), "results": list(ss.get("results") or []),
-            "overrides": dict(ss.get("overrides") or {}), "calls": audit_calls()}
+            "overrides": dict(ss.get("overrides") or {}), "calls": audit_calls(),
+            # 20 Oct: stage ④ (one search per target activity) and, for a continued screen, where it came from
+            "precedents": dict(ss.get("precedents") or {}), "precedent_rows": precedent_rows(),
+            "loaded_from": ss.get("loaded_from"), "loaded_calls": list(ss.get("loaded_calls") or [])}
 
 
 def audit_json(snap):
@@ -1694,6 +2154,14 @@ def audit_json(snap):
         "user_overrides": snap["overrides"],
         "call_log": snap["calls"],
     }
+    if snap.get("precedents"):
+        log["stage_4_market_definitions"] = {
+            "settings": {"max_attempts": prec.MAX_ATTEMPTS, "hits_per_query": prec.HITS_PER_QUERY,
+                         "max_paragraphs_per_reflection": prec.MAX_PARAGRAPHS, "unit": "one search per target activity"},
+            "searches": snap["precedents"], "rows": snap["precedent_rows"]}
+    if snap.get("loaded_from"):
+        log["loaded_from_saved_audit"] = snap["loaded_from"]
+        log["call_log_before_loading"] = snap["loaded_calls"]
     return json.dumps(log, ensure_ascii=False, indent=1, default=str)
 
 
@@ -1776,20 +2244,22 @@ manufacturing, wholesale, retail, services). You check and correct them.
 ③ **Preliminary assessment.** It compares every activity of the target with every activity of each portfolio company.
 The AI sees descriptions only, never the company names.
 
-④ **Commission market definitions** *(being built)*. It will look up how the European Commission defined the relevant
-markets in past decisions.
+④ **Commission market definitions.** For every row you keep, it looks up how the European Commission defined the
+markets of those products in its past decisions and cites the paragraphs. Where no decision fits, it lists the
+questions a lawyer would ask under the Commission's Market Definition Notice. The built-in decisions cover the cocoa and
+chocolate value chain.
 
 **Horizontal overlap:** both companies offer the same or substitutable products (potential competitors).
 **Vertical relationship:** one company's products could be an input for the other, or could be resold by it
 (potential supplier and customer). Until step ④, every result is *potential*: not yet checked against the
-Commission's market definitions.
+Commission's market definitions. Even after step ④ the result is a preliminary overview: the lawyer decides.
 
 The result is a working document for a lawyer to verify, not a legal conclusion. The facts about each company carry
 their sources: hover over a number to see the passage quoted from that page. The app opens each page and checks
 the quotation word for word (✔ found, ⚠ not found, ○ could not be checked); pages that no longer exist are not used.
 The assessment is the AI's reasoning on anonymised descriptions, shown under “Details”."""
 
-STEPS = {1: "Companies", 2: "Activities", 3: "Preliminary assessment"}
+STEPS = {1: "Companies", 2: "Activities", 3: "Preliminary assessment", 4: "Market definitions"}
 SCROLL_TOP = """<script>
 const d = window.parent.document;
 for (const s of ['[data-testid="stMain"]', 'section.stMain', 'section.main', '[data-testid="stAppViewContainer"]']) {
@@ -1812,12 +2282,13 @@ def scroll_to_top_on_new_step(step):
 def progress_nav(step):
     """The steps as buttons (16 Oct): every step already reached can be opened again; nothing is deleted by going
     back. Returns the last column, for the "New screen" button."""
-    reachable = {1: True, 2: bool(ss.get("acts")), 3: ss.get("results") is not None}
-    cols = st.columns([1.2, 1.2, 1.7, 1.1], vertical_alignment="center")
+    reachable = {1: True, 2: bool(ss.get("acts")), 3: ss.get("results") is not None,
+                 4: ss.get("results") is not None and bool(ss.get("precedents"))}
+    cols = st.columns([1.1, 1.1, 1.6, 1.6, 1.0], vertical_alignment="center")
     for k, name in STEPS.items():
-        cols[k - 1].button(f"{'①②③'[k - 1]} {name}", key=f"nav_{k}", type="primary" if k == step else "secondary",
+        cols[k - 1].button(f"{'①②③④'[k - 1]} {name}", key=f"nav_{k}", type="primary" if k == step else "secondary",
                            disabled=not reachable[k], on_click=go_to, args=(k,), width="stretch")
-    return cols[3]
+    return cols[4]
 
 
 def done_summaries(step):
@@ -1847,8 +2318,10 @@ else:
 ai = make_ai(credentials())
 if step == 2 and not ss.get("acts"):
     step = ss.step = 1
-if step == 3 and ss.get("results") is None:
+if step in (3, 4) and ss.get("results") is None:
     step = ss.step = 2 if ss.get("acts") else 1
+if step == 4 and not ss.get("precedents"):
+    step = ss.step = 3
 scroll_to_top_on_new_step(step)
 top = progress_nav(step)
 if top.button("↺ New screen", help="Discard this screen and start again", width="stretch"):
@@ -1875,4 +2348,4 @@ else:
         elif step == 2:
             stage_activities(ai)
         else:
-            stage_overview(ai)
+            stage_overview(ai, step)

@@ -2008,7 +2008,12 @@
   "date": "2013-06-06",
   "para": 55,
   "text": "While BC is the market leader in industrial chocolate within the EEA, with a market share of [45-55]% in the merchant market, the Target is not active in the market. The market is thus not horizontally affected. Furthermore, as explained in section B (ii)∗ regarding the assessment of the horizontal overlap in relation to semi-finished cocoa products, the proposed transaction does not give rise to serious doubts in the relevant upstream market.",
-  "footnotes": [],
+  "footnotes": [
+   {
+    "n": "∗",
+    "text": "Should read: B (i)."
+   }
+  ],
   "headings": [
    "B. Competitive assessment",
    "(ii) Vertically affected markets",
@@ -2064,7 +2069,7 @@
   "title": "Barry Callebaut / Petra Foods (Cocoa Ingredients Division)",
   "date": "2013-06-06",
   "para": 57,
-  "text": "The market investigation also indicated that the proposed transaction will not give rise to serious doubts in relation to the Parties' vertical links. The majority of customers multi-source their supplies of semi-finished cocoa products. Moreover, sufficient alternatives to the merged entity will continue to exist in the supply of semi-finished cocoa products[fn 35] and the remaining competitors have adequate enough capacity to meet merchant market demands of semi-finished cocoa products. ∗ Should read: B (i).",
+  "text": "The market investigation also indicated that the proposed transaction will not give rise to serious doubts in relation to the Parties' vertical links. The majority of customers multi-source their supplies of semi-finished cocoa products. Moreover, sufficient alternatives to the merged entity will continue to exist in the supply of semi-finished cocoa products[fn 35] and the remaining competitors have adequate enough capacity to meet merchant market demands of semi-finished cocoa products.",
   "footnotes": [
    {
     "n": 35,
@@ -5638,7 +5643,7 @@
    },
    {
     "n": 55,
-    "text": "In general, when the candidate market (essentially) consists of the product(s) of a single undertaking, the SSNIP test applied at the prevailing market price will always suggest that the relevant market must be wider than the candidate market, because a profit- maximising undertaking, by definition, will not find it profitable to raise price above its prevailing (profit-maximising) price. This can give rise to the so-called ‘cellophane fallacy’, named after the US Supreme Court’s market definition involving cellophane and other wrapping products (United States v. E. I. du Pont de Nemours & Co., 351 U.S. 377 (1956)). It entails wrongly concluding, on the basis of a SSNIP test applied at the prevailing price, that the relevant market must be wider than the product(s) of a dominant undertaking (see the explanations of this concept in case AT.39523 Slovak Telekom, paragraphs 158 to 171). The cellophane fallacy can also arise when prices are set at supra-competitive levels because of joint profit maximisation by a group of undertakings. Therefore, when market definition is performed in the context of a case that requires an assessment of the degree of existing market power, such as in the context of an assessment of dominance in an Article 102 TFEU case, the fact that the prevailing price may already be at a supra-competitive level needs to be taken into account. In such cases, the Commission may apply the SSNIP test starting from a counterfactual price that would prevail under (more) effective competition; or it may rely on other evidence to define the relevant market. By contrast, in the context of cases where the focus is on assessing a change in market power, in particular the change in market power resulting from the elimination of competition between the parties to a concentration involving horizontal overlaps, the candidate market includes at least the relevant products or types of products of the merging parties and the SSNIP test can typically be applied at the prevailing price. Therefore, market definition may not always lead to the same results in cases involving the assessment of a change in market power as in cases involving the assessment of existing market power."
+    "text": "In general, when the candidate market (essentially) consists of the product(s) of a single undertaking, the SSNIP test applied at the prevailing market price will always suggest that the relevant market must be wider than the candidate market, because a profit-maximising undertaking, by definition, will not find it profitable to raise price above its prevailing (profit-maximising) price. This can give rise to the so-called ‘cellophane fallacy’, named after the US Supreme Court’s market definition involving cellophane and other wrapping products (United States v. E. I. du Pont de Nemours & Co., 351 U.S. 377 (1956)). It entails wrongly concluding, on the basis of a SSNIP test applied at the prevailing price, that the relevant market must be wider than the product(s) of a dominant undertaking (see the explanations of this concept in case AT.39523 Slovak Telekom, paragraphs 158 to 171). The cellophane fallacy can also arise when prices are set at supra-competitive levels because of joint profit maximisation by a group of undertakings. Therefore, when market definition is performed in the context of a case that requires an assessment of the degree of existing market power, such as in the context of an assessment of dominance in an Article 102 TFEU case, the fact that the prevailing price may already be at a supra-competitive level needs to be taken into account. In such cases, the Commission may apply the SSNIP test starting from a counterfactual price that would prevail under (more) effective competition; or it may rely on other evidence to define the relevant market. By contrast, in the context of cases where the focus is on assessing a change in market power, in particular the change in market power resulting from the elimination of competition between the parties to a concentration involving horizontal overlaps, the candidate market includes at least the relevant products or types of products of the merging parties and the SSNIP test can typically be applied at the prevailing price. Therefore, market definition may not always lead to the same results in cases involving the assessment of a change in market power as in cases involving the assessment of existing market power."
    }
   ],
   "headings": [
@@ -6174,7 +6179,7 @@
    },
    {
     "n": 78,
-    "text": "See, for example, case M.6576 Munksjö/Ahlstrom, paragraph 189, where, when assessing the relevant product market for pre- impregnated paper, the Commission took into account that a competitor had stopped producing pre-impregnated paper and assessed the identity of the competitors which won its customers."
+    "text": "See, for example, case M.6576 Munksjö/Ahlstrom, paragraph 189, where, when assessing the relevant product market for pre-impregnated paper, the Commission took into account that a competitor had stopped producing pre-impregnated paper and assessed the identity of the competitors which won its customers."
    }
   ],
   "headings": [

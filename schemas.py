@@ -358,3 +358,97 @@ class Comparison(BaseModel):
 
 def comparison_input(abstract_a, abstract_b):
     return f"ACTIVITY A\n{abstract_a}\n\nACTIVITY B\n{abstract_b}"
+
+# =============================================================== 4. Commission market definitions (stage 4, 20 Oct)
+# Stage 4 finds and cites; the lawyer decides (Linda, 16 Oct). One search per target activity covers the items of all its
+# kept rows, on both sides (Linda, 20 Oct), so that one market keeps one name across the rows and code can say where
+# the precedent puts the items of the two companies. The calls contain anonymised items only: no company names and no
+# company labels (the items of several companies are listed by activity number). Examples come from sectors outside
+# the test set (decided 18 Oct).
+QueryLevel = Literal[tuple(VALUE_CHAIN_LEVELS) + ("any",)]
+
+QUERY_INSTRUCTIONS = f"""You help a competition lawyer find how the European Commission defined relevant markets in its past
+merger decisions. You receive products and services ("items") of one or more business activities, described without
+company names; each activity comes with its level of trade and its direct customers.
+Write 2 to 4 search queries for a search over the market definition sections of Commission merger decisions. Each query
+covers one group of closely related items (one type of product at one level of trade) and uses the terminology of a
+Commission decision, e.g. "relevant product market for nitrogen fertilisers", "whether city bicycles and electric
+bicycles belong to the same product market", "geographic market for the supply of office furniture to businesses".
+Together the queries cover every item; items of the same type share one query. Use generic product words only: never a
+company, brand or place name.
+For each query give the level of trade of its items: {"; ".join(f"{k} = {v}" for k, v in VALUE_CHAIN_LEVELS.items())};
+or "any" if its items are sold at several levels."""
+
+
+class SearchQuery(BaseModel):
+    query: str = Field(description="A search query in Commission terminology, generic product words, no names")
+    level: QueryLevel = Field(description="The level of trade of the items the query covers, or 'any'")
+
+
+class QueryPlan(BaseModel):
+    queries: list[SearchQuery] = Field(description="2 to 4 queries that together cover every item")
+
+
+REFLECTION_INSTRUCTIONS = """You help a competition lawyer with the step "What did the European Commission find?" of an
+overlap screen. You receive:
+(1) ITEMS: products and services of several business activities, without company names, each with an id such as [2.3],
+    grouped by activity, with the activity's level of trade and direct customers;
+(2) PARAGRAPHS: paragraphs retrieved from European Commission merger decisions, each with its id such as [M.1234-56]
+    (case number and paragraph number), the decision's title and year, and its section.
+Report only what the paragraphs say. Do not use knowledge from outside the paragraphs, and do not assess whether the
+businesses compete.
+
+markets: every relevant product market that the paragraphs define or consider for products of the types of the items.
+A segment that the Commission examined separately is a market of its own (e.g. "electric bicycles" next to
+"bicycles"). For each market:
+- market_id: "M1", "M2", ... (any order)
+- name: the market in the Commission's words (e.g. "supply of nitrogen fertilisers to distributors")
+- product_paragraphs: the ids of the paragraphs that define or discuss this product market, copied from the list
+- conclusion: "defined" if the Commission concluded on this market (also where it found separate markets); "left open"
+  if it left the exact product market definition open
+- geographic_scope: the geographic market as these paragraphs state it (e.g. "national", "EEA-wide", "at least EEA-wide,
+  exact scope left open", "catchment areas of about 500 km around plants"), or "not stated in these paragraphs"
+- geographic_paragraphs: the ids of the paragraphs on the geographic market, or []
+- summary: one factual sentence on what the paragraphs say about this market, including any segment that was found to
+  be separate or left open
+placements: one entry for EVERY item id in the list:
+- item_id: copied from the list, e.g. "2.3"
+- market_id: the market that covers this item, or "none" if no market in the paragraphs fits it
+- basis: "precedent" if the market was defined for this type of product at this level of trade; "analogy" if it was
+  defined for a related but different product, or at another level of trade, so that a lawyer might apply it by
+  analogy (e.g. a market for conventional bicycles, for a folding electric bicycle); "none" together with market_id
+  "none"
+- reason: a few words why (e.g. "same product, sold to retailers")
+rewrite_queries: if any item is "none", 1 to 3 new search queries that might find a definition for those items (broader
+or narrower terms, other terminology a decision might use, or the related product a decision might have defined), each
+with the level of trade or "any"; otherwise [].
+Rules:
+- Cite only paragraph ids that appear in the list. Never invent an id.
+- The level of trade matters: a market for a product sold to manufacturers is not the market for the same product sold
+  to consumers, unless the paragraphs say so. A market that groups several levels or products only applies if the
+  paragraphs say so.
+- If decisions say different things about one market, keep them as separate markets and say so in the summaries.
+- A gap is an acceptable answer: if nothing fits an item, use "none". A guess is not."""
+
+
+class MarketFound(BaseModel):
+    market_id: str = Field(description="M1, M2, ...")
+    name: str = Field(description="The market in the Commission's words")
+    product_paragraphs: list[str] = Field(description="Ids of the paragraphs on this product market, from the list")
+    conclusion: Literal["defined", "left open"]
+    geographic_scope: str = Field(description="As the paragraphs state it, or 'not stated in these paragraphs'")
+    geographic_paragraphs: list[str] = Field(description="Ids of the paragraphs on the geographic market, or []")
+    summary: str = Field(description="One factual sentence on what the paragraphs say about this market")
+
+
+class Placement(BaseModel):
+    item_id: str = Field(description="The item's id, copied from the list, e.g. '2.3'")
+    market_id: str = Field(description="A market_id from 'markets', or 'none'")
+    basis: Literal["precedent", "analogy", "none"]
+    reason: str = Field(description="A few words why")
+
+
+class Reflection(BaseModel):
+    markets: list[MarketFound]
+    placements: list[Placement] = Field(description="One entry for every item id")
+    rewrite_queries: list[SearchQuery] = Field(description="New queries if any item is 'none', else []")

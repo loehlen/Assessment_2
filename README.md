@@ -37,7 +37,7 @@ no real transaction is implied.
 
 | File | Role |
 |---|---|
-| `app.py` | the interface (Streamlit): steps ① companies, ② activities, ③ preliminary assessment |
+| `app.py` | the interface (Streamlit): steps ① companies, ② activities, ③ preliminary assessment, ④ Commission market definitions; “Continue a saved screen” (restores a downloaded audit log without any AI call) |
 | `ai_client.py` | the one gate for every AI call: models per step, retries, call log and cost |
 | `activity_mapping.py` | step ②: confidentiality guard, two web searches and one extraction per company |
 | `sources.py` | opens every cited page or PDF and checks the quoted passages; removes dead links |
@@ -45,5 +45,6 @@ no real transaction is implied.
 | `rules.py` | the sector-neutral rules in plain Python (answer lists, name removal, decision rule) |
 | `schemas.py` | the AI instructions and the fixed answer forms |
 | `examples.py` | the inputs of the example buttons |
-| `ingest.py`, `build_corpus.py`, `build_index.py`, `retrieval.py`, `corpus/` | the decision corpus and its ChromaDB index (for step ④) |
+| `precedents.py` | step ④: one search per target activity (queries, hybrid retrieval, reflection, at most one rewrite), the citation and item checks, and the row text |
+| `ingest.py`, `build_corpus.py`, `build_index.py`, `retrieval.py`, `corpus/` | the decision corpus and its ChromaDB index (used by step ④) |
 | `test_compare.py`, `benchmark.py`, `save_searches.py`, `retrieval_check.py`, `no_rag_check.py`, `test_results/` | development tools and test results |

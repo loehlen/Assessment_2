@@ -64,6 +64,36 @@ def context_header(rec):
     return " · ".join(out)
 
 
+# Corrections after the check of every paragraph against the PDFs (20 Oct): the parser cannot know these.
+# M.6872: the Commission's correction note "∗ Should read: B (i)." belongs to the "B (ii)∗" in paragraph (55); pdftotext
+# prints it at the foot of the page of (57), so the parser had appended it to the text of (57).
+CORRECTIONS = [
+    {"case": "M.6872", "para": 57, "remove": " ∗ Should read: B (i).", "why": "correction note of (55), printed at the page foot"},
+    {"case": "M.6872", "para": 55, "add_note": {"n": "∗", "text": "Should read: B (i)."},
+     "why": "the Commission's correction note to 'section B (ii)∗'"},
+    # Notice: two words broken at a line end kept a space after the hyphen (the same footnotes spell them without it)
+    {"case": "Notice", "para": 30, "footnote": 55, "replace": ("profit- maximising", "profit-maximising"),
+     "why": "line-end hyphenation"},
+    {"case": "Notice", "para": 51, "footnote": 78, "replace": ("pre- impregnated", "pre-impregnated"),
+     "why": "line-end hyphenation"},
+]
+
+
+def apply_corrections(records):
+    for c in CORRECTIONS:
+        for r in records:
+            if r["case"] == c["case"] and r["para"] == c["para"]:
+                if c.get("remove") and c["remove"] in r["text"]:
+                    r["text"] = r["text"].replace(c["remove"], "").rstrip()
+                if c.get("add_note") and c["add_note"] not in r["footnotes"]:
+                    r["footnotes"].append(dict(c["add_note"]))
+                if c.get("replace"):
+                    for f in r["footnotes"]:
+                        if f["n"] == c.get("footnote"):
+                            f["text"] = f["text"].replace(*c["replace"])
+    return records
+
+
 def build():
     OUT.mkdir(exist_ok=True)
     corpus, report = [], ["# Decision corpus", ""]
@@ -72,7 +102,7 @@ def build():
         wanted = {n for a, b in src["ranges"] for n in range(a, b + 1)}
         found = {r["para"] for r in records}
         missing = sorted(wanted - found)
-        kept = [r for r in records if r["para"] in wanted]
+        kept = apply_corrections([r for r in records if r["para"] in wanted])
         for r in kept:
             r["decision"] = src["decision"]
             r["short"] = src["short"]
