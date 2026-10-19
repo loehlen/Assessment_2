@@ -374,7 +374,7 @@ QueryLevel = Literal[tuple(VALUE_CHAIN_LEVELS) + ("any",)]
 QUERY_INSTRUCTIONS = f"""You help a competition lawyer find how the European Commission defined relevant product markets in its
 past merger decisions. You receive products and services ("items") of one or more business activities, described without
 company names; each item has an id such as [2.3], and each activity comes with its level of trade and direct customers.
-Sort the items into TYPES OF PRODUCT: 1 to 8 types, each ONE type of product or service, named in the generic words a
+Sort the items into TYPES OF PRODUCT: 1 to 16 types, each ONE type of product or service, named in the generic words a
 Commission decision would use for it (e.g. "nitrogen fertilisers", "electric bicycles", "office chairs"). Never combine
 different types of product in one type. Put items of the same type from different activities into the SAME type (a
 type is searched once, and its items are then placed in markets together). Assign EVERY item id to exactly one type;
@@ -393,7 +393,7 @@ class SearchQuery(BaseModel):
 
 
 class QueryPlan(BaseModel):
-    queries: list[SearchQuery] = Field(description="1 to 8 types of product; every item id in exactly one of them")
+    queries: list[SearchQuery] = Field(description="1 to 16 types of product; every item id in exactly one of them")
 
 
 class RewriteQuery(BaseModel):
@@ -412,7 +412,9 @@ businesses compete. Only the PRODUCT market is asked for here; ignore the geogra
 
 markets: every relevant product market that the paragraphs define or consider for products of the types of the items.
 A segment that the Commission examined separately is a market of its own (e.g. "electric bicycles" next to
-"bicycles"). For each market:
+"bicycles"). Where the paragraphs define separate segment markets within a wider category, report the segments and,
+if the paragraphs discuss it, the wider category as a market of its own whose summary names its segments. For each
+market:
 - market_id: "M1", "M2", ... (any order)
 - name: the market in the Commission's words (e.g. "supply of nitrogen fertilisers to distributors")
 - product_paragraphs: the ids of the paragraphs that define or discuss this product market, copied from the list
@@ -425,9 +427,14 @@ A segment that the Commission examined separately is a market of its own (e.g. "
   be separate or left open
 placements: one entry for EVERY item id in the list:
 - item_id: copied from the list, e.g. "2.3"
-- market_ids: the market or markets that cover this item (several where the item spans several markets, e.g. an item
-  "fertilisers" when the paragraphs define nitrogen and phosphate fertilisers as separate markets), or [] if no market
-  in the paragraphs fits it
+- market_ids: the market or markets for this item, or [] if no market in the paragraphs fits it. Each product
+  belongs to one market. Name several markets only (a) if the item is a range of products that spans them (e.g. an
+  item "fertilisers" when the paragraphs define nitrogen and phosphate fertilisers as separate markets), or (b) if the
+  item could belong to one of them but its words do not say which. Where the paragraphs define segments within a wider
+  category, place the item in its segment(s); use the wider category only for an item that fits none of the segments,
+  and never name a wider category together with one of its own segments for the same item
+- fit: "one market" if market_ids has one market (or none); "range across these markets" for case (a); "one of these,
+  unclear which" for case (b)
 - basis: "precedent" if the market was defined for this type of product at this level of trade; "analogy" if it was
   defined for the same product at another level of trade, or for a different product that is similar in what it is
   and in what it does for the customer (its characteristics and its function), so that a lawyer might apply the
@@ -462,6 +469,8 @@ class Placement(BaseModel):
     item_id: str = Field(description="The item's id, copied from the list, e.g. '2.3'")
     market_ids: list[str] = Field(description="market_ids from 'markets' that cover this item; [] if none fits")
     basis: Literal["precedent", "analogy", "none"]
+    fit: Literal["one market", "range across these markets", "one of these, unclear which"] = Field(
+        description="Why the item has several markets, if it has: a range spanning them, or unclear which one")
     reason: str = Field(description="A few words why")
 
 

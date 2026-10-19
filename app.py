@@ -1790,10 +1790,17 @@ def market_lines(groups, who, rec):
         line = (f"**{esc(capital(m['name']))}** · *{prec.BASIS_LABEL[g['basis']]}*"
                 + (f" · *{prec.CONCLUSION_LABEL[m['conclusion']]}*" if m.get("conclusion") in ("left open", prec.NOT_STATED)
                    else "")
-                + f"  \n:gray[{esc(who)}: {esc(listing(g['items'], 3))}]"
+                + f"  \n:gray[{esc(who)}: {esc(listing(item_labels(g), 3))}]"
                 + f"  \n{esc(prec.cite_range(m['product_paragraphs'], paras, short=True))}")
         out.append(line)                 # 20 Oct (Linda): geography is stage ⑤, not shown here
     return out
+
+
+def item_labels(g):
+    """The items of one market group, each with its note if it is not placed in this market alone (20 Oct): 'chocolate
+    bars (countlines or tablets, unclear which)', 'chocolate and confectionery (activity name, spans several markets)'."""
+    notes = g.get("notes") or {}
+    return [f"{i} ({notes[i]})" if i in notes else i for i in g["items"]]
 
 
 def market_cell(r, target, portco):
@@ -1908,11 +1915,23 @@ def precedent_line(r, target, portco):
     def names(groups):
         return ", ".join(esc((g["market"] or {}).get("name", "")) + (" (by analogy)" if g["basis"] == "analogy" else "")
                          for g in groups)
+    possibly, general = v.get("possibly") or [], v.get("general") or []
     if v["different"]:
         text = (f"⚖ **Different markets under the precedent:** {esc(target)}: {names(v['only_a'])} · {esc(portco)}: "
                 f"{names(v['only_b'])}: lawyer review")
-    elif v["both"]:
-        text = f"⚖ **Under the precedent:** both in {names(v['both'])}"
+    elif v["both"] or possibly or general:
+        # 20 Oct (Linda): "both in" only where a product of each side was placed in that market alone; a product that
+        # could be in one of several markets gives "possibly", a general term (a range, the activity name) only that
+        parts = []
+        if v["both"]:
+            parts.append(f"both in {names(v['both'])}")
+        if possibly:
+            parts.append(f"{'possibly also' if v['both'] else 'possibly both'} in {names(possibly)} (a product could be "
+                         "in one of several markets)")
+        if general:
+            parts.append(f"{'also' if parts else 'both'} in {names(general)} only through a general term (a range or "
+                         "the activity name): which products, to be checked")
+        text = "⚖ **Under the precedent:** " + "; ".join(parts)
         if v["only_a"]:
             text += f"; {esc(target)} also in {names(v['only_a'])} (separate)"
         if v["only_b"]:
@@ -1963,8 +1982,9 @@ def search_trail(r, target, portco):
         for item in dict.fromkeys(items):
             p = rec["placements"].get(by_item.get((act["aid"], item)), {})
             ms = [rec["markets"][m]["name"] for m in prec.ids_of(p) if m in rec["markets"]]
+            fit = f"; {p['fit']}" if len(ms) > 1 and p.get("fit") else ""
             placed.append(f"{esc(who)}: {esc(item)} → {esc('; '.join(ms) or 'no market')} "
-                          f"({prec.BASIS_LABEL.get(p.get('basis', 'none'))}; {esc(p.get('reason') or '')})")
+                          f"({prec.BASIS_LABEL.get(p.get('basis', 'none'))}{esc(fit)}; {esc(p.get('reason') or '')})")
     if placed:
         st.markdown("*Where the AI placed this row's products:*  \n" + "  \n".join(placed))
     if rec.get("rejected"):
@@ -2029,12 +2049,15 @@ def precedent_rows():
             continue
         out[cmp.pair_id(r)] = {
             "target_activity": r["a"].get("product"), "portco": r["portco"], "portco_activity": r["b"].get("product"),
-            "target_side": [{"market": (g["market"] or {}).get("name"), "basis": g["basis"], "items": g["items"]}
-                            for g in view["a"]],
-            "portco_side": [{"market": (g["market"] or {}).get("name"), "basis": g["basis"], "items": g["items"]}
-                            for g in view["b"]],
+            "target_side": [{"market": (g["market"] or {}).get("name"), "basis": g["basis"], "items": g["items"],
+                             "status": g.get("status"), "notes": g.get("notes") or {}} for g in view["a"]],
+            "portco_side": [{"market": (g["market"] or {}).get("name"), "basis": g["basis"], "items": g["items"],
+                             "status": g.get("status"), "notes": g.get("notes") or {}} for g in view["b"]],
             "verdict": None if not view.get("verdict") else {
                 "both": [(g["market"] or {}).get("name") for g in view["verdict"]["both"]],
+                "possibly_both": [(g["market"] or {}).get("name") for g in view["verdict"].get("possibly", [])],
+                "both_only_through_a_general_term": [(g["market"] or {}).get("name")
+                                                     for g in view["verdict"].get("general", [])],
                 "only_target": [(g["market"] or {}).get("name") for g in view["verdict"]["only_a"]],
                 "only_portco": [(g["market"] or {}).get("name") for g in view["verdict"]["only_b"]],
                 "different_markets_under_the_precedent": view["verdict"]["different"],

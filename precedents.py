@@ -33,8 +33,11 @@ import rules
 import schemas
 
 MAX_ATTEMPTS = 2          # one rewrite of the queries (Linda, 20 Oct); version 8 planned three attempts
-MAX_TYPES = 8             # types of product per search: one small reflection each (Linda, 20 Oct: option B)
-MAX_EXTRA = 4             # items the query step left unassigned: searched on their own, at most this many
+MAX_TYPES = 16            # types of product per search: one small reflection each (Linda, 20 Oct: option B). Was 8:
+                          # with 30-40 items the query step used all 8 and left whole activities out (Lindt run 0654:
+                          # 25 items, among them the portfolio company's coatings and fillings, never searched)
+MAX_EXTRA = 4             # items the query step left unassigned: searched on their own up to this many; the rest is
+                          # searched per activity (its product line as the type), so that EVERY item is searched
 MAX_REWRITE = 2           # types of product in the rewrite of one type
 # 20 Oct: every type of product is searched with two questions, built in code. The test on the corpus (keyword search,
 # 11 markets of the test cases): product words alone found a DEFINING paragraph in the top 5 in 9 of 11 cases, the
@@ -62,6 +65,7 @@ STOP_WORDS = {
 BASIS_LABEL = {"precedent": "Precedent", "analogy": "Analogy", "none": "No precedent"}
 # 20 Oct (fix A): the reflection may only report a conclusion that a paragraph it was sent states
 NOT_STATED = "not stated in these paragraphs"
+FIT_ONE, FIT_RANGE, FIT_UNCLEAR = "one market", "range across these markets", "one of these, unclear which"
 CONCLUSION_LABEL = {"defined": "defined", "left open": "definition left open",
                     NOT_STATED: "conclusion not in the retrieved paragraphs"}
 
@@ -351,7 +355,7 @@ def run_unit(ai, unit, names, retriever, corpus=None):
         record["error"] = record["stop"] = err
         return record
     types = assign_types(plan, index, unit, names)
-    record["unassigned_searched"] = [t["item_ids"][0] for t in types if t.get("extra")]
+    record["unassigned_searched"] = [i for t in types if t.get("extra") for i in t["item_ids"]]
     record["not_searched"] = [i for i in index if not any(i in t["item_ids"] for t in types)]
     if not types:
         record["error"] = record["stop"] = "the query step returned no type of product"
@@ -418,7 +422,8 @@ def _same_market(m, o):
 def assign_types(plan, index, unit, names):
     """The types of product of the query step, checked in code: only item ids that exist, each item in one type only
     (the first that names it); a type without valid items is dropped. Items the query step left out are searched on
-    their own (their own words as the type, the level of their activity), at most MAX_EXTRA of them."""
+    their own (their own words as the type, the level of their activity) if there are at most MAX_EXTRA of them;
+    otherwise grouped per activity, with the activity's product line as the type. Every item is searched."""
     types, seen = [], set()
     for q in (plan.get("queries") or [])[:MAX_TYPES]:
         ids = [i.strip().strip("[]") for i in q.get("item_ids") or []]
@@ -428,10 +433,20 @@ def assign_types(plan, index, unit, names):
         seen.update(ids)
         types.append({"products": query_text(q), "level": q.get("level") or "any", "item_ids": ids})
     level_of = {e["aid"]: e["activity"].get("value_chain_level") or "any" for e in unit["activities"]}
-    for iid in [i for i in index if i not in seen][:MAX_EXTRA]:
-        aid, item = index[iid]
-        types.append({"products": rules.redact(item, names), "level": level_of.get(aid, "any"), "item_ids": [iid],
-                      "extra": True})
+    left = [i for i in index if i not in seen]
+    if len(left) <= MAX_EXTRA:
+        for iid in left:
+            aid, item = index[iid]
+            types.append({"products": rules.redact(item, names), "level": level_of.get(aid, "any"),
+                          "item_ids": [iid], "extra": True})
+        return types
+    product_of = {e["aid"]: e["activity"].get("product") or "" for e in unit["activities"]}
+    by_activity = {}
+    for iid in left:
+        by_activity.setdefault(index[iid][0], []).append(iid)
+    for aid, ids in by_activity.items():
+        words = rules.redact(product_of.get(aid) or index[ids[0]][1], names)
+        types.append({"products": words, "level": level_of.get(aid, "any"), "item_ids": ids, "extra": True})
     return types
 
 
@@ -557,7 +572,14 @@ def check(data, index, pool, paras):
             basis = "none"
         elif basis == "none":
             basis = "analogy"           # placed but not called a precedent: the weaker label, for the lawyer to check
-        placements[iid] = {"market_ids": mids, "basis": basis, "reason": p.get("reason") or ""}
+        # 20 Oct (Linda): an item in several markets is either a range spanning them or one of them, unclear which;
+        # if the reflection names several markets but calls it "one market", the cautious reading is "unclear which"
+        fit = p.get("fit") or FIT_ONE
+        if len(mids) <= 1:
+            fit = FIT_ONE
+        elif fit not in (FIT_RANGE, FIT_UNCLEAR):
+            fit = FIT_UNCLEAR
+        placements[iid] = {"market_ids": mids, "basis": basis, "fit": fit, "reason": p.get("reason") or ""}
     for iid in index:
         placements.setdefault(iid, {"market_ids": [], "basis": "none", "reason": "not placed by the reflection"})
     return {"markets": markets, "placements": placements, "rejected": rejected}
@@ -604,25 +626,48 @@ def cite_range(ids, paras, short=False):
     return "; ".join(out)
 
 
-def side_markets(record, aid, items):
-    """For one side of a row: [{market_id, market, basis, items}], items grouped by the market(s) they were placed in
-    (an item placed in several markets appears in each)."""
+def side_markets(record, aid, items, product_line=""):
+    """For one side of a row: [{market_id, market, basis, items, notes, status}], items grouped by the market(s) they
+    were placed in (an item placed in several markets appears in each).
+    20 Oct (Linda): each product belongs to ONE market, so an item in several markets only shows that the side is
+    somewhere in them. status per market: "specific" if an item was placed in this market alone; "possibly" if only
+    items that could be in one of several markets (unclear which) lead here; "general" if only a general term leads
+    here: an item that is a range spanning several markets, or the activity's own name placed in several markets.
+    notes: {item: why it is not specific}, shown next to the item."""
     by_item = {(v[0], v[1]): iid for iid, v in (record.get("index") or {}).items()}
     markets = record.get("markets") or {}
+    name_key = rules._norm(product_line)
     groups = {}
     for item in items:
         iid = by_item.get((aid, item))
         p = (record.get("placements") or {}).get(iid) if iid else None
         mids = [m for m in ids_of(p) if m in markets] or ["none"]
         basis = p["basis"] if p and mids != ["none"] else "none"
+        # records from before 20 Oct have no "fit": their prompt allowed several markets only "where the item spans
+        # several markets", i.e. a range
+        fit = (p or {}).get("fit") or (FIT_RANGE if len(mids) > 1 else FIT_ONE)
+        others = " or ".join((markets.get(m) or {}).get("name", m) for m in mids)
+        if len(mids) > 1 and (fit == FIT_RANGE or rules._norm(item) == name_key):
+            kind, note = "general", ("activity name, spans several markets" if rules._norm(item) == name_key
+                                     else "a range spanning several markets")
+        elif len(mids) > 1 and fit == FIT_UNCLEAR:
+            kind, note = "possibly", f"{others}, unclear which"
+        else:
+            kind, note = "specific", ""
         for mid in mids:
-            g = groups.setdefault(mid, {"market": markets.get(mid), "basis": set(), "items": []})
+            g = groups.setdefault(mid, {"market": markets.get(mid), "basis": set(), "items": [], "notes": {},
+                                        "kinds": set()})
             g["basis"].add(basis)
             g["items"].append(item)
+            g["kinds"].add(kind)
+            if note:
+                g["notes"][item] = note
     out = []
     for mid, g in groups.items():
         basis = "precedent" if "precedent" in g["basis"] else "analogy" if "analogy" in g["basis"] else "none"
-        out.append({"market_id": mid, "market": g["market"], "basis": basis, "items": g["items"]})
+        status = next(k for k in ("specific", "possibly", "general") if k in g["kinds"])
+        out.append({"market_id": mid, "market": g["market"], "basis": basis, "items": g["items"], "notes": g["notes"],
+                    "status": status})
     out.sort(key=lambda x: (x["market_id"] == "none", x["market_id"]))
     return out
 
@@ -635,8 +680,8 @@ def row_view(r, record, overrides, effective_status, dismissed_parts):
         return None
     if record.get("error") and not record.get("markets"):
         return {"error": record["error"], "a": [], "b": [], "verdict": None, "unplaced": items["a"] + items["b"]}
-    a = side_markets(record, r["a"]["aid"], items["a"])
-    b = side_markets(record, r["b"]["aid"], items["b"])
+    a = side_markets(record, r["a"]["aid"], items["a"], r["a"].get("product", ""))
+    b = side_markets(record, r["b"]["aid"], items["b"], r["b"].get("product", ""))
     view = {"error": "", "a": a, "b": b, "verdict": None,
             "unplaced": [i for g in a + b if g["market_id"] == "none" for i in g["items"]]}
     d = r["decision"]
@@ -646,24 +691,42 @@ def row_view(r, record, overrides, effective_status, dismissed_parts):
         # different calls count as one market only if they have the same name; "different markets under the
         # precedent" is claimed only if products of both sides were placed in the SAME call (never across calls)
         key = {mid: _market_key(m["name"]) for mid, m in (record.get("markets") or {}).items()}
-        ka = {key.get(g["market_id"], g["market_id"]) for g in a if g["market_id"] != "none"}
-        kb = {key.get(g["market_id"], g["market_id"]) for g in b if g["market_id"] != "none"}
-        both = ka & kb
-        basis_b = {}
-        for g in b:
-            k = key.get(g["market_id"], g["market_id"])
-            basis_b[k] = "precedent" if g["basis"] == "precedent" and basis_b.get(k, "precedent") == "precedent" else g["basis"]
-        seen = set()
+        k_of = lambda g: key.get(g["market_id"], g["market_id"])  # noqa: E731
+
+        def by_key(groups):
+            out = {}
+            for g in groups:
+                if g["market_id"] == "none":
+                    continue
+                k = k_of(g)
+                o = out.setdefault(k, {"group": g, "basis": set(), "status": set()})
+                o["basis"].add(g["basis"])
+                o["status"].add(g["status"])
+            for o in out.values():
+                o["basis"] = "precedent" if o["basis"] == {"precedent"} else "analogy"
+                o["status"] = next(s for s in ("specific", "possibly", "general") if s in o["status"])
+            return out
+        ma, mb = by_key(a), by_key(b)
+        shared = [k for k in ma if k in mb]
+
+        def line(k):
+            # a shared market counts as "precedent" only if it is a precedent for both sides (TC1: Ritter's bars were
+            # placed in "tablets" only by analogy); the status is the weaker of the two sides
+            g = ma[k]["group"]
+            basis = "precedent" if ma[k]["basis"] == mb[k]["basis"] == "precedent" else "analogy"
+            st = {ma[k]["status"], mb[k]["status"]}
+            status = "general" if "general" in st else "possibly" if "possibly" in st else "specific"
+            return dict(g, basis=basis, status=status)
+        rows = [line(k) for k in shared]
         view["verdict"] = {
-            # a market both sides share counts as "precedent" only if it is a precedent for both; otherwise the line
-            # says "by analogy" (TC1: Ritter's bars were placed in "tablets" only by analogy)
-            "both": [dict(g, basis="precedent" if g["basis"] == basis_b.get(key.get(g["market_id"])) == "precedent"
-                          else "analogy") for g in a if key.get(g["market_id"]) in both
-                     and not (key.get(g["market_id"]) in seen or seen.add(key.get(g["market_id"])))],
-            "only_a": [g for g in a if g["market_id"] != "none" and key.get(g["market_id"], g["market_id"]) in ka - both],
-            "only_b": [g for g in b if g["market_id"] != "none" and key.get(g["market_id"], g["market_id"]) in kb - both],
+            # 20 Oct (Linda): "both in" only where an item of EACH side was placed in that market alone
+            "both": [g for g in rows if g["status"] == "specific"],
+            "possibly": [g for g in rows if g["status"] == "possibly"],
+            "general": [g for g in rows if g["status"] == "general"],
+            "only_a": [o["group"] for k, o in ma.items() if k not in mb],
+            "only_b": [o["group"] for k, o in mb.items() if k not in ma],
             # the precedent puts the two companies' items into different markets: shown, never deleted (spec section 8)
-            "different": bool(ka and kb and not both and _same_call(record, r, items)),
+            "different": bool(ma and mb and not shared and _same_call(record, r, items)),
             "left_open": any((g["market"] or {}).get("conclusion") == "left open" for g in a + b if g["market"]),
             "not_stated": any((g["market"] or {}).get("conclusion") == NOT_STATED for g in a + b if g["market"]),
         }
