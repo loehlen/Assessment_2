@@ -425,6 +425,13 @@ market:
   Never infer a conclusion that no paragraph in the list states
 - summary: one factual sentence on what the paragraphs say about this market, including any segment that was found to
   be separate or left open
+- conclusion_quote / conclusion_paragraph: the sentence that states the Commission's conclusion on this market,
+  copied WORD FOR WORD from one paragraph of the list, and that paragraph's id; "" and "" if no paragraph states it
+- scope_quote / scope_paragraph: the sentence that says what the market covers (what the products are, e.g. size,
+  form, use, customers), copied WORD FOR WORD from one paragraph of the list, and its id; "" and "" if none does
+- reasons: the main reasons the paragraphs give for this market or for separating it from others (e.g. "price per
+  kg", "frequency of purchase", "production equipment"), a few words each, each with the id of the paragraph that
+  gives it; [] if the paragraphs give none. Report only reasons the paragraphs state
 placements: one entry for EVERY item id in the list:
 - item_id: copied from the list, e.g. "2.3"
 - market_ids: the market or markets for this item, or [] if no market in the paragraphs fits it. Each product
@@ -434,7 +441,8 @@ placements: one entry for EVERY item id in the list:
   category, place the item in its segment(s); use the wider category only for an item that fits none of the segments,
   and never name a wider category together with one of its own segments for the same item
 - fit: "one market" if market_ids has one market (or none); "range across these markets" for case (a); "one of these,
-  unclear which" for case (b)
+  unclear which" for case (b); "the same market in different decisions" if the markets named are one and the same
+  market as described in different decisions (e.g. "cocoa powder" in one decision and "cocoa cake/powder" in another)
 - basis: "precedent" if the market was defined for this type of product at this level of trade; "analogy" if it was
   defined for the same product at another level of trade, or for a different product that is similar in what it is
   and in what it does for the customer (its characteristics and its function), so that a lawyer might apply the
@@ -456,6 +464,11 @@ Rules:
 - A gap is an acceptable answer: if nothing fits an item, use []. A guess is not."""
 
 
+class MarketReason(BaseModel):
+    reason: str = Field(description="A reason the paragraphs give, in a few words (e.g. 'price per kg')")
+    paragraph: str = Field(description="The id of the paragraph that gives it")
+
+
 class MarketFound(BaseModel):
     market_id: str = Field(description="M1, M2, ...")
     name: str = Field(description="The market in the Commission's words")
@@ -463,13 +476,19 @@ class MarketFound(BaseModel):
     conclusion: Literal["defined", "left open", "not stated in these paragraphs"] = Field(
         description="What a paragraph in the list says the Commission concluded; never inferred")
     summary: str = Field(description="One factual sentence on what the paragraphs say about this market")
+    conclusion_quote: str = Field(description="The sentence stating the Commission's conclusion, word for word, or ''")
+    conclusion_paragraph: str = Field(description="The id of the paragraph that contains conclusion_quote, or ''")
+    scope_quote: str = Field(description="The sentence saying what the market covers, word for word, or ''")
+    scope_paragraph: str = Field(description="The id of the paragraph that contains scope_quote, or ''")
+    reasons: list[MarketReason] = Field(description="The main reasons the paragraphs give, each with its paragraph")
 
 
 class Placement(BaseModel):
     item_id: str = Field(description="The item's id, copied from the list, e.g. '2.3'")
     market_ids: list[str] = Field(description="market_ids from 'markets' that cover this item; [] if none fits")
     basis: Literal["precedent", "analogy", "none"]
-    fit: Literal["one market", "range across these markets", "one of these, unclear which"] = Field(
+    fit: Literal["one market", "range across these markets", "one of these, unclear which",
+                 "the same market in different decisions"] = Field(
         description="Why the item has several markets, if it has: a range spanning them, or unclear which one")
     reason: str = Field(description="A few words why")
 

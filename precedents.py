@@ -50,7 +50,7 @@ MAX_PARAGRAPHS = 14       # paragraphs per reflection of one type (its hits firs
                           # second attempt. 20 Oct (Linda, option B): one focused call per type of product with a few
                           # paragraphs, as in the class code and the chatbot, instead of 30-40 products against up to
                           # 40 paragraphs in one call (the compound paragraph was in that call, but ChoViva was missed)
-TYPE_PARALLEL = 4         # types of one search run at the same time (the AI gate allows 8 requests at once in all)
+TYPE_PARALLEL = 6         # types of one search run at the same time (the AI gate allows 8 requests at once in all)
 FALLBACK_ITEMS = 8        # items of an "Other activities" line used when a row names no items
 SOURCE_DECISION = "Commission decision"
 
@@ -66,6 +66,7 @@ BASIS_LABEL = {"precedent": "Precedent", "analogy": "Analogy", "none": "No prece
 # 20 Oct (fix A): the reflection may only report a conclusion that a paragraph it was sent states
 NOT_STATED = "not stated in these paragraphs"
 FIT_ONE, FIT_RANGE, FIT_UNCLEAR = "one market", "range across these markets", "one of these, unclear which"
+FIT_SAME = "the same market in different decisions"     # 20 Oct: e.g. "cocoa powder" (M.6872) = "cocoa cake/powder"
 CONCLUSION_LABEL = {"defined": "defined", "left open": "definition left open",
                     NOT_STATED: "conclusion not in the retrieved paragraphs"}
 
@@ -287,11 +288,15 @@ def retrieve(retriever, queries, use_level):
     and returns (paragraph ids in order, the paragraphs, the trail per question). Only decision paragraphs are kept;
     each hit brings its neighbours (+/-1)."""
     order, paras, trail = [], {}, []
+    # 20 Oct: all questions of this step embedded in ONE request (before: one request per question)
+    questions = [form.format(p=query_text(q)) for q in queries for form in QUERY_FORMS]
+    vectors = dict(zip(questions, retriever.embed(questions))) if questions else {}
     for q in queries:
         level = q.get("level") if use_level and q.get("level") not in (None, "any") else None
         for form in QUERY_FORMS:
             question = form.format(p=query_text(q))
-            res = retriever.search(question, k=POOL_PER_QUERY, level=level)    # the index read is locked inside
+            res = retriever.search(question, k=POOL_PER_QUERY, level=level,      # the index read is locked inside
+                                   vector=vectors.get(question))
             hits = [h for h in res["hits"] if h["paragraph"].get("source_type") == SOURCE_DECISION][:HITS_PER_FORM]
             trail.append({"query": question, "products": query_text(q), "level": q.get("level"),
                           "level_filter": res.get("level_filter"),
@@ -403,6 +408,10 @@ def complete_conclusions(markets):
             continue
         m["conclusion"] = found.pop()
         m["conclusion_from"] = [o["market_id"] for o in donors]
+        quoted = next((o for o in donors if o.get("conclusion_quote_found")), None)
+        if quoted:                       # the sentence that states it, from the search that found it
+            for f in ("conclusion_quote", "conclusion_paragraph", "conclusion_quote_found"):
+                m[f] = quoted[f]
         m["product_paragraphs"] = _sorted_ids(set(m["product_paragraphs"]) |
                                               {pid for o in donors for pid in o["product_paragraphs"]})
         taken.append(f"{mid} ({m['name']}): '{m['conclusion']}' taken from {', '.join(m['conclusion_from'])}")
@@ -525,6 +534,37 @@ def ids_of(p):
     return [p["market_id"]] if p.get("market_id") not in (None, "", "none") else []
 
 
+QUOTE_CHARS = str.maketrans({"’": "'", "‘": "'", "“": '"', "”": '"', "„": '"', "–": "-", "—": "-", "\u00a0": " "})
+
+
+def _plain(text):
+    """For comparing a quotation with a paragraph: footnote markers removed, quotes and dashes unified, spaces
+    collapsed, lower case."""
+    text = re.sub(r"\[fn [^\]]*\]|\(fn \d+\)", " ", (text or "").translate(QUOTE_CHARS))
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
+def check_quote(quote, pid, pool, paras):
+    """(quote, found, paragraph id). The quotation must be in a decision paragraph that was sent; the paragraph given
+    is tried first, then the others sent. Ellipses ('...') split the quotation into parts that must all be there."""
+    quote = (quote or "").strip().strip('"“”').strip()
+    pid = norm_id(pid or "") if pid else ""
+    if not quote:
+        return "", False, ""
+    parts = [x.strip(" .,;:") for x in re.split(r"\.\.\.|…", _plain(quote)) if len(x.strip(" .,;:")) >= 12]
+    if not parts:
+        return quote, False, pid if pid in pool else ""
+    order = ([pid] if pid in pool else []) + [x for x in pool if x != pid]
+    for cand in order:
+        p = paras.get(cand) or {}
+        if p.get("source_type") != SOURCE_DECISION:
+            continue
+        text = _plain(p.get("text"))
+        if all(x in text for x in parts):
+            return quote, True, cand
+    return quote, False, pid if pid in pool else ""
+
+
 def check(data, index, pool, paras):
     """The citation check and the item check, in code (spec section 9, step 6): a paragraph may be cited only if the
     retrieval returned it in this search; a market left without any valid paragraph is dropped and its items count as
@@ -548,6 +588,30 @@ def check(data, index, pool, paras):
             continue
         markets[mid] = {"market_id": mid, "name": m.get("name") or "not stated", "conclusion": m.get("conclusion"),
                         "product_paragraphs": _sorted_ids(prod), "summary": m.get("summary") or ""}
+        # 20 Oct (Linda): what the Commission defined, in its own words, checked in code like the source quotations of
+        # step 2: a quotation counts only if it is in a paragraph that was sent (if it is in another paragraph than
+        # the one given, that one is used and the correction is listed)
+        for part in ("conclusion", "scope"):
+            quote, found, where = check_quote(m.get(f"{part}_quote"), m.get(f"{part}_paragraph"), pool, paras)
+            markets[mid][f"{part}_quote"] = quote
+            markets[mid][f"{part}_paragraph"] = where
+            markets[mid][f"{part}_quote_found"] = found
+            if quote and not found:
+                rejected.append(f"{mid}: the {part} quotation is not word for word in the paragraphs sent (shown as "
+                                "the AI's wording)")
+            elif found and where != norm_id(m.get(f"{part}_paragraph") or ""):
+                rejected.append(f"{mid}: the {part} quotation is in paragraph {where}, not "
+                                f"{m.get(f'{part}_paragraph') or 'the one given'} (corrected)")
+        reasons = []
+        for r in m.get("reasons") or []:
+            pid = norm_id(r.get("paragraph") or "")
+            if (r.get("reason") or "").strip():
+                reasons.append({"reason": r["reason"].strip(),
+                                "paragraph": pid if pid in pool and paras.get(pid, {}).get("source_type")
+                                == SOURCE_DECISION else ""})
+        markets[mid]["reasons"] = reasons
+        extra = {markets[mid]["conclusion_paragraph"], markets[mid]["scope_paragraph"]} | {r["paragraph"] for r in reasons}
+        markets[mid]["product_paragraphs"] = _sorted_ids(set(prod) | {x for x in extra if x})
     placements = {}
     for p in data.get("placements") or []:
         iid = (p.get("item_id") or "").strip().strip("[]")
@@ -577,7 +641,7 @@ def check(data, index, pool, paras):
         fit = p.get("fit") or FIT_ONE
         if len(mids) <= 1:
             fit = FIT_ONE
-        elif fit not in (FIT_RANGE, FIT_UNCLEAR):
+        elif fit not in (FIT_RANGE, FIT_UNCLEAR, FIT_SAME):
             fit = FIT_UNCLEAR
         placements[iid] = {"market_ids": mids, "basis": basis, "fit": fit, "reason": p.get("reason") or ""}
     for iid in index:
@@ -647,7 +711,9 @@ def side_markets(record, aid, items, product_line=""):
         # several markets", i.e. a range
         fit = (p or {}).get("fit") or (FIT_RANGE if len(mids) > 1 else FIT_ONE)
         others = " or ".join((markets.get(m) or {}).get("name", m) for m in mids)
-        if len(mids) > 1 and (fit == FIT_RANGE or rules._norm(item) == name_key):
+        if len(mids) > 1 and fit == FIT_SAME:
+            kind, note = "specific", ""                 # one market, described in several decisions
+        elif len(mids) > 1 and (fit == FIT_RANGE or rules._norm(item) == name_key):
             kind, note = "general", ("activity name, spans several markets" if rules._norm(item) == name_key
                                      else "a range spanning several markets")
         elif len(mids) > 1 and fit == FIT_UNCLEAR:

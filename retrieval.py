@@ -163,8 +163,10 @@ class Retriever:
         # keyword search on section, headings and text; party names are left out (queries never contain names)
         self.bm25 = BM25([" ".join([p["section"]] + p["headings"] + [p["text"]]) for p in self.paragraphs.values()])
 
-    def _vector(self, query, n):
-        vector = self.embed([query])             # the API request runs outside the lock (20 Oct)
+    def _vector(self, query, n, vector=None):
+        # the API request runs outside the lock (20 Oct); a vector embedded beforehand (several questions in one
+        # request, stage 4) is used as it is
+        vector = [vector] if vector is not None else self.embed([query])
         with self._lock:                         # one read of the index at a time (stage 4 searches in parallel)
             res = self.col.query(query_embeddings=vector, n_results=n, include=["metadatas", "distances"])
         ranked, seen = [], set()
@@ -180,14 +182,14 @@ class Retriever:
         ranked = sorted(zip(self.order, scores), key=lambda x: -x[1])
         return [(pid, s) for pid, s in ranked[:n] if s > 0]
 
-    def search(self, query, k=5, level=None, use_bm25=True, neighbours=True, pool=30):
+    def search(self, query, k=5, level=None, use_bm25=True, neighbours=True, pool=30, vector=None):
         """
         Returns up to k hits, best first: {paragraph, score, found_by, rank_vector, rank_keyword, neighbours}.
         level: a value-chain level from rules.VALUE_CHAIN_LEVELS. Paragraphs of decisions at other levels are
         dropped first; if that leaves nothing, the search is repeated without the filter (spec section 12), and
         the result says so. The Notice (no level) always passes the filter.
         """
-        vec = self._vector(query, pool)
+        vec = self._vector(query, pool, vector)
         key = self._keyword(query, pool) if use_bm25 else []
         fused = Counter()
         for ranked in (vec, key):
