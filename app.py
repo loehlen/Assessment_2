@@ -1,12 +1,14 @@
 """
 app.py - EU Overlap Screen (LAWS90286 Assignment 2): a preliminary EU merger control overlap screen.
 
-Built so far: stages ① Companies, ② Activities and ③ Preliminary assessment (spec 9, sections 6-9).
+Built: stages ① Companies, ② Activities, ③ Preliminary assessment and ④ Commission market definitions; the visual
+design of 20 Oct (spec v14: ink and ivory theme, Times New Roman headings, flat labels, sidebar with the actions and the
+legend, the lawyer's "Edit" with wording and added labels). Stage ⑤ (geography) is not built; ⑥ the Word document follows.
 Going back never deletes anything: a changed company is researched again and only new or changed pairs are compared
 again (stable activity IDs and content keys, 16 Oct); dismissals and notes stay with their pair.
-Stages ④ market definitions, ⑤ geography and ⑥ export follow; they add columns to the table of stage ③, which
-follows the overlap table used in practice: one box per portfolio company; in it, each target activity with the
-portfolio company's activities that meet it, the Commission's market definition and the preliminary assessment.
+The table of stage ③ follows the overlap table used in practice: one box per portfolio company; in it, each target
+activity with the portfolio company's activities that meet it and the preliminary assessment; stage ④ adds, under each
+row, the Commission's market definition and what follows from it.
 
     streamlit run app.py
 
@@ -39,6 +41,49 @@ import precedents as prec
 import rules
 
 st.set_page_config(page_title="EU Overlap Screen", page_icon="⚖️", layout="wide")
+
+# =============================================================== visual design (spec v14, 20 Oct, Linda)
+# The theme (colours, fonts) is in .streamlit/config.toml. Here: the few things the theme cannot reach, in one place:
+# the flat labels, the Commission line, the step tabs, the row rules and the hover boxes. Colours carry meaning only:
+# red = potential horizontal overlap, yellow = potential vertical relationship, slate blue = the Commission.
+INK, TEXT2, RULE, SAND = "#22313F", "#55514A", "#E2DDD2", "#F2EFE8"
+APP_CSS = """<style>
+.lab{display:inline-block;font-size:.8rem;font-weight:600;padding:.08rem .45rem;border-radius:4px;line-height:1.45;
+ margin:.05rem .25rem .05rem 0}
+.lab-h{background:#FDECEA;color:#8A1C12}
+.lab-v{background:#FFF3D1;color:#6E4B00}
+.lab-q{background:#ECEAE5;color:#4A463F}
+.lab-off{background:#ECEAE5;color:#7A756C;text-decoration:line-through}
+.tag{font-size:.78rem;color:#55514A;font-style:italic;white-space:nowrap}
+.sub2{color:#55514A}
+.hov{cursor:help;border-bottom:1px dotted #8A857C}
+.dots{cursor:help;letter-spacing:.05em;border-bottom:1px dotted #8A857C}
+.src{text-decoration:none;font-size:.85em;color:#3A5A80}
+.cline{background:#EEF1F4;color:#2C3E52;border-left:3px solid #5B7089;padding:.4rem .8rem;margin:.35rem 0 .2rem 0;
+ line-height:1.55;border-radius:0}
+.cline .ed{color:#5B7089;font-style:italic;font-size:.8rem}
+details.mkts{margin:.1rem 0 .4rem 0}
+details.mkts>summary{cursor:pointer;color:#5B7089;font-size:.85rem;list-style:none}
+details.mkts>summary::-webkit-details-marker{display:none}
+details.mkts>summary:before{content:"▸ "}
+details.mkts[open]>summary:before{content:"▾ "}
+.grp{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:.95rem;margin:.5rem 0 .15rem 0}
+.it{padding:.12rem 0 .12rem .6rem;border-left:2px solid #5B7089;margin:.1rem 0}
+.it.one{border-left-color:#E2DDD2}
+.or{color:#55514A;font-style:italic}
+.rbox{background:#fff;border:1px solid #E2DDD2;border-radius:6px;padding:.6rem .9rem;margin:.3rem 0 .6rem 0;line-height:1.6}
+.rbox .rt{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:1rem;margin-bottom:.15rem}
+.st-key-stepnav{border-bottom:1px solid #E2DDD2;margin-bottom:.4rem}
+.st-key-stepnav button{background:transparent !important;border:none !important;border-bottom:2px solid transparent !important;
+ border-radius:0 !important;box-shadow:none !important;color:#1F1D1A !important;padding-left:0;padding-right:0}
+.st-key-stepnav button p{font-size:.95rem}
+.st-key-stepnav button[data-testid="stBaseButton-primary"]{border-bottom-color:#22313F !important;color:#22313F !important}
+.st-key-stepnav button[data-testid="stBaseButton-primary"] p{font-weight:600}
+.st-key-stepnav button:disabled{color:#A39E94 !important}
+.st-key-stepnav button:hover:not(:disabled){color:#22313F !important}
+.workcard h4{margin-bottom:.2rem}
+</style>"""
+st.html(APP_CSS)            # style only: takes no space on the page
 
 DEV_MODE = ai_client.flag("DEV_MODE")
 PROFILE = ai_client.setting("MODEL_PROFILE", "dev" if DEV_MODE else "final")   # the submitted version never runs on dev
@@ -189,6 +234,27 @@ def do_work(ai, job):
     return True
 
 
+class WorkCard:
+    """The loading screen (20 Oct, Linda: a clean card instead of a list of checks, the same everywhere): a heading,
+    one progress bar and one plain sentence. The detailed lines are kept for development only, collapsed."""
+
+    def __init__(self, title, text, note=""):
+        self.box = st.container(border=True)
+        with self.box:
+            st.markdown(f"#### {title}")
+            self.bar = st.progress(0.0, text=text)
+            if note:
+                st.caption(note)
+            self.dev = st.expander("Developer details") if DEV_MODE else None
+
+    def update(self, fraction, text):
+        self.bar.progress(max(0.0, min(fraction, 1.0)), text=text)
+
+    def log(self, line):
+        if self.dev is not None:
+            self.dev.write(line)
+
+
 # =============================================================== new screen (reset)
 KEEP_ON_RESET = {"log", "app_password", "user_api_key", "deploy_check"}
 
@@ -202,15 +268,15 @@ def reset_all():
     ss.run_first = ss.log.mark()
 
 
-@st.dialog("Start a new screen?")
+@st.dialog("Start over?")
 def confirm_reset(snap):
     st.write("This discards the companies, activities and results of the current screen.")
     if snap is not None:
-        st.download_button("Download the audit log first (.json)", data=lambda: audit_json(snap),
+        st.download_button("Save progress first (.json)", data=lambda: audit_json(snap),
                            mime="application/json", on_click="ignore",
                            file_name=f"overlap_audit_{datetime.now():%Y%m%d-%H%M}.json")
     c1, c2 = st.columns(2)
-    if c1.button("Discard and start again", type="primary"):
+    if c1.button("Discard and start over", type="primary"):
         reset_all()
         st.rerun()
     if c2.button("Cancel"):
@@ -224,6 +290,9 @@ STAGE = {"raw materials": "Raw materials", "intermediate products": "Intermediat
          "finished products": "Manufacturing", "wholesale / distribution": "Wholesale", "retail": "Retail",
          "services": "Services", "other": "Other"}
 SOURCE_KIND = {"company": "company website", "third party": "other public source", "provided by user": "your description"}
+
+
+OTHER_NAME = "Side lines and own use"      # the merged "Other activities" line, as shown (20 Oct, Linda)
 
 
 def stage_of(a):
@@ -270,7 +339,7 @@ def source_markers(a, company, checks=None):
     result of the code check of its quotation: ✔ found on the page (the link jumps to the passage, or to the PDF page),
     ⚠ page read but passage not on it, ○ not checked automatically. Hover shows the quotation of THAT source (no longer
     the AI's summary). Dead links were removed as sources and are not shown here. Company websites are solid, other
-    public sources dotted (decided 16 Oct)."""
+    public sources dotted (decided 16 Oct; since 20 Oct one style, the hover names the kind of source)."""
     idx = source_index(company)
     by_n = {c["n"]: c for c in (a.get("quote_checks") if checks is None else checks) or []}
     out = []
@@ -307,8 +376,7 @@ def source_markers(a, company, checks=None):
             tip += (f"\n(The extraction had attached this passage to source {c['moved_from']}; the app found it on "
                     "this page instead.)")
         tip = html.escape(tip, quote=True).replace("\n", "&#10;")
-        style = ("text-decoration:none;font-size:0.85em" if kind == "company" else
-                 "text-decoration:underline dotted;opacity:0.75;font-size:0.85em")
+        style = "text-decoration:none;font-size:0.85em"       # 20 Oct: one style; the hover says the kind
         href = (c or {}).get("link") or s.get("url", "")
         if not str(href).lower().startswith(("http://", "https://")):
             href = ""                    # 20 Oct: only web links (a loaded audit log could carry anything)
@@ -323,12 +391,6 @@ def source_markers(a, company, checks=None):
                    else "<span title='No source returned by the search supports this activity' "
                         "style='font-size:0.85em'>⚠ no source</span>")
     return " ".join(out)
-
-
-SOURCES_LEGEND = ("Sources: [n] solid = the company's own website, [n] dotted = other public source. ✔ the quoted "
-                  "passage was found on the page (a click opens it there, or at the PDF page) · ⚠ the page was read, "
-                  "but the passage is not on it · ○ could not be checked automatically. Hover over a number to see the "
-                  "quotation. Links that no longer exist are not used (listed under “Company profile, all sources”).")
 
 
 def quote_lines(act, who):
@@ -411,9 +473,9 @@ def example_buttons():
     st.markdown("**Try an example**")
     st.caption("The examples use real companies in a hypothetical portfolio: no real transaction is implied. "
                "The research and the comparison run live.")
-    cols = st.columns(len(examples.EXAMPLES))
-    for col, (key, ex) in zip(cols, examples.EXAMPLES.items()):
-        col.button(ex["button"], key=f"ex_{key}", help=ex["what"], on_click=fill_example, args=(key,))
+    with st.container(horizontal=True):          # side by side, not spread over the page width (20 Oct)
+        for key, ex in examples.EXAMPLES.items():
+            st.button(ex["button"], key=f"ex_{key}", help=ex["what"], on_click=fill_example, args=(key,))
 
 
 def target_card():
@@ -521,12 +583,11 @@ def read_companies(edited):
 
 def stage_companies(ai):
     st.subheader("① Companies")
-    st.write("Enter the company being acquired (the target) and the buyer's portfolio companies. Each company is "
-             "analysed as a group, with its subsidiaries and brands; for the target, enter the entity actually being "
-             "acquired.")
+    st.write("Enter the company to be bought (the target) and the companies the buyer already owns (portfolio "
+             "companies). Each portfolio company is looked at together with its subsidiaries and brands. For the "
+             "target, enter only the business being sold, for example a division rather than the seller's whole group.")
     restore_inputs()
     example_buttons()
-    loader_box()
     target_card()
     edited = portfolio_card()
     typed_text_warnings(read_companies(edited)[0])
@@ -563,26 +624,27 @@ def run_mapping(ai, companies):
     todo = [c for c in companies if c["name"] not in kept]
     mapped = {n: old[n] for n in kept}
     searching = any(am.source_mode(c) != "my description" for c in todo)
-    label = ("Researching each company on public websites (one company per search, in parallel). This takes about "
-             "one to four minutes." if searching else "Reading your descriptions (one company per call, in parallel).")
-    if not todo:
-        label = "Nothing new to research: the companies are unchanged."
-    with st.status(label, expanded=True) as status:
-        for n in sorted(kept):
-            st.write(f"✔ {n}: kept from before (no change)")
-        with cf.ThreadPoolExecutor(ai_client.MAX_PARALLEL) as ex:
-            futures = {ex.submit(am.map_company, ai, c, companies, USE_SAVED): c for c in todo}
-            for fut in cf.as_completed(futures):
-                c = futures[fut]
-                m = fut.result()
-                mapped[c["name"]] = m
-                if m["error"]:
-                    st.write(f"✖ {c['name']}: {m['error']}")
-                else:
-                    origin = ("your description" if am.source_mode(c) == "my description"
-                              else f"{len(m['search']['sources'])} sources")
-                    st.write(f"✔ {c['name']}: {len(m['extraction']['activities'])} activities from {origin}")
-        status.update(label=f"Activities found in {time.time() - t0:.0f} s", state="complete", expanded=False)
+    title = "Researching the companies" if searching else "Reading your descriptions"
+    note = ("Each company is researched on its own, on public websites. This usually takes one to four minutes."
+            if searching else "Each company is read on its own.")
+    n = len(todo)
+    card = WorkCard(title, f"0 of {plural(n, 'company', 'companies')} done" if n else "Nothing new to research",
+                    note if n else "The companies are unchanged.")
+    for name in sorted(kept):
+        card.log(f"✔ {name}: kept from before (no change)")
+    with cf.ThreadPoolExecutor(ai_client.MAX_PARALLEL) as ex:
+        futures = {ex.submit(am.map_company, ai, c, companies, USE_SAVED): c for c in todo}
+        for done, fut in enumerate(cf.as_completed(futures), start=1):
+            c = futures[fut]
+            m = fut.result()
+            mapped[c["name"]] = m
+            card.update(done / n, f"{done} of {plural(n, 'company', 'companies')} done")
+            if m["error"]:
+                card.log(f"✖ {c['name']}: {m['error']}")
+            else:
+                origin = ("your description" if am.source_mode(c) == "my description"
+                          else f"{len(m['search']['sources'])} sources")
+                card.log(f"✔ {c['name']}: {len(m['extraction']['activities'])} activities from {origin}")
     old_acts = ss.get("acts") or {}
     ss.companies = companies
     ss.mapped = {c["name"]: mapped[c["name"]] for c in companies}
@@ -664,7 +726,7 @@ def activity_line(a, company):
     includes = [i for i in a.get("includes") or [] if i]
     if rules.category(a) == "other":
         items = [short_item(i) for i in includes]
-        return (f"**Other activities** {stage_text(a)} · {'; '.join(esc(i) for i in items[:4])}{more_items(items, 4)} "
+        return (f"**{OTHER_NAME}** {stage_text(a)} · {'; '.join(esc(i) for i in items[:4])}{more_items(items, 4)} "
                 f"{markers}")
     what = everyday(a)          # empty for the level "other": no empty " · " (18 Oct)
     line = f"**{esc(capital(a['product']))}** {stage_text(a)}" + (f" · {esc(what)}" if what else "")
@@ -713,7 +775,7 @@ def show_relationships():
     for company, rs in (ss.get("relationships") or {}).items():
         for r in rs:
             with st.container(border=True):
-                st.markdown(f"🔗 **Existing relationship found in public sources:** the sources for **{company}** "
+                st.markdown(f"**Existing relationship found in public sources:** the sources for **{company}** "
                             f"mention **{r['other']}** ({', '.join(r['names'])}). The tool does not assess it; "
                             "check its nature (supply, distribution, partnership, equity).")
                 for p in r["passages"]:
@@ -860,11 +922,8 @@ def _store_profile(name, key):
 
 def stage_activities(ai):
     st.subheader("② Activities")
-    st.write("Check what each company does. Everything after this step builds on these activities. Use “Edit” next to "
-             "an activity to correct it, mark it as not relevant to this deal or delete it; “Add an activity” adds one.")
-    st.caption(SOURCES_LEGEND)
-    if DEV_MODE:
-        st.caption(stage_cost("mapping"))
+    st.write("Check what each company does: everything after this step builds on these activities. Use “Edit” to "
+             "correct an activity, mark it as not relevant to this deal or delete it.")
     cmp.ensure_ids(ss.acts)
     show_relationships()
     for i, c in enumerate(ss.companies):
@@ -936,7 +995,7 @@ def company_block(ai, c, index):
     acts = ss.acts[name]
     v = ss.acts_version
     with st.container(border=True):
-        st.markdown(f"#### {'🎯 Target: ' if c['role'] == 'target' else f'Portfolio company {index}: '}{name}")
+        st.markdown(f"#### {'Target: ' if c['role'] == 'target' else f'Portfolio company {index}: '}{name}")
         facts = [c["website"]] if c.get("website") else []
         if am.source_mode(c) != "web search":
             facts.append(f"activities from: {am.source_mode(c)}")
@@ -1009,9 +1068,11 @@ def remap_company(ai, name, website, mode, pasted, confirmed=()):
                       typed_names_confirmed=list(confirmed or [])) if c["name"] == name else c for c in ss.companies]
     company = next(c for c in companies if c["name"] == name)
     first, t0 = ss.log.mark(), time.time()
-    with st.status(f"Researching {name} again (one company, its own calls) ...", expanded=True) as status:
-        ss.mapped[name] = am.map_company(ai, company, companies, USE_SAVED)
-        status.update(label=f"{name} researched again in {time.time() - t0:.0f} s", state="complete")
+    card = WorkCard(f"Researching {name} again", "Researching …",
+                    "Only this company is researched again; the others are kept. This usually takes one to two minutes.")
+    ss.mapped[name] = am.map_company(ai, company, companies, USE_SAVED)
+    card.update(1.0, "Done")
+    card.log(f"{name} researched again in {time.time() - t0:.0f} s")
     ss.companies = companies
     ss.relationships = am.find_relationships(ss.mapped, companies)
     ss.acts[name] = copy.deepcopy(extracted(ss.mapped[name]))
@@ -1163,45 +1224,44 @@ def confirm_activities(ai, activities, problems, profiles_text):
     ss.setdefault("vec_cache", {})
     ss.setdefault("pair_cache", {})
     first, t0 = ss.log.mark(), time.time()
-    with st.status("Comparing the activities: one pair of anonymised descriptions per AI call, in parallel",
-                   expanded=True) as status:
-        st.write(f"✔ Anonymised: {len(rules.name_variants(names))} name variants removed"
-                 + (f"; ✖ names left in {len(plan['blocked'])} abstracts (their pairs are blocked)" if plan["blocked"]
-                    else "; name check passed for every abstract"))
-        missing = {n: [a for a in p["activities"] if keys[a["aid"]] not in ss.vec_cache] for n, p in profiles.items()}
-        missing = {n: acts for n, acts in missing.items() if acts}
-        try:
-            with cf.ThreadPoolExecutor(ai_client.MAX_PARALLEL) as ex:
-                futures = {ex.submit(cmp.embed_company, ai, n, acts, names): n for n, acts in missing.items()}
-                for fut in cf.as_completed(futures):
-                    for a, v in zip(missing[futures[fut]], fut.result()):
-                        ss.vec_cache[keys[a["aid"]]] = v
-        except Exception as e:  # noqa: BLE001 - never continue without vectors (see comparison.embed_company)
-            status.update(label="The comparison stopped", state="error")
-            st.error(f"The embeddings failed, so nothing was compared: {type(e).__name__}: {e}. Your activities are "
-                     "kept; go back and press “Compare activities” again.")
-            st.button("← Back to the activities", on_click=go_to, args=(2,))
-            return False
-        st.write(f"✔ Embeddings: {plural(len(missing), 'request')}, one per company, anonymised texts only"
-                 if missing else "✔ Embeddings: all kept from before")
-        for p in profiles.values():
-            p["vectors"] = [ss.vec_cache[keys[a["aid"]]] for a in p["activities"]]
-        pairs = cmp.build_pairs(target, portcos, profiles)
-        pair_key = {id(p): (keys[p["a"]["aid"]], keys[p["b"]["aid"]]) for p in pairs}
-        todo = [p for p in pairs if pair_key[id(p)] not in ss.pair_cache]
-        if len(pairs) > len(todo):
-            st.write(f"✔ {plural(len(pairs) - len(todo), 'pair')} kept from before (nothing changed in them)")
-        if todo:
-            bar = st.progress(0.0, text=f"0 of {len(todo)} pairs compared")
-            with cf.ThreadPoolExecutor(ai_client.MAX_PARALLEL) as ex:
-                futures = {ex.submit(cmp.assess, ai, p, names): p for p in todo}
-                for done, fut in enumerate(cf.as_completed(futures), start=1):
-                    ss.pair_cache[pair_key[id(futures[fut])]] = fut.result()
-                    if done % 5 == 0 or done == len(todo):
-                        bar.progress(done / len(todo), text=f"{done} of {len(todo)} pairs compared")
-        results = [{**ss.pair_cache[pair_key[id(p)]], **{k: p[k] for k in POSITION_FIELDS}} for p in pairs]
-        status.update(label=f"{plural(len(todo), 'pair')} compared, {len(pairs) - len(todo)} kept, in "
-                            f"{time.time() - t0:.0f} s", state="complete", expanded=False)
+    card = WorkCard("Comparing the activities", "Preparing the anonymised descriptions …",
+                    "Every activity of the target is compared with every activity of each portfolio company. The AI "
+                    "sees descriptions only, never company names. This usually takes one to two minutes.")
+    card.log(f"✔ Anonymised: {len(rules.name_variants(names))} name variants removed"
+             + (f"; ✖ names left in {len(plan['blocked'])} abstracts (their pairs are blocked)" if plan["blocked"]
+                else "; name check passed for every abstract"))
+    missing = {n: [a for a in p["activities"] if keys[a["aid"]] not in ss.vec_cache] for n, p in profiles.items()}
+    missing = {n: acts for n, acts in missing.items() if acts}
+    try:
+        with cf.ThreadPoolExecutor(ai_client.MAX_PARALLEL) as ex:
+            futures = {ex.submit(cmp.embed_company, ai, n, acts, names): n for n, acts in missing.items()}
+            for fut in cf.as_completed(futures):
+                for a, v in zip(missing[futures[fut]], fut.result()):
+                    ss.vec_cache[keys[a["aid"]]] = v
+    except Exception as e:  # noqa: BLE001 - never continue without vectors (see comparison.embed_company)
+        st.error(f"The comparison stopped: the embeddings failed, so nothing was compared ({type(e).__name__}: {e}). "
+                 "Your activities are kept; go back and press “Compare activities” again.")
+        st.button("← Back to the activities", on_click=go_to, args=(2,))
+        return False
+    card.log(f"✔ Embeddings: {plural(len(missing), 'request')}, one per company, anonymised texts only"
+             if missing else "✔ Embeddings: all kept from before")
+    for p in profiles.values():
+        p["vectors"] = [ss.vec_cache[keys[a["aid"]]] for a in p["activities"]]
+    pairs = cmp.build_pairs(target, portcos, profiles)
+    pair_key = {id(p): (keys[p["a"]["aid"]], keys[p["b"]["aid"]]) for p in pairs}
+    todo = [p for p in pairs if pair_key[id(p)] not in ss.pair_cache]
+    if len(pairs) > len(todo):
+        card.log(f"✔ {plural(len(pairs) - len(todo), 'pair')} kept from before (nothing changed in them)")
+    card.update(0.0, f"0 of {plural(len(todo), 'pair')} compared" if todo else "Nothing new to compare")
+    if todo:
+        with cf.ThreadPoolExecutor(ai_client.MAX_PARALLEL) as ex:
+            futures = {ex.submit(cmp.assess, ai, p, names): p for p in todo}
+            for done, fut in enumerate(cf.as_completed(futures), start=1):
+                ss.pair_cache[pair_key[id(futures[fut])]] = fut.result()
+                if done % 3 == 0 or done == len(todo):
+                    card.update(done / len(todo), f"{done} of {plural(len(todo), 'pair')} compared")
+    results = [{**ss.pair_cache[pair_key[id(p)]], **{k: p[k] for k in POSITION_FIELDS}} for p in pairs]
+    card.log(f"{plural(len(todo), 'pair')} compared, {len(pairs) - len(todo)} kept, in {time.time() - t0:.0f} s")
     ss.confirmed = activities
     ss.profiles_text = profiles_text
     ss.confirmed_hash = activities_hash(activities)
@@ -1217,215 +1277,415 @@ def confirm_activities(ai, activities, problems, profiles_text):
 
 
 # =============================================================== stage ③ the preliminary assessment table
-# One box per portfolio company (decided 16 Oct). In it: each target activity (the fixed reference point) with the
-# portfolio company's activities that meet it; columns: target activity · portco activity · Commission market
-# definition (grey until stage ④) · preliminary assessment · notes · check. Pairs involving "Other activities" come
-# last and collapsed. Each target activity's block ends with one line naming the activities that do not meet it,
-# with the reasons and "Add back" behind "Why?" (16 Oct, replacing the separate list of pairs without overlap).
-WIDTHS = [1.7, 1.7, 4.0, 1.4, 1.15]     # 20 Oct (Linda): the Commission's markets moved out of the table, into a
-                                        # full-width block under each row (after the preliminary assessment)
-BLOCK_RULE = "<hr style='margin:6px 0 10px 0;border:none;border-top:2px solid rgba(128,128,128,0.45)'>"
-ROW_RULE = "<hr style='margin:4px 0 8px 0;border:none;border-top:1px dashed rgba(128,128,128,0.35)'>"
-FOUND_BY_WORDS = {"AI": "found by the AI", "rule": "found by a code rule", "AI and rule": "found by the AI and a code rule"}
+# One box per portfolio company (decided 16 Oct). In it: a result box (20 Oct), then each target activity (the fixed
+# reference point) with the portfolio company's activities that meet it; columns: target activity · portco activity ·
+# preliminary assessment (one line per label, each with its own "Dismiss") · notes · Edit and Why?. In step ④ the
+# Commission line and the Commission's markets follow under each row, full width. Each target activity's block ends
+# with one line naming the activities that do not meet it, with the reasons and "Add back" behind "Why?".
+# 20 Oct (Linda): side lines are shown with the main activities; only rows that involve production for the group's
+# own use are collapsed below ("Own use"). Lawyer's labels (option C): a label the lawyer adds is shown and used in
+# the result, the summary and the step ④ grouping, but never changes what step ④ searches (no new search).
+WIDTHS = [1.5, 1.5, 4.5, 1.4, 0.95]
+BLOCK_RULE = "<hr style='margin:4px 0 8px 0;border:none;border-top:1px solid #C9C2B4'>"
+ROW_RULE = "<hr style='margin:4px 0 8px 0;border:none;border-top:1px dashed #DDD7CB'>"
+FOUND_BY_WORDS = {"AI": "found by the AI", "rule": "found by a rule in the code", "AI and rule": "found by the AI and a "
+                                                                                              "rule in the code"}
 RULE_WORDS = {
     "A could be an input for B": "{t} sells to producers, and its products are close to inputs that {p} lists",
     "B could be an input for A": "{p} sells to producers, and its products are close to inputs that {t} lists",
     "A could be resold by B": "{t} sells to shops or wholesalers, and {p} resells a close range",
     "B could be resold by A": "{p} sells to shops or wholesalers, and {t} resells a close range",
 }
-LEGEND = ("🔴 potential horizontal overlap · 🟠 potential vertical relationship (the arrow points downstream) · "
-          "●●● same direct customers, ●●○ partly the same, ●○○ different (never a reason on its own to dismiss) · "
-          + SOURCES_LEGEND)
+UPSTREAM_LINKS = ("A could be an input for B", "A could be resold by B")
+OVERRIDE_KEYS = ("dismiss", "add_back", "note", "dismissed_parts", "added_h", "added_v", "text_assessment",
+                 "text_commission")
+
+
+def he(text):
+    """Text from the sources or the AI inside an HTML line that Streamlit also reads as markdown: HTML escaped and the
+    markdown characters neutralised (20 Oct)."""
+    out = h(text)
+    for a, b in (("*", "&#42;"), ("_", "&#95;"), ("[", "&#91;"), ("]", "&#93;"), ("~", "&#126;"), ("`", "&#96;")):
+        out = out.replace(a, b)
+    return out
+
+
+def _entry(pid):
+    return ss.override_store.setdefault(pid, {"dismiss": False, "add_back": False, "note": ""})
 
 
 def _store_override(pid, field, key):
     """Widget callback: overrides live in their own store, so they survive when a section is hidden."""
-    entry = ss.override_store.setdefault(pid, {"dismiss": False, "add_back": False, "note": ""})
     value = ss.get(key)
-    entry[field] = value.strip() if isinstance(value, str) else bool(value)
+    _entry(pid)[field] = value.strip() if isinstance(value, str) else bool(value)
 
 
-def _store_part(pid, part, key):
-    """Widget callback for one label of a pair with several labels (17 Oct): dismissed on its own."""
-    entry = ss.override_store.setdefault(pid, {"dismiss": False, "add_back": False, "note": ""})
-    entry.setdefault("dismissed_parts", {})[part] = bool(ss.get(key))
+def _store_part(pid, part, key, parts):
+    """Widget callback for one label of a pair (17 Oct: each label is dismissed on its own). A dismissal saved with
+    the older single box ("dismiss") is turned into one entry per label first."""
+    e = _entry(pid)
+    chosen = e.setdefault("dismissed_parts", {})
+    if e.get("dismiss"):
+        e["dismiss"] = False
+        for p in parts:
+            chosen[p] = True
+    chosen[part] = bool(ss.get(key))
+
+
+def _remove_added(pid, field):
+    _entry(pid)[field] = False if field == "added_h" else ""
 
 
 def kept(status):
     return status in ("candidate", "unclear", "added back by user")
 
 
+def has_added(o):
+    return bool((o or {}).get("added_h") or (o or {}).get("added_v"))
+
+
+def row_status(r):
+    """The status shown and counted: the code's decision, changed only by the lawyer. A row whose labels the lawyer
+    dismissed but to which the lawyer added a label of their own (option C, 20 Oct) stays in the table."""
+    s = cmp.effective_status(r, ss.overrides)
+    if s == "dismissed by user" and has_added(ss.overrides.get(cmp.pair_id(r))):
+        return r["decision"]["status"]
+    return s
+
+
+def search_overrides():
+    """The overrides as step ④ sees them. A row with a lawyer's label is searched as the tool found it (its
+    dismissals are left out here), so that adding a label never needs a new search (20 Oct, option C)."""
+    return {pid: ({k: v for k, v in o.items() if k not in ("dismiss", "dismissed_parts")} if has_added(o) else o)
+            for pid, o in (ss.get("overrides") or {}).items()}
+
+
 def listing(items, limit=4):
-    items = [esc(i) for i in items]
+    """Items as HTML; more than `limit`: “and 2 more”, hovering shows every item (20 Oct)."""
+    items = [i for i in items if i]
     if not items:
         return ""
-    return ", ".join(items[:limit]) + (f" and {len(items) - limit} more" if len(items) > limit else "")
+    text = ", ".join(he(i) for i in items[:limit])
+    if len(items) > limit:
+        tip = h("All: " + "; ".join(items))
+        text += f" <span class='hov' title='{tip}'>and {len(items) - limit} more</span>"
+    return text
 
 
-def table_cell(a, company):
-    """An activity in the table: name, stage, sources. What it includes and does is in 'Details'."""
-    name = "Other activities" if rules.category(a) == "other" else capital(a["product"])
+def side_items(r, side):
+    """The items of one side that the comparison named for this row (option C), horizontal and vertical."""
+    m = r.get("matches") or {}
+    return list(dict.fromkeys(list(m.get(side) or []) + [i for v in r.get("vertical_items") or []
+                                                          for i in (v.get(side) or [])]))
+
+
+def is_other(r):
+    return rules.category(r["a"]) == "other" or rules.category(r["b"]) == "other"
+
+
+def is_own_use(r):
+    """A row that involves only production for the group's own use (20 Oct): shown in the collapsed "Own use" section.
+    Side lines sold to third parties stay in the main table (Linda)."""
+    for side in ("a", "b"):
+        act = r[side]
+        if rules.category(act) == "other":
+            items = side_items(r, side) or act.get("includes") or []
+            return rules.own_use_side(act, items)
+    return False
+
+
+def other_cell(act, r):
+    """The merged line in a row: 'Side lines' with the items of this row, or 'Own use'."""
+    side = "a" if act is r["a"] else "b"
+    items = [short_item(i) for i in (side_items(r, side) or act.get("includes") or [])]
+    if is_own_use(r):
+        return "**Own use**", [i.replace(" (own use)", "") for i in items]
+    return "**Side lines**", [i for i in items if rules.OWN_USE_MARK not in i]
+
+
+def table_cell(a, company, r=None):
+    """An activity in the table: name, stage, sources. What it includes and does is in 'Why?'."""
+    if rules.category(a) == "other" and r is not None:
+        name, items = other_cell(a, r)
+        shown = ", ".join(esc(i) for i in items[:3]) + (f" and {len(items) - 3} more" if len(items) > 3 else "")
+        return f"{name}  \n:gray[{shown}]  \n{source_markers(a, company)}" if shown else \
+            f"{name}  \n{source_markers(a, company)}"
+    name = OTHER_NAME if rules.category(a) == "other" else capital(a["product"])
     return f"**{esc(name)}**  \n{stage_text(a)} · {source_markers(a, company)}"
 
 
 def direction(link, r, target, portco):
     """(upstream company, its activity, downstream company, its activity) of a vertical link."""
-    if link in ("A could be an input for B", "A could be resold by B"):
+    if link in UPSTREAM_LINKS:
         return target, r["a"], portco, r["b"]
     return portco, r["b"], target, r["a"]
 
 
-def link_sentence(link, vitems, r, target, portco):
+def link_sentence(link, vitems, r, target, portco, html_out=True):
     """A vertical link in words, with the names re-attached and the items the link concerns (option C)."""
-    a = f"{esc(target)}'s {listing(vitems.get('a', [])) or esc(r['a']['product'])}"
-    b = f"{esc(portco)}'s {listing(vitems.get('b', [])) or esc(r['b']['product'])}"
+    if html_out:
+        a = f"{he(target)}'s {listing(vitems.get('a', [])) or he(r['a']['product'])}"
+        b = f"{he(portco)}'s {listing(vitems.get('b', [])) or he(r['b']['product'])}"
+    else:
+        a = f"{target}'s {', '.join(vitems.get('a', [])) or r['a']['product']}"
+        b = f"{portco}'s {', '.join(vitems.get('b', [])) or r['b']['product']}"
     return {
         "A could be an input for B": f"{a} could be an input for {b}",
         "B could be an input for A": f"{b} could be an input for {a}",
         "A could be resold by B": f"{a} could be resold through {b}",
         "B could be resold by A": f"{b} could be resold through {a}",
-    }.get(link, esc(link))
+    }.get(link, link)
 
 
-def assessment(r, status, target, portco):
-    """The preliminary assessment of one pair, assembled in code from the structured answers (no AI call). The
-    reasons are in 'Details'. A label the user dismissed on its own is struck through (17 Oct)."""
-    d, c = r["decision"], r["comparison"]
-    m = r.get("matches") or {}
-    off = set(cmp.dismissed_parts(r, ss.get("overrides") or {}))
-    lines = ["✖ **Dismissed by you**"] if status == "dismissed by user" else []
-    if status == "added back by user":
-        return "↩ **Added back by you.** The tool found no overlap; see “Details”."
-    if d["status"] == "unclear":
-        return "  \n".join(lines + ["❔ **Unclear, please check** (see “Details”)"])
-    own = " · own use" if "captive" in r["flags"] else ""
+def customer_dots(r, target, portco):
+    """The customer score with its explanation on hover (20 Oct, Linda: keep the dots, explain them better)."""
+    score = r.get("customers")
+    if score not in ("●●●", "●●○", "●○○"):
+        return ""
+    ca = words_list(_shown(r["a"].get("direct_customers"))) or "not stated"
+    cb = words_list(_shown(r["b"].get("direct_customers"))) or "not stated"
+    tip = (f"{capital(CUSTOMER_TEXT[score])}: {target} sells to {ca}; {portco} to {cb}. Compares only who each company "
+           "sells to directly, not the products. Never on its own a reason to dismiss (Market Definition Notice "
+           "(88)–(89)).")
+    return f"<span class='dots' title='{h(tip)}'>{score}</span>"
 
-    def mark(part, text):
-        return f"✖ ~~{text}~~ *(dismissed by you)*" if part in off and status != "dismissed by user" else text
 
-    if d["horizontal"]:
+def own_use_flag(r):
+    return any("captive" in f for f in r.get("flags") or [])
+
+
+def label_parts(r, target, portco):
+    """The labels of one row as shown (20 Oct): the tool's labels, each with whether the lawyer dismissed it, and the
+    labels the lawyer added. [{part, kind "h"/"v", origin "tool"/"lawyer", up "a"/"b" (vertical), off}]"""
+    o = ss.overrides.get(cmp.pair_id(r)) or {}
+    off = set(cmp.dismissed_parts(r, ss.overrides))
+    out = [{"part": p, "kind": "h" if p == "horizontal" else "v", "origin": "tool", "off": p in off,
+            "up": None if p == "horizontal" else ("a" if p in UPSTREAM_LINKS else "b")}
+           for p in cmp.assessment_parts(r)]
+    if o.get("added_h"):
+        out.append({"part": "added_h", "kind": "h", "origin": "lawyer", "off": False, "up": None})
+    if o.get("added_v") in ("a>b", "b>a"):
+        out.append({"part": "added_v", "kind": "v", "origin": "lawyer", "off": False, "up": o["added_v"][0]})
+    return out
+
+
+def active_labels(r, target, portco):
+    """(horizontal shown?, [upstream sides of the vertical relationships shown]) after the lawyer's changes."""
+    parts = [p for p in label_parts(r, target, portco) if not p["off"]]
+    return any(p["kind"] == "h" for p in parts), list(dict.fromkeys(p["up"] for p in parts if p["kind"] == "v"))
+
+
+def part_detail(p, r, target, portco, html_out=True):
+    """The line(s) under one label, assembled in code from the structured answers (no AI call)."""
+    c = r["comparison"]
+    if p["origin"] == "lawyer":
+        if p["kind"] == "v":
+            up, down = (target, portco) if p["up"] == "a" else (portco, target)
+            return [f"{he(up) if html_out else up} → {he(down) if html_out else down}"]
+        return []
+    if p["kind"] == "h":
         kind = "same product" if c["product_relation"] == "same product" else "similar product"
         sa, sb = stage_of(r["a"]).lower(), stage_of(r["b"]).lower()
         level = f"same level ({sa})" if sa == sb else f"different levels ({sa} v {sb})"
-        dots = f" · {r['customers']}" if r.get("customers") in ("●●●", "●●○", "●○○") else ""
-        lines.append(mark("horizontal", f"🔴 **Potential horizontal overlap** ({kind}) · {level}{dots}{own}"))
+        own = " · own use" if own_use_flag(r) else ""
+        m = r.get("matches") or {}
+        if not html_out:
+            lines = [f"{kind}, {level}{', ' + CUSTOMER_TEXT.get(r.get('customers') or '', '') if r.get('customers') in ('●●●', '●●○', '●○○') else ''}"]
+            if m.get("a") or m.get("b"):
+                lines.append(f"with regard to: {target}: {', '.join(m.get('a') or []) or '–'}; "
+                             f"{portco}: {', '.join(m.get('b') or []) or '–'}")
+            return lines
+        dots = customer_dots(r, target, portco)
+        lines = [f"<span class='sub2'>{kind} · {level}{' · ' + dots if dots else ''}{own}</span>"]
         a, b = listing(m.get("a", [])), listing(m.get("b", []))
-        if (a or b) and "horizontal" not in off:
-            lines.append(f"with regard to: *{esc(target)}:* {a or '–'} · *{esc(portco)}:* {b or '–'}")
-    vitems = {v["link"]: v for v in r.get("vertical_items") or []}
-    for link in d["vertical_links"]:
-        up, up_act, down, down_act = direction(link, r, target, portco)
-        lines.append(mark(link, f"🟠 **Potential vertical relationship** · {esc(up)} ({stage_of(up_act).lower()}) → "
-                                f"{esc(down)} ({stage_of(down_act).lower()}){own}"))
-        if link not in off:
-            lines.append(link_sentence(link, vitems.get(link, {}), r, target, portco))
-    return "  \n".join(lines)
+        if (a or b) and not p["off"]:
+            lines.append(f"with regard to: <i>{he(target)}:</i> {a or '–'} · <i>{he(portco)}:</i> {b or '–'}")
+        return lines
+    up, up_act, down, down_act = direction(p["part"], r, target, portco)
+    vitems = {v["link"]: v for v in r.get("vertical_items") or []}.get(p["part"], {})
+    if not html_out:
+        return [f"{up} ({stage_of(up_act).lower()}) → {down} ({stage_of(down_act).lower()})",
+                link_sentence(p["part"], vitems, r, target, portco, html_out=False)]
+    lines = [f"<span class='sub2'>{he(up)} ({stage_of(up_act).lower()}) → {he(down)} "
+             f"({stage_of(down_act).lower()}){' · own use' if own_use_flag(r) else ''}</span>"]
+    if not p["off"]:
+        lines.append(link_sentence(p["part"], vitems, r, target, portco))
+    return lines
 
 
-def part_label(part, r, target, portco):
-    """Short label for the narrow column (the colour marks of the assessment), the full wording as help text."""
-    parts = cmp.assessment_parts(r)
-    if part == "horizontal":
-        return "🔴 Dismiss", "Dismiss the potential horizontal overlap only"
-    up, _, down, _ = direction(part, r, target, portco)
-    verticals = [x for x in parts if x != "horizontal"]
-    number = f" {verticals.index(part) + 1}" if len(verticals) > 1 else ""
-    return f"🟠 Dismiss{number}", f"Dismiss the potential vertical relationship {up} → {down} only"
+LABEL_TEXT = {"h": "Potential horizontal overlap", "v": "Potential vertical relationship"}
 
 
-def pair_details(r, target, portco):
-    """'Details': why (the AI's reasons or the code rule), the customer score, the sources of both activities, and
-    at the end the exact text the AI received."""
+def label_html(p):
+    cls = "lab-off" if p["off"] else ("lab-h" if p["kind"] == "h" else "lab-v")
+    tag = " <span class='tag'>added by you</span>" if p["origin"] == "lawyer" else (
+        " <span class='tag'>dismissed by you</span>" if p["off"] else "")
+    return f"<span class='lab {cls}'>{LABEL_TEXT[p['kind']]}</span>{tag}"
+
+
+def assessment_plain(r, target, portco):
+    """The app's wording of a row as plain text: what the lawyer starts from in "Edit"."""
+    lines = []
+    for p in label_parts(r, target, portco):
+        if not p["off"]:
+            lines += [LABEL_TEXT[p["kind"]] + (" (added by you)" if p["origin"] == "lawyer" else "")]
+            lines += ["  " + x for x in part_detail(p, r, target, portco, html_out=False)]
+    return "\n".join(lines)
+
+
+def assessment_cell(r, status, rv, target, portco):
+    """The preliminary assessment column: one line per label, each with its own box (20 Oct, Linda: "Dismiss" fully
+    written next to the label it dismisses). The lawyer's wording, if any, replaces the app's lines under the labels."""
+    pid = cmp.pair_id(r)
+    o = ss.override_store.get(pid, {})
+    parts = label_parts(r, target, portco)
+    tool_parts = [p["part"] for p in parts if p["origin"] == "tool"]
+    edited = (o.get("text_assessment") or "").strip()
+
+    def line(html_text, box):
+        c1, c2 = st.columns([5.2, 1.3], vertical_alignment="top")
+        c1.markdown(html_text, unsafe_allow_html=True)
+        with c2:
+            box()
+
+    if status == "added back by user":
+        line("<span class='lab lab-q'>Added back by you</span> <span class='sub2'>the tool found no overlap; see "
+             "“Why?”</span>",
+             lambda: st.checkbox("Added back", value=o.get("add_back", False), key=f"add_{rv}_{pid}",
+                                 on_change=_store_override, args=(pid, "add_back", f"add_{rv}_{pid}")))
+    elif r["decision"]["status"] == "unclear":
+        line("<span class='lab lab-q'>Unclear: please check</span> <span class='sub2'>see “Why?”</span>",
+             lambda: st.checkbox("Dismiss", value=o.get("dismiss", False), key=f"dis_{rv}_{pid}",
+                                 on_change=_store_override, args=(pid, "dismiss", f"dis_{rv}_{pid}")))
+    for p in parts:
+        detail = [] if edited else part_detail(p, r, target, portco)
+        text = "  \n".join([label_html(p)] + detail)
+        if p["origin"] == "tool":
+            key = f"dis_{rv}_{pid}_{p['part'][:12]}"
+            line(text, lambda p=p, key=key: st.checkbox(
+                "Dismiss", value=p["off"], key=key, on_change=_store_part, args=(pid, p["part"], key, tool_parts),
+                ))
+        else:
+            field = p["part"]
+            line(text, lambda field=field: st.button("Remove", key=f"rm_{rv}_{pid}_{field}",
+                                                     on_click=_remove_added, args=(pid, field)))
+    if edited:
+        st.markdown(he(edited).replace("\n", "<br>") + " <span class='tag'>edited by you</span>",
+                    unsafe_allow_html=True)
+
+
+def why_popover(r, target, portco):
+    """'Why?' (20 Oct, Linda: only the reasoning; the sources are in step ② and in the hover of each source, and what
+    the AI saw is in the audit log)."""
     c, d = r["comparison"], r["decision"]
-    st.markdown("**Why**")
     why = []
-    if d["horizontal"] or d["status"] == "unclear" or d["status"] == "screened out":
-        why.append(f"*Product ({c['product_relation']}):* {esc(c.get('product_reason', ''))}")
+    if d["horizontal"] or d["status"] in ("unclear", "screened out"):
+        why.append(f"**Product** ({esc(c['product_relation'])}): {esc(c.get('product_reason', ''))}")
     ai_links = [link for link in d["vertical_links"] if d["found_by"][link] != "rule"]
     for link in d["vertical_links"]:
         up, _, down, _ = direction(link, r, target, portco)
-        text = f"*Vertical ({esc(up)} → {esc(down)}, {FOUND_BY_WORDS[d['found_by'][link]]})*"
+        text = f"**Vertical** ({esc(up)} → {esc(down)}, {FOUND_BY_WORDS[d['found_by'][link]]})"
         if d["found_by"][link] == "rule":
             text += ": " + esc(RULE_WORDS[link].format(t=target, p=portco)) + "."
         why.append(text)
-    if ai_links:
+    if ai_links and c.get("vertical_reason"):
         why.append(esc(c.get("vertical_reason", "")))
     for link, reason in d.get("disregarded", []):
         who = target if reason.startswith("A ") else portco
-        why.append(f"*AI link disregarded:* {esc(cmp.describe_link(link, target, portco))}; {esc(who)} {esc(reason[2:])}.")
-    st.markdown("  \n".join(why))
-    if d["horizontal"] and r.get("customers") in CUSTOMER_TEXT and r.get("customers"):
+        why.append(f"**Link set aside by the tool:** {esc(cmp.describe_link(link, target, portco))}; {esc(who)} "
+                   f"{esc(reason[2:])}.")
+    st.markdown("\n\n".join(why) or "No reason given.")
+    if d["horizontal"] and r.get("customers") in ("●●●", "●●○", "●○○"):
         ca = words_list(_shown(r["a"].get("direct_customers")))
         cb = words_list(_shown(r["b"].get("direct_customers")))
-        st.markdown(f"**Direct customers** {r['customers']}  \n{esc(target)} sells to {esc(ca or 'not stated')}; "
-                    f"{esc(portco)} to {esc(cb or 'not stated')} → {CUSTOMER_TEXT[r['customers']]}. A customer group "
-                    "forms a separate market only where suppliers can treat the groups differently and three cumulative "
-                    "conditions are met (Market Definition Notice (88)–(89)), so the score is never a reason on its "
-                    "own to dismiss a row.")
-    if "captive" in r["flags"]:
+        st.markdown(f"**Direct customers** {r['customers']}: {esc(target)} sells to {esc(ca or 'not stated')}; "
+                    f"{esc(portco)} to {esc(cb or 'not stated')}, so {CUSTOMER_TEXT[r['customers']]}. This compares "
+                    "only who each company sells to directly, not the products. A customer group forms a separate "
+                    "market only where suppliers can treat the groups differently and three cumulative conditions are "
+                    "met (Market Definition Notice (88)–(89)), so the score is never on its own a reason to dismiss.")
+    if own_use_flag(r) or is_own_use(r):
         st.markdown("**Own use:** produced for the group's own use, not sold on the market (draft Merger Guidelines "
                     "para 103(i)). It cannot supply the other company, so a link where it would be the supplier is set "
                     "aside (shown under “No overlap found”, with “Add back”).")
-    st.markdown("**Sources**")
-    for who, act in ((target, r["a"]), (portco, r["b"])):
-        includes = ", ".join(esc(i) for i in act.get("includes") or [])
-        evidence = act.get("evidence") or ""
-        text = (f"*{esc(who)}:* **{esc(act['product'])}** {stage_text(act)} {source_markers(act, who)}  \n"
-                f":gray[{esc(everyday(act))}" + (f" · includes: {includes}" if includes else "") + "]")
-        quotes = quote_lines(act, who)
-        if quotes:
-            text += "\n\n" + "\n\n".join(quotes)
-        if evidence and evidence not in ("not stated", "added by user"):
-            text += f"\n\n:gray[The AI's summary of the sources (not a quotation): {esc(evidence[:500])}]"
-        st.markdown(text, unsafe_allow_html=True)
     if DEV_MODE:
         s = r["sims"]
         rejected = (r.get("matches") or {}).get("rejected") or []
         st.caption(f"Development · pair {cmp.pair_id(r)} · rule: {d['rule']} · code signals: "
-                   f"{'; '.join(f'{x} ({why})' for x, why in r['code_signals']) or 'none'} · similarity "
+                   f"{'; '.join(f'{x} ({w})' for x, w in r['code_signals']) or 'none'} · similarity "
                    f"{s['product']:.2f} · input {s['input_a_to_b']:.2f}/{s['input_b_to_a']:.2f}"
                    + (f" · items not found: {'; '.join(rejected)}" if rejected else "") + f" · flags: {r['flags'] or 'none'}")
-    st.markdown("**What the AI saw** (no names; the name check ran before the call)")
-    st.code(r["prompt"], language=None, wrap_lines=True)
-    search_trail(r, target, portco)
+
+
+@st.dialog("Edit this row", width="large")
+def edit_row(pid, target, portco):
+    """'Edit' (20 Oct, Linda): the wording of the row (and in step ④ of the Commission line), and labels the lawyer adds
+    (option C). The tool's labels are dismissed with the box next to them; nothing here changes what step ④ searches."""
+    r = next((x for x in ss.results if cmp.pair_id(x) == pid), None)
+    if r is None:
+        st.write("This row no longer exists.")
+        return
+    e = ss.override_store.get(pid, {})
+    st.caption(f"{r['a'].get('product', '')} ({target}) · {r['b'].get('product', '')} ({portco}). Your changes are "
+               "kept for this screen, used in the summary and the output, and recorded in the progress file next to "
+               "the app's wording.")
+    app_text = assessment_plain(r, target, portco)
+    text = st.text_area("Wording of the preliminary assessment", value=e.get("text_assessment") or app_text,
+                        height=150, key=f"ed_text_{pid}")
+    com_app = commission_plain(r, target, portco)
+    com = None
+    if com_app:
+        com = st.text_area("Wording of the Commission line (step ④)", value=e.get("text_commission") or com_app,
+                           height=110, key=f"ed_com_{pid}")
+    st.markdown("**Add a label** (marked “added by you”; to remove one of the tool's labels, use “Dismiss” next to it)")
+    add_h = st.checkbox("Potential horizontal overlap", value=bool(e.get("added_h")), key=f"ed_h_{pid}")
+    options = ["none", "a>b", "b>a"]
+    words = {"none": "No vertical relationship added", "a>b": f"Potential vertical relationship: {target} → {portco}",
+             "b>a": f"Potential vertical relationship: {portco} → {target}"}
+    add_v = st.radio("Potential vertical relationship (supplier → customer)", options,
+                     index=options.index(e.get("added_v") or "none"), format_func=words.get, key=f"ed_v_{pid}")
+    b1, b2, b3 = st.columns(3)
+    if b1.button("Save", type="primary", key=f"ed_save_{pid}"):
+        entry = _entry(pid)
+        changed = text.strip() and text.strip() != app_text.strip()
+        entry["text_assessment"] = text.strip() if changed else ""
+        entry["text_assessment_app"] = app_text if changed else ""
+        if com is not None:
+            changed = com.strip() and com.strip() != com_app.strip()
+            entry["text_commission"] = com.strip() if changed else ""
+            entry["text_commission_app"] = com_app if changed else ""
+        entry["added_h"] = bool(add_h)
+        entry["added_v"] = "" if add_v == "none" else add_v
+        st.rerun()
+    if b2.button("Restore the app's wording", key=f"ed_restore_{pid}"):
+        entry = _entry(pid)
+        for k in ("text_assessment", "text_assessment_app", "text_commission", "text_commission_app"):
+            entry[k] = ""
+        st.rerun()
+    if b3.button("Cancel", key=f"ed_cancel_{pid}"):
+        st.rerun()
 
 
 def pair_row(r, status, rv, target, portco, first):
     """One sub-row: target activity (first sub-row of a block only), portco activity, assessment, the user's note, and
-    the check (dismiss or added back, details); in step ④, under it, the Commission's markets for this pair (full
-    width, 20 Oct: first the facts and the preliminary assessment, then what the Commission defined)."""
+    Edit / Why?; in step ④, under it, the Commission line and the Commission's markets for this pair (full width)."""
     pid = cmp.pair_id(r)
     o = ss.override_store.get(pid, {})
     s = status[pid]
     cols = st.columns(WIDTHS, vertical_alignment="top")
     if first:
-        cols[0].markdown(table_cell(r["a"], target), unsafe_allow_html=True)
-    cols[1].markdown(table_cell(r["b"], portco), unsafe_allow_html=True)
-    cols[2].markdown(assessment(r, s, target, portco))
+        cols[0].markdown(table_cell(r["a"], target, r), unsafe_allow_html=True)
+    cols[1].markdown(table_cell(r["b"], portco, r), unsafe_allow_html=True)
+    with cols[2]:
+        assessment_cell(r, s, rv, target, portco)
     with cols[3]:
         key = f"note_{rv}_{pid}"
         st.text_area("Note", value=o.get("note", ""), key=key, placeholder="Note (optional)",
                      label_visibility="collapsed", height=68, on_change=_store_override, args=(pid, "note", key))
     with cols[4]:
-        if r["decision"]["status"] == "screened out":
-            key = f"add_{rv}_{pid}"
-            st.checkbox("Added back", value=o.get("add_back", False), key=key,
-                        on_change=_store_override, args=(pid, "add_back", key))
-        elif len(cmp.assessment_parts(r)) > 1 and not o.get("dismiss"):
-            # 17 Oct (Linda): a pair with a horizontal and a vertical label (or two vertical links) gets one box per
-            # label, so that one can be dismissed and the other kept
-            chosen = o.get("dismissed_parts") or {}
-            for k, part in enumerate(cmp.assessment_parts(r)):
-                key = f"dis_{rv}_{pid}_{k}"
-                label, tip = part_label(part, r, target, portco)
-                st.checkbox(label, value=bool(chosen.get(part)), key=key, help=tip,
-                            on_change=_store_part, args=(pid, part, key))
-        else:
-            key = f"dis_{rv}_{pid}"
-            st.checkbox("Dismiss", value=o.get("dismiss", False), key=key,
-                        on_change=_store_override, args=(pid, "dismiss", key))
-        with st.popover("Details"):
-            pair_details(r, target, portco)
+        if st.button("Edit", key=f"edit_row_{rv}_{pid}", width="stretch"):
+            edit_row(pid, target, portco)
+        with st.popover("Why?", width="stretch"):
+            why_popover(r, target, portco)
     commission_block(r, target, portco)
 
 
@@ -1438,7 +1698,7 @@ def table_header(target, portco):
 
 
 def short_name(a):
-    return "Other activities" if rules.category(a) == "other" else capital(a["product"])
+    return OTHER_NAME if rules.category(a) == "other" else capital(a["product"])
 
 
 def no_overlap_row(ta, rows, rv, target, portco, n_portco, first):
@@ -1451,9 +1711,9 @@ def no_overlap_row(ta, rows, rv, target, portco, n_portco, first):
         cols[1].markdown(f":gray[No overlap found with any of {esc(portco)}'s activities]")
     else:
         cols[1].markdown(":gray[No overlap found with:] " + " · ".join(esc(short_name(r["b"])) for r in rows))
-    with cols[2].popover("Why?"):
-        st.caption("The AI's reasons, pair by pair. “Add back” moves a pair into the table, where it can be dismissed "
-                   "again.")
+    with cols[2].popover("Why?", width="stretch"):
+        st.caption("The AI's reasons, pair by pair. “Add back” moves a pair into the table, where you can add a label "
+                   "with “Edit” or dismiss it again.")
         for r in rows:
             pid = cmp.pair_id(r)
             key = f"add_{rv}_{pid}"
@@ -1468,9 +1728,10 @@ def no_overlap_row(ta, rows, rv, target, portco, n_portco, first):
                         on_change=_store_override, args=(pid, "add_back", key))
 
 
-def target_block(ta, kept_rows, screened, status, rv, target, portco, n_portco):
+def target_block(ta, kept_rows, screened, status, rv, target, portco, n_portco, first_block=False):
     """One target activity: the portfolio company's activities that meet it (one row each), then one line naming
-    those that do not (16 Oct: replaces the separate list of pairs without overlap)."""
+    those that do not (16 Oct: replaces the separate list of pairs without overlap). 20 Oct (Linda): a solid line
+    between target activities, a dashed line between the rows of one target activity."""
     st.markdown(BLOCK_RULE, unsafe_allow_html=True)
     for k, r in enumerate(kept_rows):
         if k:
@@ -1483,46 +1744,107 @@ def target_block(ta, kept_rows, screened, status, rv, target, portco, n_portco):
 
 
 def portco_sentence(target, portco, pairs, status):
-    """One sentence per portfolio company, counted by business area (not by pairs), assembled in code. Links that
-    involve only "Other activities" are counted separately (17 Oct): they sit in the collapsed section, and a count
-    without saying so read as if the table contradicted the sentence."""
+    """One sentence per portfolio company, counted by business area (not by pairs), assembled in code. Rows that
+    involve only own use are counted separately: they sit in the collapsed section (20 Oct: side lines count with the
+    main activities)."""
     acts = list(dict.fromkeys(r["label_b"] for r in pairs))
     live = [r for r in pairs if kept(status[cmp.pair_id(r)])]
     n_acts = plural(len(acts), "activity", "activities")
     if not live:
         return f"None of {esc(portco)}'s {n_acts} meets an activity of {esc(target)}."
-    main_live = [r for r in live if not is_other(r)]
-    other_live = [r for r in live if is_other(r)]
-    other_note = (f"{plural(len(other_live), 'potential link')} involving “Other activities” (own use and side lines), "
-                  "in the collapsed section below")
+    main_live = [r for r in live if not is_own_use(r)]
+    own_live = [r for r in live if is_own_use(r)]
+    own_note = f"{plural(len(own_live), 'potential link')} involving own use, in the collapsed section below"
     if not main_live:
-        return f"No overlap with {esc(target)}'s main activities; {other_note}."
-    found = [r for r in main_live if r["decision"]["status"] == "candidate"]
-    off = {cmp.pair_id(r): set(cmp.dismissed_parts(r, ss.get("overrides") or {})) for r in found}
-    h = {r["label_b"] for r in found if r["decision"]["horizontal"] and "horizontal" not in off[cmp.pair_id(r)]}
-    v = {r["label_b"] for r in found if set(r["decision"]["vertical_links"]) - off[cmp.pair_id(r)]}
-    check = {r["label_b"] for r in main_live
-             if r["decision"]["status"] == "unclear" or status[cmp.pair_id(r)] == "added back by user"}
+        return f"No overlap with {esc(target)}'s activities except {own_note}."
     touched = {r["label_b"] for r in main_live}
-    parts = [x for x in (f"horizontal in {len(h)}" if h else "", f"vertical in {len(v)}" if v else "",
-                         f"to check in {len(check)}" if check else "") if x]
-    text = (f"{len(touched)} of {esc(portco)}'s {n_acts} meet main activities of {esc(target)}: "
-            f"{', '.join(parts) or 'see the table'}.")
-    return text + (f" Also {other_note}." if other_live else "")
+    text = f"{len(touched)} of {esc(portco)}'s {n_acts} meet activities of {esc(target)}."
+    return text + (f" Also {own_note}." if own_live else "")
 
 
-def is_other(r):
-    return rules.category(r["a"]) == "other" or rules.category(r["b"]) == "other"
+def result_lines(target, portco, pairs, status, html_out=True):
+    """The result box of one portfolio company (20 Oct, Linda): the bottom line first, assembled in code from the
+    rows (with the lawyer's dismissals and labels; in step ④ with the Commission's view of each row)."""
+    hor, ver, check = [], [], []
+    for r in pairs:
+        s = status[cmp.pair_id(r)]
+        if not kept(s) or is_own_use(r):
+            continue
+        pair = f"{short_name(r['a'])} × {short_name(r['b'])}"
+        h_on, ups = active_labels(r, target, portco)
+        if h_on:
+            short = commission_short(r, target, portco) if ss.get("step") == 4 else ""
+            hor.append(pair + (f" (Commission: {short})" if short else ""))
+        if ups:                 # target activity first; the arrow points from supplier to customer
+            arrow = "↔" if len(set(ups)) > 1 else ("→" if ups[0] == "a" else "←")
+            ver.append(f"{short_name(r['a'])} {arrow} {short_name(r['b'])}")
+        if not h_on and not ups:
+            check.append(pair + (" (unclear)" if r["decision"]["status"] == "unclear" else " (added back)"))
+    dismissed = sum(1 for r in pairs if status[cmp.pair_id(r)] == "dismissed by user")
+    own = sum(1 for r in pairs if kept(status[cmp.pair_id(r)]) and is_own_use(r))
+    lines = []
+    if html_out:
+        if hor:
+            lines.append(f"<span class='lab lab-h'>{LABEL_TEXT['h']}</span> " + "; ".join(he(x) for x in hor))
+        if ver:
+            lines.append(f"<span class='lab lab-v'>{LABEL_TEXT['v']}</span> " + "; ".join(he(x) for x in ver)
+                         + f" <span class='sub2'>({he(target)} activity first; the arrow points to the customer)</span>")
+        if check:
+            lines.append("<span class='lab lab-q'>To check</span> " + "; ".join(he(x) for x in check))
+    else:
+        lines += [f"{LABEL_TEXT['h']}: " + "; ".join(hor)] if hor else []
+        lines += [f"{LABEL_TEXT['v']}: " + "; ".join(ver) + f" ({target} activity first; the arrow points to the "
+                  "customer)"] if ver else []
+        lines += ["To check: " + "; ".join(check)] if check else []
+    extra = [x for x in (f"dismissed by you: {dismissed}" if dismissed else "",
+                         f"own use: {plural(own, 'potential link')} (collapsed below)" if own else "") if x]
+    if extra:
+        lines.append((f"<span class='sub2'>{capital(' · '.join(extra))}</span>" if html_out
+                      else capital(" · ".join(extra))))
+    return lines
+
+
+@st.dialog("Edit the result", width="large")
+def edit_result(portco, app_text):
+    e = (ss.get("result_edits") or {}).get(portco) or {}
+    text = st.text_area("Result", value=e.get("text") or app_text, height=180, key=f"res_text_{portco}")
+    b1, b2, b3 = st.columns(3)
+    if b1.button("Save", type="primary", key=f"res_save_{portco}"):
+        ss.setdefault("result_edits", {})
+        ss.result_edits[portco] = ({"text": text.strip(), "app": app_text}
+                                   if text.strip() and text.strip() != app_text.strip() else {})
+        st.rerun()
+    if b2.button("Restore the app's wording", key=f"res_restore_{portco}"):
+        ss.setdefault("result_edits", {})[portco] = {}
+        st.rerun()
+    if b3.button("Cancel", key=f"res_cancel_{portco}"):
+        st.rerun()
+
+
+def result_box(target, portco, pairs, status):
+    sentence = portco_sentence(target, portco, pairs, status)
+    lines = result_lines(target, portco, pairs, status)
+    app_text = "\n".join([re.sub(r"\\(.)", r"\1", sentence)] + result_lines(target, portco, pairs, status,
+                                                                         html_out=False))
+    edited = ((ss.get("result_edits") or {}).get(portco) or {}).get("text")
+    c1, c2 = st.columns([12, 1.1], vertical_alignment="top")
+    if edited:
+        body = he(edited).replace("\n", "<br>") + " <span class='tag'>edited by you</span>"
+    else:
+        body = he(re.sub(r"\\(.)", r"\1", sentence)) + "".join(f"<br>{x}" for x in lines)
+    c1.markdown(f"<div class='rbox'><div class='rt'>Result</div>{body}</div>", unsafe_allow_html=True)
+    if c2.button("Edit", key=f"edit_result_{portco}", width="stretch", help="Edit the wording of the result"):
+        edit_result(portco, app_text)
 
 
 def portco_section(i, p, target, pairs, status, rv):
     """One box per portfolio company. Every compared target activity appears once, in the target's order: with the
-    rows that meet it and a line naming what does not. Pairs involving "Other activities" are collapsed below.
+    rows that meet it and a line naming what does not. Rows involving only own use are collapsed below.
     A portfolio company where nothing meets (17 Oct, Linda): its table is folded into one collapsed box, "open to
     check", with the same lines, reasons and "Add back" inside; once a pair is added back, the box opens up again."""
     with st.container(border=True):
         st.markdown(f"#### {i}. {esc(p)}")
-        st.markdown(portco_sentence(target, p, pairs, status))
+        result_box(target, p, pairs, status)
         excluded = [a for a in ss.confirmed.get(p, []) if a.get("excluded")]
         if excluded:
             st.caption("Not compared (excluded by you): " + "; ".join(
@@ -1551,70 +1873,63 @@ def portco_section(i, p, target, pairs, status, rv):
                 section_body(t_acts, rows_of, is_out, pairs, status, rv, target, p, n_portco, nested=True)
         else:
             section_body(t_acts, rows_of, is_out, pairs, status, rv, target, p, n_portco, nested=False)
-        no_precedent_box(pairs, target, p)
 
 
 def section_body(t_acts, rows_of, is_out, pairs, status, rv, target, p, n_portco, nested):
-    """The table of one portfolio company's box. Inside the collapsed box (nested) Streamlit allows no second
-    expander, so "Other activities" is a plain sub-heading there."""
-    main_t = [ta for ta in t_acts if rules.category(ta) == "main"]
-    if main_t:
-        table_header(target, p)
-        for ta in main_t:
-            rs = rows_of(ta)
-            target_block(ta, [r for r in rs if not is_out(r) and not is_other(r)], [r for r in rs if is_out(r)],
-                         status, rv, target, p, n_portco)
-    other_rows = [r for r in pairs if not is_out(r) and is_other(r)]
-    other_t = [ta for ta in t_acts if rules.category(ta) == "other"]
-    if not (other_rows or other_t):
-        return
-    title = f"Other activities (own use and side lines): {plural(len(other_rows), 'potential link')}"
-    if nested:
-        st.markdown(f"**{title}**")
-        other_table(t_acts, rows_of, is_out, status, rv, target, p, n_portco)
-    else:
-        with st.expander(title + " · show"):
-            other_table(t_acts, rows_of, is_out, status, rv, target, p, n_portco)
-
-
-def other_table(t_acts, rows_of, is_out, status, rv, target, p, n_portco):
+    """The table of one portfolio company's box: every target activity (side lines included, 20 Oct), then the rows
+    that involve only own use, collapsed. Inside the collapsed box (nested) Streamlit allows no second expander, so
+    "Own use" is a plain sub-heading there."""
     table_header(target, p)
     for ta in t_acts:
         rs = rows_of(ta)
-        kept_rows = [r for r in rs if not is_out(r) and is_other(r)]
-        screened = [r for r in rs if is_out(r)] if rules.category(ta) == "other" else []
-        if kept_rows or screened:
-            target_block(ta, kept_rows, screened, status, rv, target, p, n_portco)
+        main_rows = [r for r in rs if not is_out(r) and not is_own_use(r)]
+        screened = [r for r in rs if is_out(r)]
+        if main_rows or screened:
+            target_block(ta, main_rows, screened, status, rv, target, p, n_portco)
+    own_rows = [r for r in pairs if not is_out(r) and is_own_use(r)]
+    if not own_rows:
+        return
+    title = (f"Own use: {plural(len(own_rows), 'potential link')} (production for the group itself, which can only be "
+             "the customer side)")
+    if nested:
+        st.markdown(f"**{title}**")
+        own_table(t_acts, rows_of, own_rows, status, rv, target, p, n_portco)
+    else:
+        with st.expander(title):
+            own_table(t_acts, rows_of, own_rows, status, rv, target, p, n_portco)
+
+
+def own_table(t_acts, rows_of, own_rows, status, rv, target, p, n_portco):
+    table_header(target, p)
+    ids = {cmp.pair_id(r) for r in own_rows}
+    for ta in t_acts:
+        kept_rows = [r for r in rows_of(ta) if cmp.pair_id(r) in ids]
+        if kept_rows:
+            target_block(ta, kept_rows, [], status, rv, target, p, n_portco)
 
 
 def current_overrides():
-    """The lawyer's dismissals, add-backs and notes for the pairs of the current comparison (from the override store,
-    which keeps them across partial updates)."""
+    """The lawyer's dismissals, add-backs, notes, edits and labels for the pairs of the current comparison (from the
+    override store, which keeps them across partial updates)."""
     ss.setdefault("override_store", {})
     current = {cmp.pair_id(r) for r in ss.results or []}
-    ss.overrides = {pid: dict(o) for pid, o in ss.override_store.items()
-                    if pid in current and (o.get("dismiss") or o.get("add_back") or o.get("note")
-                                           or any((o.get("dismissed_parts") or {}).values()))}
+
+    def used(o):
+        return (o.get("dismiss") or o.get("add_back") or o.get("note") or any((o.get("dismissed_parts") or {}).values())
+                or has_added(o) or o.get("text_assessment") or o.get("text_commission"))
+    ss.overrides = {pid: dict(o) for pid, o in ss.override_store.items() if pid in current and used(o)}
     return ss.overrides
 
 
-STEP3_TEXT = ("For each portfolio company, the table shows which of its activities meet each activity of the target, "
-              "and how. “Potential” means: not yet checked against the Commission's market definitions, which are added "
-              "in step ④. Where you disagree, tick “Dismiss”; a row with a horizontal and a vertical label has one box "
-              "for each (🔴 / 🟠), so you can dismiss one and keep the other; a note is optional. Both go into the audit "
-              "log. The line “No overlap found with” under a target activity names the activities that do not meet it; "
-              "“Why?” shows the reasons and lets you add a pair back.")
-STEP4_TEXT = ("How the European Commission defined the markets of the products in the rows you kept, in the decisions "
-              "of the corpus: first the definitions, decision by decision; then, under each row, where they put the two "
-              "companies' products. One search per activity of the target covers all its rows: the AI sorted their "
-              "products into types of product; each type was searched in the decisions and placed in the markets the "
-              "retrieved paragraphs define, in a call of its own. The code checked every cited paragraph and every "
-              "quotation against the decisions.")
+STEP3_TEXT = ("Every activity of the target, compared with every activity of each portfolio company. Check each row: "
+              "dismiss what does not apply, add what is missing with “Edit”, or adjust the wording.")
+STEP4_TEXT = ("How the European Commission defined the markets of the products in the rows you kept, quoted from its "
+              "decisions. Below each row: what follows for that row.")
 
 
 @st.cache_data(show_spinner=False)
 def corpus_facts():
-    """What the corpus contains, for the line above the table (no API call)."""
+    """What the corpus contains (no API call)."""
     try:
         paras = json.loads(open("corpus/paragraphs.json", encoding="utf-8").read())
     except Exception:  # noqa: BLE001 - shown as unknown
@@ -1627,42 +1942,31 @@ def corpus_facts():
 
 
 def stage_overview(ai, step=3):
-    h1, h2 = st.columns([4, 1], vertical_alignment="center")
-    h1.subheader("④ Commission market definitions" if step == 4 else "③ Preliminary assessment")
-    h2.button("← Back to the activities", on_click=go_to, args=(2,), width="stretch")
+    st.subheader("④ Commission market definitions" if step == 4 else "③ Preliminary assessment")
     st.write(STEP4_TEXT if step == 4 else STEP3_TEXT)
+    st.html(PREF_CSS)                  # the hover boxes (sources, paragraphs, markets); style only, no space
     if step == 4:
-        st.markdown(PREF_CSS, unsafe_allow_html=True)         # once per page: the blocks under the rows use it
-        applicable_today()
-        with st.expander("How to read step ④", expanded=True):
-            st.markdown(how_to_read(), unsafe_allow_html=True)
-        st.write("The dismiss and note fields work as in step ③; the market definitions of a row you add back are "
-                 "found with “Update the market definitions” below.")
+        disclaimer()
     if ss.get("acts") and ss.get("confirmed_hash") and activities_hash(ss.acts) != ss.confirmed_hash:
         st.info("You changed the activities after this comparison. Go back to the activities and press “Update the "
                 "comparison”: only the new or changed pairs are compared again, and your dismissals and notes stay.")
     if ss.get("loaded_from"):
         lf = ss.loaded_from
-        st.caption(f"Steps ①–③ continued from a saved audit log (created {esc(lf.get('created') or 'unknown')}); "
-                   "no AI call was made to restore them.")
-    st.caption(LEGEND)
-    if DEV_MODE:
-        st.caption(stage_cost("confirm"))
-        if "precedents" in ss.stage_logs:
-            st.caption("Step ④: " + stage_cost("precedents"))
+        st.caption(f"Continued from a saved progress file ({esc((lf.get('created') or 'unknown date').replace('T', ' '))}); "
+                   "no AI call was made to restore it.")
     results = ss.results
     target = ss.companies[0]["name"]
     portcos = [c["name"] for c in ss.companies[1:]]
     rv = ss.results_version
     current_overrides()
-    status = {cmp.pair_id(r): cmp.effective_status(r, ss.overrides) for r in results}
+    status = {cmp.pair_id(r): row_status(r) for r in results}
     units, todo = prec_plan()
     ss.prec_stale = stale_units(todo)
     if ss.get("precedents"):
-        precedent_summary(units)
+        precedent_warnings(units)
     show_relationships()
 
-    with st.expander(f"🎯 Target: {target}"):
+    with st.expander(f"Target: {target} · profile and activities"):
         st.write(profile_of(target))
         for a in [ss.confirmed[target][i] for i in display_order(ss.confirmed[target])]:
             st.markdown("- " + activity_line(a, target), unsafe_allow_html=True)
@@ -1672,15 +1976,12 @@ def stage_overview(ai, step=3):
     for i, p in enumerate(portcos, start=1):
         portco_section(i, p, target, [r for r in results if r["portco"] == p], status, rv)
 
-    if DEV_MODE:
+    if step == 4:
+        checklist_box(results)
+    if DEV_MODE and ss.get("show_benchmark"):
         benchmark_panel(results)
     st.divider()
     precedent_button(units, todo)
-    snap = audit_snapshot(ai)
-    st.download_button("Download the audit log so far (.json)", data=lambda: audit_json(snap),
-                       mime="application/json", on_click="ignore",
-                       file_name=f"overlap_audit_{datetime.now():%Y%m%d-%H%M}.json")
-    st.caption(run_summary())
 
 
 def run_summary():
@@ -1743,7 +2044,7 @@ def prec_plan():
         return [], []
     target = ss.companies[0]["name"]
     order = [ss.confirmed[target][k]["aid"] for k in display_order(ss.confirmed[target])]
-    units = prec.search_units(ss.results, ss.get("overrides") or {}, cmp.effective_status, cmp.dismissed_parts,
+    units = prec.search_units(ss.results, search_overrides(), cmp.effective_status, cmp.dismissed_parts,
                               cmp.pair_id, order)
     store = ss.get("precedents") or {}
     return units, [u for u in units if not prec.reusable(store.get(u["target_aid"]), u)]
@@ -1770,62 +2071,58 @@ def run_precedents(ai):
     units, todo = prec_plan()
     first, t0 = ss.log.mark(), time.time()
     store = dict(ss.get("precedents") or {})
-    with st.status("Looking up the Commission's market definitions: one search per activity of the target, anonymised "
-                   "products only", expanded=True) as status:
-        kept = [u for u in units if u not in todo]
-        if kept:
-            st.write(f"✔ {plural(len(kept), 'search', 'searches')} kept from before (their rows did not change)")
-        try:
-            retriever = retrieval.Retriever(prec.cached_embed(ai))
-        except Exception as e:  # noqa: BLE001 - nothing is lost; the user can try again
-            status.update(label="The search could not start", state="error")
-            st.error(f"The decision corpus could not be opened: {type(e).__name__}: {e}. Nothing was changed; go back "
-                     "and try again.")
-            st.button("← Back to the assessment", on_click=go_to, args=(3,))
-            return False
-        # 20 Oct: a progress bar per type of product (with medium effort step ④ takes several minutes, and before,
-        # nothing moved until a whole search was finished); the worker threads count, this thread only reads
-        st.caption("This takes one to three minutes: each type of product is searched and read in a call of its own, "
-                   f"at most {ai_client.MAX_PARALLEL} at a time.")
-        progress, bar = prec.Progress(), st.progress(0.0, text="Sorting the products into types of product …")
-        with cf.ThreadPoolExecutor(ai_client.MAX_PARALLEL) as ex:
-            futures = {ex.submit(prec.run_unit, ai, u, ss.names, retriever, retriever.paragraphs, progress): u
-                       for u in todo}
-            pending, finished = set(futures), 0
-            while pending:
-                done, pending = cf.wait(pending, timeout=1, return_when=cf.FIRST_COMPLETED)
-                finished += len(done)
-                if progress.planned:
-                    bar.progress(min(progress.done / progress.planned, 1.0),
-                                 text=f"{progress.done} of {progress.planned} types of product looked up so far · "
-                                      f"{finished} of {plural(len(todo), 'search', 'searches')} finished · "
-                                      f"{time.time() - t0:.0f} s")
-                for fut in done:
-                    u = futures[fut]
-                    try:
-                        rec = fut.result()
-                    except Exception as e:  # noqa: BLE001 - shown in the row as an error, never as "no precedent"
-                        rec = prec.empty_record(u, error=f"the search failed: {type(e).__name__}: {e}")
-                    show_search_done(store, u, rec)
-        bar.empty()
-        status.update(label=f"Market definitions looked up for {plural(len(todo), 'activity', 'activities')} of the "
-                            f"target in {time.time() - t0:.0f} s", state="complete", expanded=False)
+    card = WorkCard("Looking up the Commission's market definitions", "Sorting the products into types of product …",
+                    "Each type of product is searched in the Commission's decisions and read on its own; the AI sees "
+                    "the products only, never company names. This usually takes one to three minutes.")
+    kept = [u for u in units if u not in todo]
+    if kept:
+        card.log(f"✔ {plural(len(kept), 'search', 'searches')} kept from before (their rows did not change)")
+    try:
+        retriever = retrieval.Retriever(prec.cached_embed(ai))
+    except Exception as e:  # noqa: BLE001 - nothing is lost; the user can try again
+        st.error(f"The search could not start: the decision database could not be opened ({type(e).__name__}: {e}). "
+                 "Nothing was changed; go back and try again.")
+        st.button("← Back to the assessment", on_click=go_to, args=(3,))
+        return False
+    # 20 Oct: a progress bar per type of product (with medium effort step ④ takes several minutes); the worker
+    # threads count, this thread only reads
+    progress = prec.Progress()
+    with cf.ThreadPoolExecutor(ai_client.MAX_PARALLEL) as ex:
+        futures = {ex.submit(prec.run_unit, ai, u, ss.names, retriever, retriever.paragraphs, progress): u
+                   for u in todo}
+        pending, finished = set(futures), 0
+        while pending:
+            done, pending = cf.wait(pending, timeout=1, return_when=cf.FIRST_COMPLETED)
+            finished += len(done)
+            if progress.planned:
+                card.update(progress.done / progress.planned,
+                            f"{progress.done} of {plural(progress.planned, 'type of product', 'types of product')} "
+                            f"looked up · {time.time() - t0:.0f} s")
+            for fut in done:
+                u = futures[fut]
+                try:
+                    rec = fut.result()
+                except Exception as e:  # noqa: BLE001 - shown in the row as an error, never as "no precedent"
+                    rec = prec.empty_record(u, error=f"the search failed: {type(e).__name__}: {e}")
+                show_search_done(store, u, rec, card)
+    card.log(f"Market definitions looked up for {plural(len(todo), 'activity', 'activities')} of the target in "
+             f"{time.time() - t0:.0f} s")
     ss.precedents = store
     log_stage("precedents", first, time.time() - t0)
     ss.step = 4
     return True
 
 
-def show_search_done(store, u, rec):
-    """Stores one finished search and writes its line in the progress box (20 Oct: split out of run_precedents)."""
+def show_search_done(store, u, rec, card):
+    """Stores one finished search and writes its line in the developer details (20 Oct: split out of run_precedents)."""
     store[u["target_aid"]] = rec
     name = capital(u["target_product"])
     if rec.get("error"):
-        st.write(f"✖ {name}: {rec['error']}")
+        card.log(f"✖ {name}: {rec['error']}")
         return
     placed = sum(1 for p in rec["placements"].values() if prec.ids_of(p))
     failed = len(prec.failed_ids(rec))
-    st.write(f"{'⚠' if failed else '✔'} {name}: {plural(len(rec['markets']), 'market')}, {placed} of "
+    card.log(f"{'⚠' if failed else '✔'} {name}: {plural(len(rec['markets']), 'market')}, {placed} of "
              f"{plural(len(rec['placements']), 'product')} placed"
              + (f", the search failed for {failed}" if failed else "") + f" · {rec['stop']}")
 
@@ -1838,7 +2135,7 @@ def row_view(r):
     rec = prec_record(r)
     if not rec or r["a"].get("aid") in (ss.get("prec_stale") or set()):
         return rec, None
-    return rec, prec.row_view(r, rec, ss.overrides, cmp.effective_status, cmp.dismissed_parts)
+    return rec, prec.row_view(r, rec, search_overrides(), cmp.effective_status, cmp.dismissed_parts)
 
 
 # =============================================================== step ④ under each row (20 Oct, Linda)
@@ -1847,15 +2144,15 @@ def row_view(r):
 # what the market covers, why it was separated, and which products of each company it covers. Every paragraph is cited
 # as [M.5644 (24)]; hovering shows the paragraph exactly as the AI saw it, a click opens the decision.
 PREF_CSS = """<style>
-.pref{position:relative;cursor:help;color:#1a5fb4;text-decoration:none !important;border-bottom:1px dotted #1a5fb4;
+.pref{position:relative;cursor:help;color:#3A5A80;text-decoration:none !important;border-bottom:1px dotted #3A5A80;
  white-space:nowrap}
 .pref .pbox{display:none;position:absolute;z-index:1000;left:0;top:1.5em;width:min(40em,80vw);max-height:26em;
  overflow:auto;background:#fff;color:#1f2328;border:1px solid #c8c8c8;border-radius:6px;padding:.6em .8em;
  box-shadow:0 4px 14px rgba(0,0,0,.18);font-size:.86rem;line-height:1.45;white-space:normal;text-align:left;
  font-weight:normal;font-style:normal}
 .pref:hover .pbox{display:block}
-.cblock{margin:.3em 0 .5em 0;padding:.55em .9em .45em .9em;border-left:3px solid rgba(26,95,180,.55);
- background:rgba(26,95,180,.045);border-radius:4px;line-height:1.55}
+.cblock{margin:.3em 0 .5em 0;padding:.55em .9em .45em .9em;border-left:3px solid #5B7089;
+ background:#EEF1F4;border-radius:4px;line-height:1.55}
 .cblock .chead{font-weight:600}
 .ccard{margin-top:.5em;padding-top:.45em;border-top:1px solid rgba(128,128,128,.25)}
 .ccard .mname{font-weight:600}
@@ -1870,47 +2167,13 @@ PREF_CSS = """<style>
  padding:.3em .55em;vertical-align:top;text-align:left}
 .atab th{font-weight:600;opacity:.8}
 .defs{margin-bottom:.6em}
-.dblock{padding:.35em .9em;border-left:3px solid rgba(26,95,180,.55);background:rgba(26,95,180,.045);
+.dblock{padding:.35em .9em;border-left:3px solid #5B7089;background:#EEF1F4;
  border-radius:4px;margin:.25em 0;line-height:1.55}
 .dline{margin-top:.45em;padding-top:.35em;border-top:1px solid rgba(128,128,128,.22)}
 .lbl{opacity:.68}
 .qt{font-style:italic}
 .aiw{opacity:.75}
 </style>"""
-
-HOW_TO_READ = """- **Relevant product market**: all products that customers regard as interchangeable, because of their
-  characteristics, prices and intended use (Market Definition Notice {notice12}). If the Commission found two
-  products to be in different markets, it treats them as not competing with each other.
-- **First the law**: “The Commission's market definitions used in this screen” lists, decision by decision, what the
-  Commission concluded, in its own words, what each market covers and why it was separated. **Defined**: the
-  Commission decided where this market's boundary lies · **definition left open**: it did not have to decide ·
-  **defined, a further question left open**: it decided one boundary (e.g. that the market is separate from another
-  product) and left another open (e.g. whether it belongs to a wider market); both passages are quoted ·
-  **conclusion not in the paragraphs found**: the paragraphs discuss the market but none states a conclusion (check
-  the decision) · **left open in another decision**: a different decision left a further question about the same
-  products open; it is quoted with that decision's citation and does not change this decision's label.
-- **Then the application**: under each row, “④” says in one line where the precedent puts the two companies' products;
-  click it for the table: each market, each company's products in it, and the result. Hover over a market name for its
-  definition in short.
-- **Quotations** are the Commission's sentences word for word, checked by the code against the paragraph; *grey text*
-  is the AI's wording where no exact sentence was found. {example}: hover to read the paragraph exactly as the AI
-  saw it, click to open the decision.
-- **Precedent**: defined for this kind of product at this level of trade · **by analogy**: defined for the same product
-  at another level of trade, or for a product that does the same job · **No precedent**: no decision in the corpus
-  fits; the questions of the Notice are listed below each company's table.
-- **?** after a product: it could belong to one of several markets (hover for which) · **(general term)**: only a
-  range or the activity's name leads to the market, so which products are in it is for you to check.
-- The result is a preliminary overview: you decide."""
-
-
-def how_to_read():
-    """The legend, with live hovers (20 Oct): Notice (12), and as the example a paragraph this screen actually cites."""
-    cited = prec._sorted_ids({pid for pid in screen_paragraphs() if not pid.startswith("Notice")})
-    ex = cited[0] if cited else "Notice-12"
-    case, _, n = ex.rpartition("-")
-    example = f"{para_ref(ex, screen_paragraphs())} is {h(case)}, paragraph {h(n)}"
-    return HOW_TO_READ.replace("{notice12}", para_ref("Notice-12", {})).replace("{example}", example)
-
 
 def h(text):
     """Text from the decisions, the sources or the AI, made safe inside an HTML block. 20 Oct: line breaks become
@@ -2141,10 +2404,6 @@ def definitions_section():
         parts.append(f"<details class='dblock'><summary><b>{h(decision_label(case) if case else 'Other')}</b> · "
                      f"{h(summary)}</summary>{''.join(body)}</details>")
     st.markdown("##### The Commission's market definitions used in this screen")
-    st.caption("Decision by decision, in the Commission's own words: what it decided about each market and which "
-               "question it left open (a decision often settles one boundary of a market and leaves another open), "
-               "what each market covers and why it was separated. Under each row, “④” then shows only where the two "
-               "companies' products fall.")
     st.markdown("<div class='defs'>" + "".join(parts) + "</div>", unsafe_allow_html=True)
 
 
@@ -2165,7 +2424,9 @@ def market_hover(m, paras):
     return f"<span class='pref'>{h(capital(m['name']))}<span class='pbox'>{box}</span></span>"
 
 
-def _cell(g):
+def _items_html(g, market_name=""):
+    """One side's products in one market (20 Oct, Linda): a product that could be in several markets says where else
+    it could be, e.g. “chocolate bars (or Tablets)”; a range or the activity's own name is marked “(general term)”."""
     if not g:
         return "–"
     notes = g.get("notes") or {}
@@ -2173,267 +2434,332 @@ def _cell(g):
     if g.get("status") != "general":
         shown = [i for i in g["items"] if "spans several markets" not in notes.get(i, "")] or g["items"]
     out = []
+    here = prec._market_key(market_name)
     for i in shown:
         note = notes.get(i, "")
         if "unclear which" in note:
-            out.append(f"{h(i)}<span title='{h(note)}' style='cursor:help;border-bottom:1px dotted'>?</span>")
+            others = [x.strip() for x in note.replace(", unclear which", "").split(" or ")
+                      if x.strip() and prec._market_key(x) != here]
+            out.append(f"{he(i)} <span class='or'>(or {he(' or '.join(capital(x) for x in others))})</span>"
+                       if others else he(i))
         elif note:
-            out.append(f"{h(i)} <span class='cnote' title='{h(note)}'>(general term)</span>")
+            out.append(f"{he(i)} <span class='or' title='{h(note)}'>(general term)</span>")
         else:
-            out.append(h(i))
-    text = ", ".join(out)
-    return text + (" · <i>by analogy</i>" if g["basis"] != "precedent" else "")
+            out.append(he(i))
+    return ", ".join(out) + (" <span class='or'>by analogy</span>" if g["basis"] != "precedent" else "")
 
 
-def _result(e, target, portco, roles=None):
-    a, b, conc = e["a"], e["b"], e["market"].get("conclusion")
-    if not (a and b):
-        side = "a" if a else "b"
-        if roles and roles.get(side):        # a vertical row: the market of the supplying or of the buying side
-            return f"{h(target if a else portco)}'s market ({roles[side]})"
-        return f"only {h(target if a else portco)}"
-    st_ = max(a.get("status", "specific"), b.get("status", "specific"), key=STATUS_RANK.get)
-    analogy = "" if a["basis"] == b["basis"] == "precedent" else ", by analogy"
-    if st_ == "general":
-        return "both only through a general term: to be checked"
-    if st_ == "possibly":
-        return f"possibly both{analogy}"
-    if conc == "left open":
-        return f"both{analogy}, but the Commission left the definition open"
-    if conc == prec.NOT_STATED:
-        return f"both{analogy}; conclusion not in the paragraphs found"
-    if conc == prec.PARTLY:
-        return (f"<b>both{analogy}</b>; a further question about this market was left open (hover over the market "
-                "name)")
-    return f"<b>both{analogy}</b>"
+def _cites(m, paras, limit=2):
+    """The paragraphs a market's conclusion rests on (hover: the paragraph as the AI saw it)."""
+    pids = [x for x in (m.get("decided_paragraph"), m.get("open_paragraph")) if x]
+    if not pids:
+        pids = prec._sorted_ids({x for x in m.get("product_paragraphs") or [] if not x.startswith("Notice")})[:limit]
+    return para_refs(pids[:limit], paras)
 
 
-def vertical_roles(r):
-    """For a row whose kept relationship is only vertical: {"a": "supplier side" or "customer side", "b": ...}, from
-    the direction of its links (code). Empty if a horizontal overlap is kept or the links point both ways."""
-    off = set(cmp.dismissed_parts(r, ss.overrides))
-    d = r["decision"]
-    if d.get("horizontal") and "horizontal" not in off:
-        return {}
-    links = [x for x in d.get("vertical_links") or [] if x not in off]
-    ups = {"a" if x in ("A could be an input for B", "A could be resold by B") else "b" for x in links}
-    if len(ups) != 1:
-        return {}
-    up = ups.pop()
-    return {up: "supplier side", ("b" if up == "a" else "a"): "customer side"}
+def _side_text(entries, view, side, paras, html_out=True):
+    """Where one side's products fall: the markets, else “no precedent for …” or “search failed”."""
+    found = [e for e in entries if e[side]]
+    if found:
+        if html_out:
+            return ", ".join(market_hover(e["market"], paras) for e in found)
+        return ", ".join(capital(e["market"]["name"]) for e in found)
+    groups = view.get(side) or []
+    if any(g["market_id"] == "failed" for g in groups):
+        return "search failed"
+    return "no precedent"
 
 
-def row_summary(entries, view, target, portco, paras=None, roles=None):
-    """The one line of a row's ④, from the same data as its table (code). Market names hover with their definition.
-    20 Oct: if the search failed for some of the row's products, the line says so first."""
-    paras = paras or {}
-
-    def names(es):
-        return ", ".join(market_hover(e["market"], paras) + (" (by analogy)" if any(
-            x and x["basis"] != "precedent" for x in (e["a"], e["b"])) else "")
-            + (" (a further question left open)" if e["market"].get("conclusion") == prec.PARTLY else "") for e in es)
-
-    def mine(side):
-        found = ", ".join(market_hover(e["market"], paras) for e in entries if e[side])
-        if found:
-            return found
-        # 20 Oct: a side whose search failed is never reported as "no precedent"
-        return "search failed" if any(g["market_id"] == "failed" for g in view.get(side) or []) else "no precedent"
-
-    line = verdict_line(entries, view, target, portco, names, mine, roles)
-    if view.get("failed"):
-        return (f"✖ <b>The search failed</b> for {h(', '.join(dict.fromkeys(view['failed'])))}: press “Update the "
-                f"market definitions” below. {line}")
-    return line
+def _rank(e):
+    return max((e["a"] or {}).get("status", "specific"), (e["b"] or {}).get("status", "specific"), key=STATUS_RANK.get)
 
 
-def verdict_line(entries, view, target, portco, names, mine, roles):
-    """row_summary without the failure note: where the precedent puts the two companies' products."""
-    v = view.get("verdict") or {}
-    if v.get("different"):
-        return (f"<b>Different markets under the precedent</b>: {h(target)}: {mine('a')} · {h(portco)}: {mine('b')}. "
-                "The Commission would not see these products as competing: lawyer review.")
+def horizontal_sentences(entries, view, verdict, target, portco, paras, html_out=True):
+    """The Commission line of a horizontal row, in the Commission's own terms (20 Oct, Linda; checked against M.5644,
+    M.6872 and M.9798): “both products fall in the market for …: horizontal overlap at product-market level”."""
+    def names(es, joiner=", "):
+        if html_out:
+            return joiner.join(market_hover(e["market"], paras) + (" <span class='or'>by analogy</span>" if any(
+                x and x["basis"] != "precedent" for x in (e["a"], e["b"])) else "") + " " + _cites(e["market"], paras)
+                for e in es)
+        return joiner.join(capital(e["market"]["name"]) + (" (by analogy)" if any(
+            x and x["basis"] != "precedent" for x in (e["a"], e["b"])) else "") for e in es)
+    if verdict and verdict.get("different"):
+        return [f"the products fall in separate markets ({he(target) if html_out else target}: "
+                f"{_side_text(entries, view, 'a', paras, html_out)}; {he(portco) if html_out else portco}: "
+                f"{_side_text(entries, view, 'b', paras, html_out)}): no horizontal overlap at product-market level; "
+                "check for a vertical relationship"]
     shared = [e for e in entries if e["a"] and e["b"]]
-    if v and shared:
-        rank = lambda e: max(e["a"].get("status", "specific"), e["b"].get("status", "specific"), key=STATUS_RANK.get)
-        conc = lambda e: e["market"].get("conclusion")
-        both = [e for e in shared if rank(e) == "specific" and conc(e) in SETTLED]
-        left = [e for e in shared if rank(e) == "specific" and conc(e) == "left open"]
-        unknown = [e for e in shared if rank(e) == "specific" and conc(e) not in SETTLED + ("left open",)]
-        possibly = [e for e in shared if rank(e) == "possibly"]
-        general = [e for e in shared if rank(e) == "general"]
-        parts = ([f"<b>both in {names(both)}</b>"] if both else []) + \
-                ([f"possibly both in {names(possibly)}"] if possibly else []) + \
-                ([f"both in {names(left)}, whose definition the Commission left open"] if left else []) + \
-                ([f"both in {names(unknown)}; the conclusion is not in the paragraphs found"] if unknown else []) + \
-                ([f"both in {names(general)} only through a general term"] if general else [])
-        return "Under the precedent: " + "; ".join(parts)
-    if roles:
-        up, down = ("a", "b") if roles.get("a") == "supplier side" else ("b", "a")
-        who = {"a": target, "b": portco}
-        return (f"Vertical relationship: {h(who[up])} (supplier side): {mine(up)} → {h(who[down])} (customer side): "
-                f"{mine(down)}")
-    return f"Commission markets: {h(target)}: {mine('a')} · {h(portco)}: {mine('b')}"
+    conc = lambda e: e["market"].get("conclusion")   # noqa: E731
+    both = [e for e in shared if _rank(e) == "specific" and conc(e) in SETTLED]
+    partly = [e for e in both if conc(e) == prec.PARTLY]
+    left = [e for e in shared if _rank(e) == "specific" and conc(e) == "left open"]
+    unknown = [e for e in shared if _rank(e) == "specific" and conc(e) not in SETTLED + ("left open",)]
+    possibly = [e for e in shared if _rank(e) == "possibly"]
+    general = [e for e in shared if _rank(e) == "general"]
+    out = []
+    if both:
+        word = "market" if len(both) == 1 else "markets"
+        out.append(f"both products fall in the {word} for {names(both)}: horizontal overlap at product-market level"
+                   + ("; a further question about this market was left open" if partly else ""))
+    if left:
+        out.append(f"both products fall in {names(left)}; the exact definition was left open: a horizontal overlap "
+                   "cannot be excluded")
+    if possibly:
+        out.append(f"both products may fall in {names(possibly, ' or ')}, depending on the product format: horizontal "
+                   "overlap at product-market level possible, to be checked")
+    if unknown:
+        out.append(f"both products fall in {names(unknown)}; the paragraphs found state no conclusion: check the "
+                   "decision")
+    if general:
+        out.append(f"both companies' products fall in {names(general)} only through a general term: which products "
+                   "are in it is to be checked")
+    if not out:
+        if any(e["a"] or e["b"] for e in entries):
+            out.append(f"no decision in the database places both companies' products in one market "
+                       f"({he(target) if html_out else target}: {_side_text(entries, view, 'a', paras, html_out)}; "
+                       f"{he(portco) if html_out else portco}: {_side_text(entries, view, 'b', paras, html_out)}): the "
+                       "preliminary assessment of step ③ stands; to be assessed under the Market Definition Notice")
+        else:
+            out.append("no decision in the database covers these products: the preliminary assessment of step ③ "
+                       "stands; to be assessed under the Market Definition Notice")
+    return out
+
+
+def vertical_sentence(entries, view, up, target, portco, paras, html_out=True):
+    """The Commission line of a vertical relationship, in the Commission's terms (M.6872 (51)–(52)): the upstream and
+    the downstream market."""
+    down = "b" if up == "a" else "a"
+    who = {"a": target, "b": portco}
+
+    if not any(e[up] or e[down] for e in entries):
+        return ("no decision in the database covers either side: the preliminary assessment of step ③ stands; to be "
+                "assessed under the Market Definition Notice")
+
+    def side(s, level):
+        found = [e for e in entries if e[s]]
+        name = he(who[s]) if html_out else who[s]
+        if found:
+            ms = (", ".join(market_hover(e["market"], paras) for e in found)
+                  if html_out else ", ".join(capital(e["market"]["name"]) for e in found))
+            return f"the {level} market for {ms} ({name})"
+        return f"the {level} side ({name}: {_side_text(entries, view, s, paras, html_out)})"
+    return f"vertical relationship between {side(up, 'upstream')} and {side(down, 'downstream')}"
+
+
+def commission_parts(r, target, portco):
+    """Everything the Commission line of a row needs: (record, view, entries, horizontal shown, upstream sides, verdict)
+    or None. A horizontal overlap the lawyer added uses the same stored search (no new search, option C)."""
+    if not ss.get("precedents"):
+        return None
+    rec, view = row_view(r)
+    if view is None or view.get("error"):
+        return rec, view, [], False, [], None
+    entries = sorted(row_markets(view), key=lambda e: (not (e["a"] and e["b"]), STATUS_RANK.get(_rank(e), 0),
+                                                       e["market"].get("conclusion") not in SETTLED,
+                                                       e["market"]["name"].lower()))
+    h_on, ups = active_labels(r, target, portco)
+    verdict = view.get("verdict")
+    if h_on and verdict is None and rec:
+        items = prec.row_items(r, search_overrides(), cmp.effective_status, cmp.dismissed_parts)
+        if items:
+            verdict = prec.horizontal_verdict(rec, r, items, view["a"], view["b"])
+    return rec, view, entries, h_on, ups, verdict
+
+
+def commission_sentences(r, target, portco, html_out=True):
+    parts = commission_parts(r, target, portco)
+    if not parts or parts[1] is None or parts[1].get("error"):
+        return []
+    rec, view, entries, h_on, ups, verdict = parts
+    paras = (rec or {}).get("paragraphs") or {}
+    out = []                         # [(label, sentence)], one per relationship shown in the row
+    if h_on:
+        out.append(("Horizontal", "; ".join(horizontal_sentences(entries, view, verdict, target, portco, paras,
+                                                                  html_out))))
+    for up in ups:
+        u, d = (target, portco) if up == "a" else (portco, target)
+        out.append((f"Vertical ({u} → {d})", vertical_sentence(entries, view, up, target, portco, paras, html_out)))
+    nothing = "no decision in the database covers"
+    if len(out) > 1 and all(text.startswith(nothing) for _, text in out):     # one line instead of the same one twice
+        out = [("", "no decision in the database covers these products: the preliminary assessment of step ③ stands; "
+                    "to be assessed under the Market Definition Notice")]
+    if not out:          # unclear, or added back without a label: where each side's products fall
+        out.append(("", f"{he(target) if html_out else target}: {_side_text(entries, view, 'a', paras, html_out)}; "
+                        f"{he(portco) if html_out else portco}: {_side_text(entries, view, 'b', paras, html_out)}"))
+    return out
+
+
+def commission_plain(r, target, portco):
+    """The Commission line as plain text, for “Edit” and the output."""
+    sentences = commission_sentences(r, target, portco, html_out=False)
+    if not sentences:
+        return ""
+    if len(sentences) == 1:
+        return "Commission: " + sentences[0][1]
+    return "Commission:\n" + "\n".join(f"{label}: {text}" for label, text in sentences)
+
+
+def commission_short(r, target, portco):
+    """A few words for the result box: where the Commission puts the two sides' products (step ④ only)."""
+    parts = commission_parts(r, target, portco)
+    if not parts or parts[1] is None or parts[1].get("error"):
+        return ""
+    rec, view, entries, h_on, ups, verdict = parts
+    if verdict and verdict.get("different"):
+        return "separate markets"
+    shared = [e for e in entries if e["a"] and e["b"]]
+    conc = lambda e: e["market"].get("conclusion")   # noqa: E731
+    name = lambda es: ", ".join(capital(e["market"]["name"]) for e in es)   # noqa: E731
+    bits = []
+    same = [e for e in shared if _rank(e) == "specific" and conc(e) in SETTLED]
+    left = [e for e in shared if _rank(e) == "specific" and conc(e) == "left open"]
+    maybe = [e for e in shared if _rank(e) != "specific"]
+    if same:
+        bits.append(f"same market: {name(same)}")
+    if left:
+        bits.append(f"definition left open: {name(left)}")
+    if maybe:
+        bits.append(f"possibly: {name(maybe)}")
+    return "; ".join(bits) or "no precedent"
+
+
+def grouped_markets(view, entries, h_on, ups, target, portco, paras):
+    """The Commission's markets for one row, grouped (20 Oct, Linda: option 4): for a horizontal row “Same market”,
+    “Possibly the same market”, “Only one company”, “No precedent”; for a vertical row the upstream and the downstream
+    market."""
+    def item(e, body, one=False):
+        m = e["market"]
+        return (f"<div class='it{' one' if one else ''}'>{market_hover(m, paras)} <span class='sub2'>("
+                f"{h(CONCLUSION_TEXT.get(m.get('conclusion'), 'defined'))}, {_cites(m, paras)})</span>: {body}</div>")
+
+    def unplaced(side, kind):
+        return [i for g in view.get(side) or [] if g["market_id"] == kind for i in g["items"]]
+    t, p = he(target), he(portco)
+    groups = []
+    if h_on:
+        same = [e for e in entries if e["a"] and e["b"] and _rank(e) == "specific"]
+        maybe = [e for e in entries if e["a"] and e["b"] and _rank(e) != "specific"]
+        one = [e for e in entries if not (e["a"] and e["b"])]
+        both = lambda e: (f"<span class='sub2'>{t}</span> {_items_html(e['a'], e['market']['name'])} · "   # noqa: E731
+                          f"<span class='sub2'>{p}</span> {_items_html(e['b'], e['market']['name'])}")
+        if same:
+            groups.append(("Same market", "".join(item(e, both(e)) for e in same)))
+        if maybe:
+            groups.append(("Possibly the same market (depends on the product format)",
+                           "".join(item(e, both(e)) for e in maybe)))
+        if one:
+            groups.append(("Only one company", "".join(item(e, f"<span class='sub2'>{t if e['a'] else p}</span> "
+                                                          f"{_items_html(e['a'] or e['b'], e['market']['name'])}", True)
+                                                      for e in one)))
+        sides = (("a", t), ("b", p))
+    else:
+        order = ups[:1] or []
+        sides_order = ([("a", "b")] if order == ["a"] else [("b", "a")]) if order else [("a", "b")]
+        up, down = sides_order[0]
+        names = {"a": t, "b": p}
+        for s, title in ((up, f"Upstream market · {names[up]} (supplier)" if order else names[up]),
+                         (down, f"Downstream market · {names[down]} (customer)" if order else names[down])):
+            body = "".join(item(e, _items_html(e[s], e["market"]["name"]), True) for e in entries if e[s])
+            none = unplaced(s, "none")
+            if none:
+                body += f"<div class='it one'><span class='sub2'>No precedent:</span> {he(', '.join(none))}</div>"
+            failed = unplaced(s, "failed")
+            if failed:
+                body += f"<div class='it one'><span class='sub2'>Search failed:</span> {he(', '.join(failed))}</div>"
+            if body:
+                groups.append((title, body))
+        sides = ()
+    none = [(name, unplaced(s, "none")) for s, name in sides if unplaced(s, "none")]
+    if none:
+        groups.append(("No precedent", "".join(f"<div class='it one'><span class='sub2'>{n}</span> {he(', '.join(i))} "
+                                               "<span class='sub2'>· to be assessed under the Market Definition "
+                                               "Notice</span></div>" for n, i in none)))
+    failed = [(name, unplaced(s, "failed")) for s, name in sides if unplaced(s, "failed")]
+    if failed:
+        groups.append(("Search failed", "".join(f"<div class='it one'><span class='sub2'>{n}</span> "
+                                                f"{he(', '.join(i))}</div>" for n, i in failed)))
+    return "".join(f"<div class='grp'>{h(title)}</div>{body}" for title, body in groups)
 
 
 def commission_block(r, target, portco):
-    """Step ④ under one row (full width, always collapsed, 20 Oct): one line saying where the precedent puts the two
-    companies' products; opened, a table of the markets, each company's products in them and the result. The law
-    itself is in the section "The Commission's market definitions" above the tables. Code only, no AI call."""
-    if not ss.get("precedents"):
+    """Step ④ under one row (20 Oct, Linda): the Commission line, full width and always visible, then the
+    Commission's markets for this row on request, grouped. Code only, no AI call. Step ④ only (20 Oct, Linda)."""
+    if not ss.get("precedents") or ss.get("step") != 4:
         return
     rec, view = row_view(r)
     if rec and view is None and r["a"].get("aid") in (ss.get("prec_stale") or set()):
-        st.caption("④ Changed since the search: press “Update the market definitions” below.")
+        st.caption("Changed since the search: press “Update the market definitions” below.")
         return
     if view is None:
-        if kept(cmp.effective_status(r, ss.overrides)):
-            st.caption("④ Not searched yet: press “Update the market definitions” below.")
+        if kept(row_status(r)):
+            st.caption("Not searched yet: press “Update the market definitions” below.")
         return
     if view["error"]:
-        st.markdown(f"④ ✖ :red[The search failed:] {esc(view['error'])}")
+        st.markdown(f"<div class='cline'><b>Commission:</b> the search failed ({he(view['error'])}): press “Update the "
+                    "market definitions” below.</div>", unsafe_allow_html=True)
         return
-    entries = sorted(row_markets(view), key=lambda e: (
-        not (e["a"] and e["b"]),
-        STATUS_RANK.get(max((e["a"] or {}).get("status", "specific"), (e["b"] or {}).get("status", "specific"),
-                            key=STATUS_RANK.get), 0),
-        e["market"].get("conclusion") not in SETTLED, e["market"]["name"].lower()))
+    _, _, entries, h_on, ups, _ = commission_parts(r, target, portco)
     paras = rec.get("paragraphs") or {}
-    roles = vertical_roles(r)
-    rows = [f"<tr><td>{market_hover(e['market'], paras)} <span class='cnote'>"
-            f"{h(CONCLUSION_TEXT.get(e['market'].get('conclusion'), 'defined'))}</span></td>"
-            f"<td>{_cell(e['a'])}</td><td>{_cell(e['b'])}</td><td>{_result(e, target, portco, roles)}</td></tr>"
-            for e in entries]
-
-    def side(groups, kind):
-        return h(", ".join(i for g in groups if g["market_id"] == kind for i in g["items"])) or "–"
-    if view["unplaced"]:
-        rows.append(f"<tr><td><b>No precedent</b> in the corpus</td><td>{side(view['a'], 'none')}</td>"
-                    f"<td>{side(view['b'], 'none')}</td><td class='cnote'>questions of the Notice below this company's "
-                    "table</td></tr>")
-    if view.get("failed"):           # 20 Oct: a failed search is shown as such, never as "no precedent"
-        rows.append(f"<tr><td><b>✖ Search failed</b></td><td>{side(view['a'], 'failed')}</td>"
-                    f"<td>{side(view['b'], 'failed')}</td><td class='cnote'>not looked up: press “Update the market "
-                    "definitions” below</td></tr>")
-    table = (f"<table class='atab'><tr><th>Market (hover: definition)</th><th>{h(target)}</th><th>{h(portco)}</th>"
-             f"<th>Result</th></tr>{''.join(rows)}</table>")
-    st.markdown(f"<details class='cblock'><summary>④ {row_summary(entries, view, target, portco, paras, roles)}</summary>"
-                f"{table}</details>", unsafe_allow_html=True)
+    o = ss.override_store.get(cmp.pair_id(r), {})
+    edited = (o.get("text_commission") or "").strip()
+    if edited:
+        line = he(edited).replace("\n", "<br>") + " <span class='ed'>edited by you</span>"
+    else:
+        sentences = commission_sentences(r, target, portco)
+        if len(sentences) == 1:
+            line = "<b>Commission:</b> " + sentences[0][1]
+        else:
+            line = "<b>Commission</b>" + "".join(f"<br><span class='sub2'>{he(label)}:</span> {text}"
+                                                 for label, text in sentences)
+    if view.get("failed"):
+        line = (f"<b>The search failed</b> for {he(', '.join(dict.fromkeys(view['failed'])))}: press “Update the market "
+                f"definitions” below. ") + line
+    groups = grouped_markets(view, entries, h_on, ups, target, portco, paras)
+    st.markdown(f"<div class='cline'>{line}</div>"
+                + (f"<details class='mkts'><summary>Show the Commission's markets for this row</summary>{groups}"
+                   "</details>" if groups else ""), unsafe_allow_html=True)
 
 
-def applicable_today():
-    """The intro disclaimer (20 Oct, Linda): once for the screen instead of under every row."""
-    # 20 Oct: only the decisions of the markets the kept rows use (before: every stored search, see screen_records)
+def disclaimer():
+    """The step ④ disclaimer, once for the screen (20 Oct, Linda): product market only, and decisions as at their
+    time."""
     cases = sorted({pid.rpartition("-")[0] for e in used_markets().values() for m in e["markets"]
                     for pid in m.get("product_paragraphs") or [] if not pid.startswith("Notice")})
-    if not cases:
-        return
     years = ", ".join(f"{c}: {decision_label(c).rsplit('(', 1)[-1].rstrip(')')}" for c in cases)
-    st.markdown(f"<div class='cnote' style='opacity:1'><b>Are these decisions still applicable today?</b> The decisions "
-                f"describe each market as it was at the time ({h(years)}). The Commission may start from a past "
-                "decision but is not bound by it, and checks whether the definition still fits, for example after "
-                f"shifts in value chains or digitalisation {para_ref('Notice-14', {})}. Check whether the markets have "
-                "changed since: a precedent is a starting point, not an answer.</div><br>", unsafe_allow_html=True)
+    st.markdown("<div class='sub2' style='font-style:italic;margin-bottom:.6rem'>Product market only: geography and "
+                "market shares, which decide whether a market is “affected”, are not assessed. The decisions describe "
+                f"each market as it was at the time{f' ({h(years)})' if years else ''}; check whether they still apply "
+                f"{para_ref('Notice-14', {})}.</div>", unsafe_allow_html=True)
 
 
-def no_precedent_box(pairs, target, portco):
-    """Once per portfolio company (20 Oct; before, in every row): the products of its kept rows for which the corpus has
-    no precedent, and the product-market questions of the Market Definition Notice for the lawyer."""
+PUBLIC_WORDS = {"✔": "Public sources", "✔ mostly": "Public sources, mostly", "◐": "Partly", "✖": "Ask the company",
+                "✔ as a label": "Public sources (as a label)"}
+
+
+def checklist_box(results):
+    """Once, at the end of step ④ (20 Oct, Linda): the questions of the Market Definition Notice for the products
+    without a precedent. The products are named under their rows."""
     if not ss.get("precedents"):
         return
-    found = {target: [], portco: []}
-    for r in pairs:
+    n = 0
+    for r in results:
         _, view = row_view(r)
-        if not view or view.get("error"):
-            continue
-        for who, groups in ((target, view["a"]), (portco, view["b"])):
-            found[who] += [i for g in groups if g["market_id"] == "none" for i in g["items"]]
-    found = {who: list(dict.fromkeys(items)) for who, items in found.items() if items}
-    if not found:
+        if view and not view.get("error"):
+            n += len(view.get("unplaced") or [])
+    if not n:
         return
-    n = sum(len(v) for v in found.values())
-    with st.expander(f"No precedent in the corpus for {plural(n, 'product')} of these rows · questions for the lawyer "
-                     "(Market Definition Notice)"):
-        for who, items in found.items():
-            st.markdown(f"*{esc(who)}:* {esc('; '.join(items))}")
-        st.markdown("The tool does not answer these questions; they are the starting point of a first-principles "
-                    "analysis where no decision applies:")
-        rows = ["| | Question | Notice | Public sources |", "|---|---|---|---|"]
-        rows += [f"| {k} | {q} | {para} | {pub} |" for k, q, para, pub in prec.CHECKLIST]
+    with st.expander("Products without a precedent: questions under the Market Definition Notice"):
+        st.markdown("The tool does not answer these questions; they are the starting point where no decision applies.")
+        rows = ["| | Question | Notice | Can be answered from |", "|---|---|---|---|"]
+        rows += [f"| {k} | {q} | {para} | {PUBLIC_WORDS.get(pub, pub)} |" for k, q, para, pub in prec.CHECKLIST]
         st.markdown("\n".join(rows))
-        st.caption("Public sources: ✔ answerable from public sources · ◐ partly · ✖ only the company or a market "
-                   "investigation can answer it (a question for the company).")
 
 
-def search_trail(r, target, portco):
-    """'Details' → step ④: the search of this row's target activity (shared by all its rows), as in the audit log.
-    Since 20 Oct (option B) one small search and reflection per type of product; only the types that contain this
-    row's products are shown."""
-    rec, view = row_view(r)
-    if not rec or view is None:
-        return
-    st.markdown("**Step ④: the search** (one search for all rows of this activity of the target, split by type of "
-                "product)")
-    by_item = {(v[0], v[1]): iid for iid, v in (rec.get("index") or {}).items()}
-    row_ids = {by_item.get((act["aid"], i)) for act, groups in ((r["a"], view["a"]), (r["b"], view["b"]))
-               for g in groups for i in g["items"]}
-    types = [t for t in rec.get("types") or [] if row_ids & set(t["item_ids"])] or rec.get("types") or []
-    if not rec.get("types"):         # a search from before option B (one reflection for all products)
-        types = [{"products": "all products of this activity", "attempts": rec.get("attempts") or [],
-                  "stop": rec.get("stop") or rec.get("error") or "–", "kept_attempt": rec.get("kept_attempt"),
-                  "items_text": rec.get("items_text") or "", "item_ids": list(rec.get("index") or {})}]
-    for t in types:
-        kept_note = (f" · the result of attempt {t['kept_attempt']} is shown (it placed more products)"
-                     if t.get("kept_attempt") and t["kept_attempt"] < len(t.get("attempts") or []) else "")
-        st.markdown(f"*Type of product: “{esc(t['products'])}”* ({esc(t.get('level') or 'any')}"
-                    f"{'; an item the first step left unassigned, searched on its own' if t.get('extra') else ''}) · "
-                    f"ended by: {esc(t.get('stop') or t.get('error') or '–')}{kept_note}")
-        for a in t.get("attempts") or []:
-            qs = "; ".join(f"“{esc(x['query'])}”" for x in a["retrieval"])
-            hits = sorted({h["id"] for x in a["retrieval"] for h in x["hits"]})
-            filt = "with the level-of-trade filter" if a["level_filter"] else "without the level-of-trade filter"
-            dropped = any(x.get("level_filter_dropped") for x in a["retrieval"])
-            st.caption(f"Attempt {a['attempt']} ({filt}{'; no decision at that level, filter dropped' if dropped else ''}): "
-                       f"{qs} · paragraphs found: {esc(', '.join(hits) or 'none')} · new: "
-                       f"{len(a.get('new_paragraphs') or [])} · sent to the AI: {len(a.get('paragraphs_sent') or [])}")
-    placed = []
-    failed = prec.failed_ids(rec)
-    for who, act, items in ((target, r["a"], [i for g in view["a"] for i in g["items"]]),
-                            (portco, r["b"], [i for g in view["b"] for i in g["items"]])):
-        for item in dict.fromkeys(items):
-            p = rec["placements"].get(by_item.get((act["aid"], item)), {})
-            ms = [rec["markets"][m]["name"] for m in prec.ids_of(p) if m in rec["markets"]]
-            fit = f"; {p['fit']}" if len(ms) > 1 and p.get("fit") else ""
-            iid = by_item.get((act["aid"], item))
-            label = ("Search failed" if p.get("failed") or (iid in failed and not prec.ids_of(p))
-                     else prec.BASIS_LABEL.get(p.get('basis', 'none')))
-            placed.append(f"{esc(who)}: {esc(item)} → {esc('; '.join(ms) or 'no market')} "
-                          f"({label}{esc(fit)}; {esc(p.get('reason') or '')})")
-    if placed:
-        st.markdown("*Where the AI placed this row's products:*  \n" + "  \n".join(placed))
-    if rec.get("rejected"):
-        st.markdown("*Corrected by the code checks:* " + "; ".join(esc(x) for x in rec["rejected"]))
-    if rec.get("conclusions_taken"):
-        st.markdown("*Conclusion taken from another search of this activity (code):* "
-                    + "; ".join(esc(x) for x in rec["conclusions_taken"]))
-    st.markdown("**What the AI saw in step ④** (per type of product: its products, numbered by activity, no names; the "
-                "paragraphs follow in the audit log)")
-    for t in types:
-        st.code(t.get("items_text") or "", language=None, wrap_lines=True)
-
-
-def precedent_summary(units):
+def precedent_warnings(units):
+    """Only what needs action (20 Oct, Linda: the search summary is gone from the page; it is in the progress file)."""
     records = [ss.precedents[u["target_aid"]] for u in units if u["target_aid"] in ss.precedents]
     s = prec.summary(records)
-    facts = corpus_facts()
-    text = (f"Searched: {plural(s['searches'], 'activity', 'activities')} of the target, in "
-            f"{plural(len(facts['decisions']), 'Commission decision')} ({esc('; '.join(facts['decisions']))}) · "
-            f"{plural(s['markets'], 'market')} found · products: {s['precedent']} with a precedent, {s['analogy']} by "
-            f"analogy, {s['none']} without a precedent"
-            + (f", {s['failed']} not looked up (the search failed)" if s.get("failed") else ""))
-    if s["rejected"]:
-        text += f" · {plural(s['rejected'], 'citation or placement', 'citations or placements')} corrected by the code checks (see “Details”)"
-    st.info(text)
     if s["errors"]:
         st.warning("Some searches failed: " + "; ".join(esc(e) for e in s["errors"]) + ". Press “Update the market "
                    "definitions” to try them again.")
@@ -2444,18 +2770,15 @@ def precedent_button(units, todo):
     failed = [u for u in units if (store.get(u["target_aid"]) or {}).get("error")]
     todo = todo + [u for u in failed if u not in todo]
     if not units:
-        st.button("Find Commission market definitions", type="primary", disabled=True,
-                  help="No row is kept: nothing to look up.")
+        st.caption("No row is kept: there are no market definitions to look up.")
         return
     if not store:
-        label = (f"Find Commission market definitions ({plural(len(units), 'search', 'searches')}, one per activity "
-                 "of the target)")
+        label = "Find Commission market definitions"
     elif todo:
-        label = (f"Update the market definitions: {plural(len(todo), 'search', 'searches')} for new or changed rows, "
-                 f"{len(units) - len(todo)} kept")
+        label = (f"Update the market definitions ({plural(len(todo), 'search', 'searches')} for new or changed rows, "
+                 f"{len(units) - len(todo)} kept)")
     else:
-        st.caption("✔ The market definitions are up to date for every row you kept.")
-        return
+        return                      # 20 Oct (Linda): no "up to date" line; a changed row shows its own note
     if st.button(label, type="primary"):
         if failed:          # a failed search is never "reusable": drop it so that it runs again
             for u in failed:
@@ -2561,6 +2884,7 @@ def load_audit(data):
             pass
     ss.vec_cache = {}
     ss.override_store = {pid: dict(o) for pid, o in (data.get("user_overrides") or {}).items() if isinstance(o, dict)}
+    ss.result_edits = {k: dict(v) for k, v in (data.get("user_result_wording") or {}).items() if isinstance(v, dict)}
     ss.results_version = 1
     ss.precedents = dict((data.get("stage_4_market_definitions") or {}).get("searches") or {})
     before = list(data.get("call_log_before_loading") or []) + list(data.get("call_log") or [])
@@ -2573,30 +2897,29 @@ def load_audit(data):
 
 
 def loader_box():
-    with st.expander("Continue a saved screen (from an audit log downloaded from this app)"):
-        st.caption("Restores the companies, activities and the preliminary assessment of a downloaded audit log "
-                   "(.json), with your dismissals and notes, without any AI call. The current screen is replaced. The "
-                   "file stays with you; the app stores nothing.")
-        up = st.file_uploader("Audit log (.json)", type=["json"], key="audit_upload", label_visibility="collapsed")
-        if up is None:
-            return
-        try:
-            data = json.loads(up.getvalue().decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as e:
-            st.error(f"The file could not be read as JSON: {e}")
-            return
-        problems = check_audit(data)
-        if problems:
-            st.error("This file cannot be loaded: " + "; ".join(problems) + ".")
-            return
-        target = data["companies"][0]["name"]
-        st.write(f"Audit log of {esc(data.get('created') or 'unknown date')}: target **{esc(target)}**, "
-                 f"{plural(len(data['companies']) - 1, 'portfolio company', 'portfolio companies')}, "
-                 f"{plural(len(data['stage_3_factual_comparison']), 'compared pair')}"
-                 + (", with step ④" if data.get("stage_4_market_definitions") else "") + ".")
-        if st.button("Load this screen", type="primary"):
-            load_audit(data)
-            st.rerun()
+    """'Open saved progress' in the sidebar (20 Oct; before: 'Continue a saved screen' in step ①)."""
+    st.caption("Continues a screen from a progress file saved with this app (.json): companies, activities, the "
+               "assessment and step ④, with your dismissals, notes and edits, without any AI call. The current "
+               "screen is replaced. The file stays with you; the app stores nothing.")
+    up = st.file_uploader("Progress file (.json)", type=["json"], key="audit_upload", label_visibility="collapsed")
+    if up is None:
+        return
+    try:
+        data = json.loads(up.getvalue().decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        st.error(f"The file could not be read as JSON: {e}")
+        return
+    problems = check_audit(data)
+    if problems:
+        st.error("This file cannot be loaded: " + "; ".join(problems) + ".")
+        return
+    target = data["companies"][0]["name"]
+    st.write(f"Saved {esc((data.get('created') or 'unknown date').replace('T', ' '))}: target **{esc(target)}**, "
+             f"{plural(len(data['companies']) - 1, 'portfolio company', 'portfolio companies')}"
+             + (", with step ④" if data.get("stage_4_market_definitions") else "") + ".")
+    if st.button("Load this screen", type="primary"):
+        load_audit(data)
+        st.rerun()
 
 
 # =============================================================== audit log
@@ -2609,7 +2932,11 @@ def audit_calls():
 
 def audit_snapshot(ai):
     """References to everything the audit log contains, taken in the script thread. The JSON itself is built
-    only when the user clicks the download button (on another thread, which cannot read session state)."""
+    only when the user clicks the download button (on another thread, which cannot read session state).
+    20 Oct: the overrides are refreshed first; "Save progress" sits in the sidebar, which is drawn before the table,
+    so without this a box ticked just before saving was missing from the file."""
+    if ss.get("results") is not None:
+        current_overrides()
     return {"created": datetime.now().isoformat(timespec="seconds"), "profile": PROFILE, "dev_mode": DEV_MODE,
             "cache": USE_CACHE, "saved_searches": USE_SAVED, "models": dict(ai.models),
             "companies": ss.get("companies"), "mapped": ss.get("mapped"), "relationships": ss.get("relationships"),
@@ -2622,13 +2949,17 @@ def audit_snapshot(ai):
             "overrides": dict(ss.get("overrides") or {}), "calls": audit_calls(),
             # 20 Oct: stage ④ (one search per target activity) and, for a continued screen, where it came from
             "precedents": dict(ss.get("precedents") or {}), "precedent_rows": precedent_rows(),
-            "loaded_from": ss.get("loaded_from"), "loaded_calls": list(ss.get("loaded_calls") or [])}
+            "loaded_from": ss.get("loaded_from"), "loaded_calls": list(ss.get("loaded_calls") or []),
+            # 20 Oct: the lawyer's wording of the result boxes (with the app's wording next to it)
+            "result_edits": {k: dict(v) for k, v in (ss.get("result_edits") or {}).items() if v}}
 
 
 def audit_json(snap):
     slim = [{k: v for k, v in r.items() if k != "sims"}
             | {"sims": {k: round(v, 3) for k, v in r["sims"].items()},
-               "status_after_overrides": cmp.effective_status(r, snap["overrides"])}
+               "status_after_overrides": (r["decision"]["status"] if cmp.effective_status(r, snap["overrides"])
+                                          == "dismissed by user" and has_added(snap["overrides"].get(cmp.pair_id(r)))
+                                          else cmp.effective_status(r, snap["overrides"]))}
             for r in snap["results"]]
     log = {
         "created": snap["created"], "profile": snap["profile"], "dev_mode": snap["dev_mode"],
@@ -2647,6 +2978,7 @@ def audit_json(snap):
                           "abstracts": snap["abstracts"]},
         "stage_3_factual_comparison": slim,
         "user_overrides": snap["overrides"],
+        "user_result_wording": snap.get("result_edits") or {},
         "call_log": snap["calls"],
     }
     if snap.get("precedents"):
@@ -2702,11 +3034,61 @@ def deployment_check(ai):
     return rows
 
 
-def dev_sidebar(ai):
+LEGEND_MD = """**Assessment**
+<span class='lab lab-h'>Horizontal</span> potential horizontal overlap: same or similar products
+<span class='lab lab-v'>Vertical</span> potential vertical relationship: one could supply the other (arrow: supplier → customer)
+<span class='lab lab-off'>Struck through</span> dismissed by you · <span class='tag'>added by you</span> · <span class='tag'>edited by you</span>
+<span style='display:inline-block;width:.7rem;height:.7rem;background:#5B7089;border-radius:2px'></span> Commission: what its decisions say (step ④)
+
+**●●● ●●○ ●○○ Direct customers**: the same, partly the same or different customers. Compares only *who each company
+sells to directly* (e.g. shops, other manufacturers, consumers), not the products; how close the products are is the
+“same product / similar product” label. Different customers are never on their own a reason to dismiss: a customer
+group is a separate market only under the conditions of the Market Definition Notice (88)–(89). Hover over the dots
+for the comparison.
+
+**Sources**: [4] hover for the quotation and where it comes from (company website or other public source); click to
+open the page, a PDF at the right page. ✔ quotation found on the page · ⚠ page read, quotation not found · ○ not
+checked automatically.
+
+**Step ④**: *defined* · *definition left open* · *(or Tablets)*: the product could fall in either market · *no
+precedent*: no decision in the database covers it · *by analogy*: defined for a similar product or another level of
+trade."""
+
+
+def sidebar_panel(ai, step):
+    """The sidebar for everyone (20 Oct, Linda): the key, the actions for this screen, the legend and the run summary;
+    the development tools collapsed at the end, in development only."""
     with st.sidebar:
-        st.divider()
+        st.markdown("**This screen**")
+        if st.button("Start over", width="stretch", help="Discard this screen and start again"):
+            confirm_reset(audit_snapshot(ai) if ss.get("mapped") else None)
+        if ss.get("mapped"):
+            snap = audit_snapshot(ai)
+            st.download_button("Save progress", data=lambda: audit_json(snap), mime="application/json",
+                               on_click="ignore", width="stretch",
+                               file_name=f"overlap_audit_{datetime.now():%Y%m%d-%H%M}.json",
+                               help="Downloads everything so far as a file (.json), with your dismissals, notes and "
+                                    "edits; it is also the audit log. The app stores nothing: open the file again "
+                                    "with “Open saved progress”.")
+        with st.expander("Open saved progress"):
+            loader_box()
+        with st.expander("Legend", expanded=step >= 3):
+            st.markdown(LEGEND_MD.replace("\n<span", "  \n<span"), unsafe_allow_html=True)
+        if ss.get("stage_logs") or ss.get("loaded_from"):
+            with st.expander("About this run"):
+                st.caption(run_summary())
+        if DEV_MODE:
+            dev_sidebar(ai)
+
+
+def dev_sidebar(ai):
+    with st.expander("Developer"):
         st.caption(f"**DEV_MODE** · profile **{PROFILE}** · cache {'on' if USE_CACHE else 'off'} · "
                    f"saved searches {'on' if USE_SAVED else 'off'}")
+        st.checkbox("Show the benchmark under step ③/④", key="show_benchmark")
+        for name, label in (("mapping", "Step ②"), ("confirm", "Step ③"), ("precedents", "Step ④")):
+            if name in ss.stage_logs:
+                st.caption(f"{label}: {stage_cost(name)}")
         s = ss.log.summary()
         st.metric("Session cost (USD, tokens and web searches)", f"{s['cost']:.4f}")
         st.caption(f"{call_count(ss.log.calls)} ({s['cached']} from cache) · {s['web_searches']} web searches "
@@ -2716,48 +3098,31 @@ def dev_sidebar(ai):
             st.dataframe(pd.DataFrame([{"Step": k, "Calls": v["calls"], "Cached": v["cached"],
                                         "USD": round(v["cost"], 4)} for k, v in s["steps"].items()]),
                          hide_index=True)
-        with st.expander("Models per step"):
-            st.dataframe(pd.DataFrame([{"Step": k, "Model": v, "Effort": ai.effort(k)} for k, v in ai.models.items()]
-                                      + [{"Step": "embed", "Model": ai_client.EMBED_MODEL, "Effort": ""}]),
-                         hide_index=True)
-        with st.expander("Deployment check"):
-            st.caption("One AI call, the ChromaDB index and one hybrid search (about USD 0.0001).")
-            if st.button("Run the check"):
-                ss.deploy_check = deployment_check(ai)
-            for what, mark, detail in ss.get("deploy_check", []):
-                st.markdown(f"{mark} **{what}**: {detail}")
+        st.markdown("**Models per step**")      # no expanders inside an expander (Streamlit)
+        st.dataframe(pd.DataFrame([{"Step": k, "Model": v, "Effort": ai.effort(k)} for k, v in ai.models.items()]
+                                  + [{"Step": "embed", "Model": ai_client.EMBED_MODEL, "Effort": ""}]),
+                     hide_index=True)
+        st.markdown("**Deployment check**")
+        st.caption("One AI call, the ChromaDB index and one hybrid search (about USD 0.0001).")
+        if st.button("Run the check"):
+            ss.deploy_check = deployment_check(ai)
+        for what, mark, detail in ss.get("deploy_check", []):
+            st.markdown(f"{mark} **{what}**: {detail}")
 
 
 # =============================================================== page
-INTRO = """When an investor plans to buy a company (the *target*), it must check early whether the target is active in
-the same or related markets as the companies it already owns (its *portfolio companies*). This matters under EU merger
-control: overlaps can trigger a closer review by the European Commission and require care in sharing information.
+INTRO = """This tool prepares a first overlap screen for EU merger control: is the company to be bought (the
+*target*) active in the same or related markets as the companies the buyer already owns (its *portfolio companies*)?
 
-This tool prepares a first screen, step by step (the numbers match the steps at the top of the page):
+**1 Companies:** enter the target and the portfolio companies. **2 Activities:** the tool researches each company on
+public websites; you check the result. **3 Preliminary assessment:** it compares the activities; the AI sees
+descriptions only, never company names. **4 Market definitions:** it checks how the European Commission defined these
+markets in past decisions.
 
-① **Companies.** You enter the target and the portfolio companies.
+**Horizontal:** both offer the same or similar products. **Vertical:** one could supply the other.
 
-② **Activities.** The tool researches each company separately on public websites, or reads a description you
-provide, and lists its business areas with their stage in the value chain (raw materials, intermediate products,
-manufacturing, wholesale, retail, services). You check and correct them.
-
-③ **Preliminary assessment.** It compares every activity of the target with every activity of each portfolio company.
-The AI sees descriptions only, never the company names.
-
-④ **Commission market definitions.** For every row you keep, it looks up how the European Commission defined the
-markets of those products in its past decisions and cites the paragraphs. Where no decision fits, it lists the
-questions a lawyer would ask under the Commission's Market Definition Notice. The built-in decisions cover the cocoa and
-chocolate value chain.
-
-**Horizontal overlap:** both companies offer the same or substitutable products (potential competitors).
-**Vertical relationship:** one company's products could be an input for the other, or could be resold by it
-(potential supplier and customer). Until step ④, every result is *potential*: not yet checked against the
-Commission's market definitions. Even after step ④ the result is a preliminary overview: the lawyer decides.
-
-The result is a working document for a lawyer to verify, not a legal conclusion. The facts about each company carry
-their sources: hover over a number to see the passage quoted from that page. The app opens each page and checks
-the quotation word for word (✔ found, ⚠ not found, ○ could not be checked); pages that no longer exist are not used.
-The assessment is the AI's reasoning on anonymised descriptions, shown under “Details”."""
+The result is a working document for a lawyer to verify, not a legal conclusion. It covers product markets only;
+geography and market shares are not assessed."""
 
 STEPS = {1: "Companies", 2: "Activities", 3: "Preliminary assessment", 4: "Market definitions"}
 SCROLL_TOP = """<script>
@@ -2780,32 +3145,31 @@ def scroll_to_top_on_new_step(step):
 
 
 def progress_nav(step):
-    """The steps as buttons (16 Oct): every step already reached can be opened again; nothing is deleted by going
-    back. Returns the last column, for the "New screen" button."""
+    """The steps as tabs (20 Oct, Linda: plain words, the current step underlined in ink, steps not reached yet pale;
+    no ticks). Every step already reached can be opened again; nothing is deleted by going back."""
     reachable = {1: True, 2: bool(ss.get("acts")), 3: ss.get("results") is not None,
                  4: ss.get("results") is not None and bool(ss.get("precedents"))}
-    cols = st.columns([1.1, 1.1, 1.6, 1.6, 1.0], vertical_alignment="center")
-    for k, name in STEPS.items():
-        cols[k - 1].button(f"{'①②③④'[k - 1]} {name}", key=f"nav_{k}", type="primary" if k == step else "secondary",
-                           disabled=not reachable[k], on_click=go_to, args=(k,), width="stretch")
-    return cols[4]
+    with st.container(horizontal=True, key="stepnav", gap="large"):
+        for k, name in STEPS.items():
+            st.button(f"{k} {name}", key=f"nav_{k}", type="primary" if k == step else "secondary",
+                      disabled=not reachable[k], on_click=go_to, args=(k,))
 
 
 def done_summaries(step):
-    """Finished steps in one line each, as context; the step buttons above lead back to them."""
-    lines = []
+    """The finished steps in one quiet line, as context (20 Oct: no ticks); the tabs above lead back to them."""
+    parts = []
     if step > 1 and ss.get("companies"):
-        lines.append(f"✔ **Companies:** target {esc(ss.companies[0]['name'])} · portfolio: "
+        parts.append(f"Target: {esc(ss.companies[0]['name'])} · Portfolio: "
                      f"{esc(', '.join(c['name'] for c in ss.companies[1:]))}")
     if step > 2 and ss.get("confirmed"):
         acts = [a for v in ss.confirmed.values() for a in v]
         excl = sum(a.get("excluded", False) for a in acts)
         gaps = sum(rules.is_gap(a) and not a.get("excluded", False) for a in acts)
-        lines.append(f"✔ **Activities:** {len(acts) - excl - gaps} compared" + (f", {excl} excluded" if excl else "")
+        parts.append(f"{len(acts) - excl - gaps} activities compared" + (f", {excl} excluded" if excl else "")
                      + (f", {gaps} not stated (questions for the company)" if gaps else ""))
     slot = st.empty()          # always one element (see scroll_to_top_on_new_step)
-    if lines:
-        slot.markdown("  \n".join(lines))
+    if parts:
+        slot.caption(" · ".join(parts))
 
 
 st.title("EU Overlap Screen")
@@ -2823,13 +3187,9 @@ if step in (3, 4) and ss.get("results") is None:
 if step == 4 and not ss.get("precedents"):
     step = ss.step = 3
 scroll_to_top_on_new_step(step)
-top = progress_nav(step)
-if top.button("↺ New screen", help="Discard this screen and start again", width="stretch"):
-    confirm_reset(audit_snapshot(ai) if ss.get("mapped") else None)
+progress_nav(step)
 done_summaries(step)
-st.divider()
-if DEV_MODE:
-    dev_sidebar(ai)
+sidebar_panel(ai, step)
 # Two slots (17 Oct): the working screen and the page. During long work the page slot is set to empty, which removes
 # the previous screen at once (writing a new container into the same slot would keep its old children, faded, until
 # the work ends), and the progress is shown in the slot above it.

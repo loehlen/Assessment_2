@@ -892,51 +892,57 @@ def row_view(r, record, overrides, effective_status, dismissed_parts):
     d = r["decision"]
     off = set(dismissed_parts(r, overrides))
     if d.get("horizontal") and "horizontal" not in off and effective_status(r, overrides) == "candidate":
-        # 20 Oct (option B): each type of product is placed in its own call, which names its own markets. Markets of
-        # different calls count as one market only if they have the same name; "different markets under the
-        # precedent" is claimed only if products of both sides were placed in the SAME call (never across calls)
-        key = {mid: _market_key(m["name"]) for mid, m in (record.get("markets") or {}).items()}
-        k_of = lambda g: key.get(g["market_id"], g["market_id"])  # noqa: E731
-
-        def by_key(groups):
-            out = {}
-            for g in groups:
-                if g["market_id"] in ("none", "failed"):
-                    continue
-                k = k_of(g)
-                o = out.setdefault(k, {"group": g, "basis": set(), "status": set()})
-                o["basis"].add(g["basis"])
-                o["status"].add(g["status"])
-            for o in out.values():
-                o["basis"] = "precedent" if o["basis"] == {"precedent"} else "analogy"
-                o["status"] = next(s for s in ("specific", "possibly", "general") if s in o["status"])
-            return out
-        ma, mb = by_key(a), by_key(b)
-        shared = [k for k in ma if k in mb]
-
-        def line(k):
-            # a shared market counts as "precedent" only if it is a precedent for both sides (TC1: Ritter's bars were
-            # placed in "tablets" only by analogy); the status is the weaker of the two sides
-            g = ma[k]["group"]
-            basis = "precedent" if ma[k]["basis"] == mb[k]["basis"] == "precedent" else "analogy"
-            st = {ma[k]["status"], mb[k]["status"]}
-            status = "general" if "general" in st else "possibly" if "possibly" in st else "specific"
-            return dict(g, basis=basis, status=status)
-        rows = [line(k) for k in shared]
-        view["verdict"] = {
-            # 20 Oct (Linda): "both in" only where an item of EACH side was placed in that market alone
-            "both": [g for g in rows if g["status"] == "specific"],
-            "possibly": [g for g in rows if g["status"] == "possibly"],
-            "general": [g for g in rows if g["status"] == "general"],
-            "only_a": [o["group"] for k, o in ma.items() if k not in mb],
-            "only_b": [o["group"] for k, o in mb.items() if k not in ma],
-            # the precedent puts the two companies' items into different markets: shown, never deleted (spec section 8)
-            "different": bool(ma and mb and not shared and _same_call(record, r, items)),
-            "left_open": any((g["market"] or {}).get("conclusion") in ("left open", PARTLY) for g in a + b
-                             if g["market"]),
-            "not_stated": any((g["market"] or {}).get("conclusion") == NOT_STATED for g in a + b if g["market"]),
-        }
+        view["verdict"] = horizontal_verdict(record, r, items, a, b)
     return view
+
+
+def horizontal_verdict(record, r, items, a, b):
+    """Where the precedent puts the two sides of a horizontal row (moved out of row_view on 20 Oct, unchanged, so
+    that the display can also apply it to a horizontal overlap the lawyer added to a row, without a new search)."""
+    # 20 Oct (option B): each type of product is placed in its own call, which names its own markets. Markets of
+    # different calls count as one market only if they have the same name; "different markets under the
+    # precedent" is claimed only if products of both sides were placed in the SAME call (never across calls)
+    key = {mid: _market_key(m["name"]) for mid, m in (record.get("markets") or {}).items()}
+    k_of = lambda g: key.get(g["market_id"], g["market_id"])  # noqa: E731
+
+    def by_key(groups):
+        out = {}
+        for g in groups:
+            if g["market_id"] in ("none", "failed"):
+                continue
+            k = k_of(g)
+            o = out.setdefault(k, {"group": g, "basis": set(), "status": set()})
+            o["basis"].add(g["basis"])
+            o["status"].add(g["status"])
+        for o in out.values():
+            o["basis"] = "precedent" if o["basis"] == {"precedent"} else "analogy"
+            o["status"] = next(s for s in ("specific", "possibly", "general") if s in o["status"])
+        return out
+    ma, mb = by_key(a), by_key(b)
+    shared = [k for k in ma if k in mb]
+
+    def line(k):
+        # a shared market counts as "precedent" only if it is a precedent for both sides (TC1: Ritter's bars were
+        # placed in "tablets" only by analogy); the status is the weaker of the two sides
+        g = ma[k]["group"]
+        basis = "precedent" if ma[k]["basis"] == mb[k]["basis"] == "precedent" else "analogy"
+        st = {ma[k]["status"], mb[k]["status"]}
+        status = "general" if "general" in st else "possibly" if "possibly" in st else "specific"
+        return dict(g, basis=basis, status=status)
+    rows = [line(k) for k in shared]
+    return {
+        # 20 Oct (Linda): "both in" only where an item of EACH side was placed in that market alone
+        "both": [g for g in rows if g["status"] == "specific"],
+        "possibly": [g for g in rows if g["status"] == "possibly"],
+        "general": [g for g in rows if g["status"] == "general"],
+        "only_a": [o["group"] for k, o in ma.items() if k not in mb],
+        "only_b": [o["group"] for k, o in mb.items() if k not in ma],
+        # the precedent puts the two companies' items into different markets: shown, never deleted (spec section 8)
+        "different": bool(ma and mb and not shared and _same_call(record, r, items)),
+        "left_open": any((g["market"] or {}).get("conclusion") in ("left open", PARTLY) for g in a + b
+                         if g["market"]),
+        "not_stated": any((g["market"] or {}).get("conclusion") == NOT_STATED for g in a + b if g["market"]),
+    }
 
 
 MARKET_PREFIX = re.compile(r"^(the\s+)?(relevant\s+)?(product\s+)?markets?\s+(for|of)\s+(the\s+)?")

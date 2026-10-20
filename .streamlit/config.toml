@@ -1,0 +1,68 @@
+# Visual design (spec v14, decided by Linda on 20 Oct): "B1 ink and ivory", calm and professional.
+# Ink for buttons and the active step; red, yellow and slate blue are kept for meaning only (horizontal, vertical,
+# Commission). Headings in Times New Roman (Tinos where it is not installed: same letter widths), text in IBM Plex Sans.
+# The two fonts are served by the app itself (static/fonts, SIL Open Font License), so the page does not depend on
+# Google Fonts.
+[server]
+enableStaticServing = true
+
+[theme]
+base = "light"
+primaryColor = "#22313F"
+backgroundColor = "#FBFAF7"
+secondaryBackgroundColor = "#F2EFE8"
+textColor = "#1F1D1A"
+linkColor = "#3A5A80"
+borderColor = "#E2DDD2"
+baseRadius = "6px"
+baseFontSize = 15
+font = "IBM Plex Sans, sans-serif"
+headingFont = "Times New Roman, Tinos, serif"
+headingFontWeights = [700, 700, 700, 700, 700, 700]
+headingFontSizes = ["2.3rem", "1.75rem", "1.5rem", "1.25rem", "1.1rem", "1rem"]
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/ibm-plex-sans-latin-400-normal.woff2"
+weight = 400
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/ibm-plex-sans-latin-400-italic.woff2"
+weight = 400
+style = "italic"
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/ibm-plex-sans-latin-600-normal.woff2"
+weight = 600
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/ibm-plex-sans-latin-700-normal.woff2"
+weight = 700
+style = "normal"
+
+[[theme.fontFaces]]
+family = "Tinos"
+url = "app/static/fonts/tinos-latin-400-normal.woff2"
+weight = 400
+style = "normal"
+
+[[theme.fontFaces]]
+family = "Tinos"
+url = "app/static/fonts/tinos-latin-400-italic.woff2"
+weight = 400
+style = "italic"
+
+[[theme.fontFaces]]
+family = "Tinos"
+url = "app/static/fonts/tinos-latin-700-normal.woff2"
+weight = 700
+style = "normal"
+
+[theme.sidebar]
+backgroundColor = "#F2EFE8"
+secondaryBackgroundColor = "#FBFAF7"
