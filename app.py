@@ -721,11 +721,16 @@ def show_relationships():
 
 
 def profile_of(name):
-    """The company profile as confirmed (or edited) by the user, else as extracted."""
-    for store in ("profiles_text", "profiles_edit"):
-        if name in (ss.get(store) or {}):
-            return ss[store][name]
-    return (((ss.get("mapped") or {}).get(name) or {}).get("extraction") or {}).get("company_profile", "")
+    """The company profile as edited by the user, else as extracted.
+    20 Oct (bug fix): the profile confirmed with the comparison (profiles_text) used to come first, so after the first
+    comparison an edit of the profile in step ② and a company mapped again kept showing the old profile, and pressing
+    "Update the comparison" confirmed the old one again. It is now only the fallback (a company without a mapping)."""
+    if name in (ss.get("profiles_edit") or {}):
+        return ss.profiles_edit[name]
+    ext = (((ss.get("mapped") or {}).get(name) or {}).get("extraction") or {})
+    if "company_profile" in ext:
+        return ext["company_profile"]
+    return (ss.get("profiles_text") or {}).get(name, "")
 
 
 def new_activity():
@@ -1652,7 +1657,7 @@ def stage_overview(ai, step=3):
     current_overrides()
     status = {cmp.pair_id(r): cmp.effective_status(r, ss.overrides) for r in results}
     units, todo = prec_plan()
-    ss.prec_stale = {u["target_aid"] for u in todo}
+    ss.prec_stale = stale_units(todo)
     if ss.get("precedents"):
         precedent_summary(units)
     show_relationships()
@@ -1696,8 +1701,9 @@ def run_summary():
     lf = ss.get("loaded_from")
     if lf:                               # 20 Oct: steps ①–③ restored from a saved audit log (their calls were paid then)
         before = lf.get("calls_before") or {}
-        text += (f" · plus, before loading: {before.get('calls', 0)} AI calls, USD {before.get('cost', 0):.3f} "
-                 f"(the run of {lf.get('created') or 'unknown date'})")
+        # 20 Oct: counted like the run itself (the count included the embedding requests as "AI calls")
+        text += (f" · plus, before loading: {call_count(ss.get('loaded_calls') or [])}, USD "
+                 f"{before.get('cost', 0):.3f} (the run of {lf.get('created') or 'unknown date'})")
     return text
 
 
@@ -1740,6 +1746,20 @@ def prec_plan():
     return units, [u for u in units if not prec.reusable(store.get(u["target_aid"]), u)]
 
 
+def stale_units(todo):
+    """The target activities whose rows changed since their search: their rows say "Changed since the search".
+    20 Oct (bug fix): before, every search to run again counted as changed, also one that had failed, so the row
+    said "Changed since the search" and the line "✖ The search failed" could never appear. A failed search keeps
+    its record and shows its failure; "Update the market definitions" runs it again either way."""
+    store = ss.get("precedents") or {}
+    out = set()
+    for u in todo:
+        rec = store.get(u["target_aid"])
+        if not prec.reusable(rec, u, retry_failed=False):
+            out.add(u["target_aid"])
+    return out
+
+
 def run_precedents(ai):
     """Runs the searches that are needed, in parallel (at most 8 AI requests at once), and opens step ④."""
     import retrieval                       # ChromaDB is loaded only when step ④ runs
@@ -1774,8 +1794,10 @@ def run_precedents(ai):
                     st.write(f"✖ {name}: {rec['error']}")
                 else:
                     placed = sum(1 for p in rec["placements"].values() if prec.ids_of(p))
-                    st.write(f"✔ {name}: {plural(len(rec['markets']), 'market')}, {placed} of "
-                             f"{plural(len(rec['placements']), 'product')} placed · {rec['stop']}")
+                    failed = len(prec.failed_ids(rec))
+                    st.write(f"{'⚠' if failed else '✔'} {name}: {plural(len(rec['markets']), 'market')}, {placed} of "
+                             f"{plural(len(rec['placements']), 'product')} placed"
+                             + (f", the search failed for {failed}" if failed else "") + f" · {rec['stop']}")
         status.update(label=f"Market definitions looked up for {plural(len(todo), 'activity', 'activities')} of the "
                             f"target in {time.time() - t0:.0f} s", state="complete", expanded=False)
     ss.precedents = store
@@ -1866,8 +1888,10 @@ def how_to_read():
 
 
 def h(text):
-    """Text from the decisions, the sources or the AI, made safe inside an HTML block."""
-    return html.escape(str(text or ""), quote=True).replace("$", "&#36;")
+    """Text from the decisions, the sources or the AI, made safe inside an HTML block. 20 Oct: line breaks become
+    spaces, because a blank line in AI text (a summary, a quotation not found) would end the HTML block and show the
+    rest of the step ④ block as raw code."""
+    return html.escape(re.sub(r"\s*\n\s*", " ", str(text or "")), quote=True).replace("$", "&#36;")
 
 
 @st.cache_data(show_spinner=False)
@@ -1965,12 +1989,31 @@ def screen_paragraphs():
     return out
 
 
+def screen_records():
+    """The stored searches of the rows kept NOW, each with the ids of the products those rows still use.
+    20 Oct (bug fix): the definitions section and "Are these decisions still applicable today?" read every stored
+    search, so a market stayed listed as "used in this screen" after its rows were dismissed, or after its target
+    activity was deleted or excluded in step ②."""
+    current_overrides()
+    units, _ = prec_plan()
+    store = ss.get("precedents") or {}
+    out = []
+    for u in units:
+        rec = store.get(u["target_aid"])
+        if not rec:
+            continue
+        wanted = {(e["aid"], item) for e in u["activities"] for item in e["items"]}
+        out.append((rec, {iid for iid, v in (rec.get("index") or {}).items() if (v[0], v[1]) in wanted}))
+    return out
+
+
 def used_markets():
-    """Every market that at least one product of the screen was placed in, merged across the searches by decision and
+    """Every market that at least one product of a kept row was placed in, merged across the searches by decision and
     name: {(case, key): {"markets": [...], "name": ...}}."""
     out = {}
-    for rec in (ss.get("precedents") or {}).values():
-        used = {mid for p in (rec.get("placements") or {}).values() for mid in prec.ids_of(p)}
+    for rec, iids in screen_records():
+        placements = rec.get("placements") or {}
+        used = {mid for iid in iids for mid in prec.ids_of(placements.get(iid))}
         for mid, m in (rec.get("markets") or {}).items():
             prec.upgrade_market(m)
             if mid not in used:
@@ -2003,6 +2046,9 @@ def definitions_section():
     used = used_markets()
     if not used:
         st.markdown("##### The Commission's market definitions used in this screen")
+        if not prec_plan()[0]:
+            st.caption("None: no row is kept.")
+            return
         st.caption("None: no decision in the corpus defines a market for the products of this screen. Under each "
                    "company's table, the questions of the Market Definition Notice are the starting point instead.")
         return
@@ -2147,15 +2193,32 @@ def vertical_roles(r):
 
 
 def row_summary(entries, view, target, portco, paras=None, roles=None):
-    """The one line of a row's ④, from the same data as its table (code). Market names hover with their definition."""
-    v = view.get("verdict") or {}
+    """The one line of a row's ④, from the same data as its table (code). Market names hover with their definition.
+    20 Oct: if the search failed for some of the row's products, the line says so first."""
     paras = paras or {}
 
     def names(es):
         return ", ".join(market_hover(e["market"], paras) + (" (by analogy)" if any(
             x and x["basis"] != "precedent" for x in (e["a"], e["b"])) else "")
             + (" (a further question left open)" if e["market"].get("conclusion") == prec.PARTLY else "") for e in es)
-    mine = lambda side: ", ".join(market_hover(e["market"], paras) for e in entries if e[side]) or "no precedent"
+
+    def mine(side):
+        found = ", ".join(market_hover(e["market"], paras) for e in entries if e[side])
+        if found:
+            return found
+        # 20 Oct: a side whose search failed is never reported as "no precedent"
+        return "search failed" if any(g["market_id"] == "failed" for g in view.get(side) or []) else "no precedent"
+
+    line = verdict_line(entries, view, target, portco, names, mine, roles)
+    if view.get("failed"):
+        return (f"✖ <b>The search failed</b> for {h(', '.join(dict.fromkeys(view['failed'])))}: press “Update the "
+                f"market definitions” below. {line}")
+    return line
+
+
+def verdict_line(entries, view, target, portco, names, mine, roles):
+    """row_summary without the failure note: where the precedent puts the two companies' products."""
+    v = view.get("verdict") or {}
     if v.get("different"):
         return (f"<b>Different markets under the precedent</b>: {h(target)}: {mine('a')} · {h(portco)}: {mine('b')}. "
                 "The Commission would not see these products as competing: lawyer review.")
@@ -2210,10 +2273,17 @@ def commission_block(r, target, portco):
             f"{h(CONCLUSION_TEXT.get(e['market'].get('conclusion'), 'defined'))}</span></td>"
             f"<td>{_cell(e['a'])}</td><td>{_cell(e['b'])}</td><td>{_result(e, target, portco, roles)}</td></tr>"
             for e in entries]
+
+    def side(groups, kind):
+        return h(", ".join(i for g in groups if g["market_id"] == kind for i in g["items"])) or "–"
     if view["unplaced"]:
-        side = lambda groups: h(", ".join(i for g in groups if g["market_id"] == "none" for i in g["items"])) or "–"
-        rows.append(f"<tr><td><b>No precedent</b> in the corpus</td><td>{side(view['a'])}</td><td>{side(view['b'])}"
-                    "</td><td class='cnote'>questions of the Notice below this company's table</td></tr>")
+        rows.append(f"<tr><td><b>No precedent</b> in the corpus</td><td>{side(view['a'], 'none')}</td>"
+                    f"<td>{side(view['b'], 'none')}</td><td class='cnote'>questions of the Notice below this company's "
+                    "table</td></tr>")
+    if view.get("failed"):           # 20 Oct: a failed search is shown as such, never as "no precedent"
+        rows.append(f"<tr><td><b>✖ Search failed</b></td><td>{side(view['a'], 'failed')}</td>"
+                    f"<td>{side(view['b'], 'failed')}</td><td class='cnote'>not looked up: press “Update the market "
+                    "definitions” below</td></tr>")
     table = (f"<table class='atab'><tr><th>Market (hover: definition)</th><th>{h(target)}</th><th>{h(portco)}</th>"
              f"<th>Result</th></tr>{''.join(rows)}</table>")
     st.markdown(f"<details class='cblock'><summary>④ {row_summary(entries, view, target, portco, paras, roles)}</summary>"
@@ -2222,9 +2292,9 @@ def commission_block(r, target, portco):
 
 def applicable_today():
     """The intro disclaimer (20 Oct, Linda): once for the screen instead of under every row."""
-    cases = sorted({pid.rpartition("-")[0] for rec in (ss.get("precedents") or {}).values()
-                    for m in (rec.get("markets") or {}).values() for pid in m.get("product_paragraphs") or []
-                    if not pid.startswith("Notice")})
+    # 20 Oct: only the decisions of the markets the kept rows use (before: every stored search, see screen_records)
+    cases = sorted({pid.rpartition("-")[0] for e in used_markets().values() for m in e["markets"]
+                    for pid in m.get("product_paragraphs") or [] if not pid.startswith("Notice")})
     if not cases:
         return
     years = ", ".join(f"{c}: {decision_label(c).rsplit('(', 1)[-1].rstrip(')')}" for c in cases)
@@ -2296,14 +2366,18 @@ def search_trail(r, target, portco):
                        f"{qs} · paragraphs found: {esc(', '.join(hits) or 'none')} · new: "
                        f"{len(a.get('new_paragraphs') or [])} · sent to the AI: {len(a.get('paragraphs_sent') or [])}")
     placed = []
+    failed = prec.failed_ids(rec)
     for who, act, items in ((target, r["a"], [i for g in view["a"] for i in g["items"]]),
                             (portco, r["b"], [i for g in view["b"] for i in g["items"]])):
         for item in dict.fromkeys(items):
             p = rec["placements"].get(by_item.get((act["aid"], item)), {})
             ms = [rec["markets"][m]["name"] for m in prec.ids_of(p) if m in rec["markets"]]
             fit = f"; {p['fit']}" if len(ms) > 1 and p.get("fit") else ""
+            iid = by_item.get((act["aid"], item))
+            label = ("Search failed" if p.get("failed") or (iid in failed and not prec.ids_of(p))
+                     else prec.BASIS_LABEL.get(p.get('basis', 'none')))
             placed.append(f"{esc(who)}: {esc(item)} → {esc('; '.join(ms) or 'no market')} "
-                          f"({prec.BASIS_LABEL.get(p.get('basis', 'none'))}{esc(fit)}; {esc(p.get('reason') or '')})")
+                          f"({label}{esc(fit)}; {esc(p.get('reason') or '')})")
     if placed:
         st.markdown("*Where the AI placed this row's products:*  \n" + "  \n".join(placed))
     if rec.get("rejected"):
@@ -2324,7 +2398,8 @@ def precedent_summary(units):
     text = (f"Searched: {plural(s['searches'], 'activity', 'activities')} of the target, in "
             f"{plural(len(facts['decisions']), 'Commission decision')} ({esc('; '.join(facts['decisions']))}) · "
             f"{plural(s['markets'], 'market')} found · products: {s['precedent']} with a precedent, {s['analogy']} by "
-            f"analogy, {s['none']} without a precedent")
+            f"analogy, {s['none']} without a precedent"
+            + (f", {s['failed']} not looked up (the search failed)" if s.get("failed") else ""))
     if s["rejected"]:
         text += f" · {plural(s['rejected'], 'citation or placement', 'citations or placements')} corrected by the code checks (see “Details”)"
     st.info(text)
@@ -2382,6 +2457,7 @@ def precedent_rows():
                 "different_markets_under_the_precedent": view["verdict"]["different"],
                 "left_open": view["verdict"]["left_open"],
                 "conclusion_not_in_paragraphs": view["verdict"].get("not_stated", False)},
+            "search_failed_for": view.get("failed") or [],
             "error": view.get("error") or ""}
     return out
 
@@ -2430,7 +2506,9 @@ def load_audit(data):
     cmp.ensure_ids(confirmed)
     ss.acts = copy.deepcopy(confirmed)
     ss.profiles_text = data.get("stage_2_company_profiles") or {}
-    ss.profiles_edit = {}
+    # 20 Oct: the saved profiles count as the lawyer's version (they may have been edited); mapping a company again
+    # replaces its profile, as in a live screen
+    ss.profiles_edit = {n: t for n, t in ss.profiles_text.items() if isinstance(t, str)}
     anon = data.get("anonymisation") or {}
     ss.keep_words = list(anon.get("kept_as_ordinary_words") or [])
     ss.keep_proposed = list(anon.get("proposed_by_the_tool (used in lower case)") or [])
@@ -2504,7 +2582,9 @@ def audit_snapshot(ai):
     return {"created": datetime.now().isoformat(timespec="seconds"), "profile": PROFILE, "dev_mode": DEV_MODE,
             "cache": USE_CACHE, "saved_searches": USE_SAVED, "models": dict(ai.models),
             "companies": ss.get("companies"), "mapped": ss.get("mapped"), "relationships": ss.get("relationships"),
-            "confirmed": ss.get("confirmed"), "profiles": ss.get("profiles_text"),
+            "confirmed": ss.get("confirmed"),
+            # 20 Oct: the profiles as shown now (an edit after the comparison was missing from the audit log)
+            "profiles": {c["name"]: profile_of(c["name"]) for c in ss.get("companies") or []},
             "names": list(ss.get("names") or []), "keep_words": list(ss.get("keep_words") or []),
             "keep_proposed": list(ss.get("keep_proposed") or []), "drop_words": list(ss.get("drop_words") or []),
             "abstracts": ss.get("profiles_meta"), "results": list(ss.get("results") or []),

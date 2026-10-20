@@ -120,10 +120,16 @@ def row_items(r, overrides, effective_status, dismissed_parts):
         if d.get("horizontal") and "horizontal" not in off:
             a += m.get("a") or []
             b += m.get("b") or []
-        for v in r.get("vertical_items") or []:
-            if v.get("link") in d.get("vertical_links", []) and v["link"] not in off:
-                a += v.get("a") or []
-                b += v.get("b") or []
+        named = {v.get("link"): v for v in r.get("vertical_items") or []}
+        for link in d.get("vertical_links", []):
+            if link in off:
+                continue
+            # 20 Oct (bug fix): a link without items (found by a code rule, or the AI named none for one side) uses
+            # that side's product line, as the docstring says. Before, the product line was used only when the whole
+            # side had no items, so in a row with a horizontal overlap AND such a link the link was never searched.
+            v = named.get(link) or {}
+            a += v.get("a") or _fallback_items(r["a"])
+            b += v.get("b") or _fallback_items(r["b"])
     return {"a": list(dict.fromkeys(a or _fallback_items(r["a"]))),
             "b": list(dict.fromkeys(b or _fallback_items(r["b"])))}
 
@@ -173,13 +179,23 @@ def _content_hash(act):
     return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()[:12]
 
 
-def reusable(record, unit):
+def reusable(record, unit, retry_failed=True):
     """An earlier search can be kept if it covered every (activity, item) the unit needs now (e.g. after a row was
-    dismissed, it covers more than needed; after a row was added back, it may not)."""
-    if not record or record.get("error"):
+    dismissed, it covers more than needed; after a row was added back, it may not).
+    retry_failed=False (20 Oct): only whether the rows changed since the search, ignoring whether it failed."""
+    if not record:
+        return False
+    if retry_failed and (record.get("error") or failed_ids(record)):    # 20 Oct: a partly failed search runs again
         return False
     have = {tuple(x) for x in record.get("covered") or []}
     return set(needed(unit)) <= have
+
+
+def failed_ids(record):
+    """The item ids whose type of product could not be searched (20 Oct). Also read from the types of a record saved
+    before 'failed_items' existed, so that a loaded audit log shows such items as failed, not as 'no precedent'."""
+    out = set(record.get("failed_items") or [])
+    return out | {iid for t in record.get("types") or [] if t.get("error") for iid in t.get("item_ids") or []}
 
 
 # =============================================================== the anonymised input
@@ -383,7 +399,18 @@ def run_unit(ai, unit, names, retriever, corpus=None):
     for iid in record["not_searched"]:
         record["placements"][iid] = {"market_ids": [], "basis": "none",
                                      "reason": "not searched: the query step assigned it to no type of product"}
-    stops = [t["stop"].split(":")[0] for t in record["types"]]
+    # 20 Oct (bug fix): the products of a type whose search failed (call error, or blocked by the guard) had no
+    # placement at all, so the row showed them as "No precedent in the corpus", the summary counted no error and the
+    # search counted as reusable, i.e. it was never run again. They are now marked "failed": shown as a failed search,
+    # never as "no precedent", and the search runs again with "Update the market definitions".
+    record["failed_items"] = []
+    for t in record["types"]:
+        if t.get("error"):
+            for iid in t["item_ids"]:
+                record["placements"][iid] = {"market_ids": [], "basis": "none", "fit": FIT_ONE, "failed": True,
+                                             "reason": f"the search failed: {t['error']}"}
+                record["failed_items"].append(iid)
+    stops = [re.split(r"[:(]", t["stop"])[0].strip() for t in record["types"]]   # 20 Oct: "the call failed", not "...(call failed"
     record["stop"] = f"{len(types)} types of product: " + ", ".join(f"{s} ×{stops.count(s)}" for s in dict.fromkeys(stops))
     errors = [t["error"] for t in record["types"] if t.get("error")]
     if errors and not record["markets"] and len(errors) == len(types):
@@ -722,10 +749,20 @@ def side_markets(record, aid, items, product_line=""):
     by_item = {(v[0], v[1]): iid for iid, v in (record.get("index") or {}).items()}
     markets = record.get("markets") or {}
     name_key = rules._norm(product_line)
+    failed = failed_ids(record)
     groups = {}
     for item in items:
         iid = by_item.get((aid, item))
         p = (record.get("placements") or {}).get(iid) if iid else None
+        if iid in failed and not ids_of(p):
+            p = dict(p or {}, failed=True)
+        if p and p.get("failed"):        # 20 Oct: a failed search, never shown as "no precedent"
+            g = groups.setdefault("failed", {"market": None, "basis": set(), "items": [], "notes": {}, "kinds": set()})
+            g["basis"].add("none")
+            g["items"].append(item)
+            g["kinds"].add("specific")
+            g["notes"][item] = p.get("reason") or "the search failed"
+            continue
         mids = [m for m in ids_of(p) if m in markets] or ["none"]
         basis = p["basis"] if p and mids != ["none"] else "none"
         # records from before 20 Oct have no "fit": their prompt allowed several markets only "where the item spans
@@ -755,7 +792,7 @@ def side_markets(record, aid, items, product_line=""):
         status = next(k for k in ("specific", "possibly", "general") if k in g["kinds"])
         out.append({"market_id": mid, "market": g["market"], "basis": basis, "items": g["items"], "notes": g["notes"],
                     "status": status})
-    out.sort(key=lambda x: (x["market_id"] == "none", x["market_id"]))
+    out.sort(key=lambda x: (x["market_id"] in ("none", "failed"), x["market_id"]))
     return out
 
 
@@ -766,11 +803,13 @@ def row_view(r, record, overrides, effective_status, dismissed_parts):
     if items is None or not record:
         return None
     if record.get("error") and not record.get("markets"):
-        return {"error": record["error"], "a": [], "b": [], "verdict": None, "unplaced": items["a"] + items["b"]}
+        return {"error": record["error"], "a": [], "b": [], "verdict": None, "unplaced": items["a"] + items["b"],
+                "failed": []}
     a = side_markets(record, r["a"]["aid"], items["a"], r["a"].get("product", ""))
     b = side_markets(record, r["b"]["aid"], items["b"], r["b"].get("product", ""))
     view = {"error": "", "a": a, "b": b, "verdict": None,
-            "unplaced": [i for g in a + b if g["market_id"] == "none" for i in g["items"]]}
+            "unplaced": [i for g in a + b if g["market_id"] == "none" for i in g["items"]],
+            "failed": [i for g in a + b if g["market_id"] == "failed" for i in g["items"]]}
     d = r["decision"]
     off = set(dismissed_parts(r, overrides))
     if d.get("horizontal") and "horizontal" not in off and effective_status(r, overrides) == "candidate":
@@ -783,7 +822,7 @@ def row_view(r, record, overrides, effective_status, dismissed_parts):
         def by_key(groups):
             out = {}
             for g in groups:
-                if g["market_id"] == "none":
+                if g["market_id"] in ("none", "failed"):
                     continue
                 k = k_of(g)
                 o = out.setdefault(k, {"group": g, "basis": set(), "status": set()})
@@ -863,6 +902,9 @@ def summary(records):
     return {"searches": len(records), "markets": sum(len(rec.get("markets") or {}) for rec in records),
             "items": len(placed), "precedent": sum(p["basis"] == "precedent" for p in placed),
             "analogy": sum(p["basis"] == "analogy" for p in placed),
-            "none": sum(p["basis"] == "none" for p in placed),
+            "none": sum(p["basis"] == "none" and not p.get("failed") for p in placed),
+            "failed": sum(len(failed_ids(rec)) for rec in records if not rec.get("error")),
             "rejected": sum(len(rec.get("rejected") or []) for rec in records),
-            "errors": [rec["error"] for rec in records if rec.get("error")]}
+            "errors": [rec["error"] for rec in records if rec.get("error")]
+            + [f"{rec.get('target_product') or 'one activity'}: the search failed for {len(failed_ids(rec))} of "
+               f"its products" for rec in records if failed_ids(rec) and not rec.get("error")]}

@@ -151,11 +151,16 @@ class BM25:
 
 
 # =============================================================== hybrid search
+_INDEX_LOCK = threading.Lock()
+
+
 class Retriever:
     def __init__(self, embed, collection=COLLECTION):
         import chromadb
         self.embed = embed
-        self._lock = threading.Lock()
+        # 20 Oct: one lock for the whole server process. Each run of step ④ makes its own Retriever, so a lock per
+        # instance did not keep two sessions (two users at once) from reading the same index at the same time
+        self._lock = _INDEX_LOCK
         self.client = chromadb.PersistentClient(path=str(CHROMA_DIR))
         self.col = self.client.get_collection(collection)
         self.paragraphs = {p["id"]: p for p in json.loads(CORPUS_FILE.read_text(encoding="utf-8"))}
