@@ -1863,7 +1863,8 @@ HOW_TO_READ = """- **Relevant product market**: all products that customers rega
   **defined, a further question left open**: it decided one boundary (e.g. that the market is separate from another
   product) and left another open (e.g. whether it belongs to a wider market); both passages are quoted ·
   **conclusion not in the paragraphs found**: the paragraphs discuss the market but none states a conclusion (check
-  the decision).
+  the decision) · **left open in another decision**: a different decision left a further question about the same
+  products open; it is quoted with that decision's citation and does not change this decision's label.
 - **Then the application**: under each row, “④” says in one line where the precedent puts the two companies' products;
   click it for the table: each market, each company's products in it, and the result. Hover over a market name for its
   definition in short.
@@ -1912,7 +1913,9 @@ def para_ref(pid, paras):
     if not p:
         return f"<span class='pref'>{h(label)}</span>"
     notes = "".join(f"<br><i>Footnote {h(f.get('n'))}:</i> {h(f.get('text'))}" for f in p.get("footnotes") or [])
-    meta = " · ".join(x for x in (p.get("section"), p.get("decision")) if x)
+    # 20 Oct: the decision's headings, as the AI now sees them (searches saved before keep them only in the corpus)
+    heads = prec.headings_of(p) or prec.headings_of(corpus_paragraphs().get(pid) or {})
+    meta = " · ".join(x for x in (p.get("section"), heads, p.get("decision")) if x)
     url = p.get("url") if str(p.get("url") or "").startswith("https://") else ""
     name = p.get("title") if p["case"] == "Notice" else f"{p['case']} {p.get('title')}"
     box = (f"<b>{h(name)} ({h(str(p.get('date') or '')[:4])}), para ({h(p.get('para'))})</b>"
@@ -2072,19 +2075,22 @@ def definitions_section():
         for e in entries:
             m = _best(e["markets"])
             found = False
-            for part in ("decided", "open"):
+            for part in ("decided", "open", "other_open"):
                 if m.get(f"{part}_quote"):
-                    found = True
+                    found = found or part != "other_open"
                     key = (part, m.get(f"{part}_paragraph"), prec._plain(m.get(f"{part}_quote")))
                     sentences.setdefault(key, {"m": m, "names": []})["names"].append(capital(e["name"]))
             if not found and m.get("summary"):
                 sentences.setdefault(("summary", "", e["name"]), {"m": m, "names": [capital(e["name"])]})
-        label = {"decided": "Decided", "open": "Left open", "summary": "AI summary"}
-        for (part, pid, _), s in sorted(sentences.items(), key=lambda x: ["decided", "open", "summary"].index(x[0][0])):
+        order = ["decided", "open", "other_open", "summary"]
+        for (part, pid, _), s in sorted(sentences.items(), key=lambda x: order.index(x[0][0])):
             q = (_quote(s["m"], part, paras) if part != "summary"
                  else f"<span class='aiw'>{h(s['m'].get('summary'))}</span>")
+            # 20 Oct: a passage of another decision is named as such (see precedents.separate_other_decision)
+            label = {"decided": "Decided", "open": "Left open", "summary": "AI summary",
+                     "other_open": f"Left open in another decision, {decision_label(prec.case_of(pid))}"}[part]
             if q:
-                body.append(f"<div class='dline'><span class='lbl'>{label[part]}</span> "
+                body.append(f"<div class='dline'><span class='lbl'>{h(label)}</span> "
                             f"({h(', '.join(s['names']))}): {q}</div>")
         for e in entries:
             m = _best(e["markets"])
@@ -2124,7 +2130,8 @@ def market_hover(m, paras):
     box = f"<b>{h(capital(m['name']))}</b> · {h(CONCLUSION_TEXT.get(m.get('conclusion'), 'defined'))}"
     box += f"<br><span style='opacity:.7'>{h(decision_label(case))}</span>" if case else ""
     prec.upgrade_market(m)
-    for label, part in (("Decided", "decided"), ("Left open", "open"), ("Covers", "scope")):
+    for label, part in (("Decided", "decided"), ("Left open", "open"), ("Covers", "scope"),
+                        ("Left open in another decision", "other_open")):        # 20 Oct
         q, pid = m.get(f"{part}_quote"), m.get(f"{part}_paragraph")
         if q and m.get(f"{part}_quote_found"):
             box += f"<br><i>{label}:</i> “{h(q)}” ({h(pid.replace('-', ' (') + ')')})"

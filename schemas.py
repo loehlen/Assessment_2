@@ -406,9 +406,14 @@ overlap screen. You receive:
 (1) ITEMS: products and services of ONE type, from one or more business activities, without company names, each with an
     id such as [2.3], grouped by activity, with the activity's level of trade and direct customers;
 (2) PARAGRAPHS: paragraphs retrieved from European Commission merger decisions, each with its id such as [M.1234-56]
-    (case number and paragraph number), the decision's title and year, and its section.
+    (case number and paragraph number), the decision's title and year, its section, and the decision's own headings
+    above the paragraph.
 Report only what the paragraphs say. Do not use knowledge from outside the paragraphs, and do not assess whether the
 businesses compete. Only the PRODUCT market is asked for here; ignore the geographic market.
+A paragraph concerns the products named in its headings: a general sentence (e.g. "the exact market definition can be
+left open") applies only to the market discussed under those headings, never to a market discussed under other
+headings. A paragraph that reports the view of the parties or of respondents states what they argued, not what the
+Commission decided.
 
 markets: every relevant product market that the paragraphs define or consider for products of the types of the items.
 A segment that the Commission examined separately is a market of its own (e.g. "electric bicycles" next to
@@ -429,7 +434,11 @@ market:
   copied WORD FOR WORD from one paragraph of the list, and its id. It must name the question (e.g. "whether electric
   bicycles form a separate market or belong to a wider market for bicycles can be left open"): if the sentence that
   leaves it open does not name the question, copy it together with the preceding sentence(s) of the same paragraph
-  that do, as one continuous passage. "" and "" if no paragraph in the list leaves a question open
+  that do, as one continuous passage. A question is left open whenever the Commission declines to decide it, whatever
+  the words (e.g. "can be left open", "need not be decided", "it is not necessary to define the market precisely").
+  "" and "" if no paragraph in the list leaves a question open
+- decided_quote, open_quote and scope_quote of one market come from ONE decision. What another decision decided or
+  left open about the same products belongs to a market entry of that other decision
 - conclusion: "defined" if there is a decided passage only; "left open" if there is an open passage only; "defined, a
   further question left open" if there are both; "not stated in these paragraphs" if the paragraphs describe or
   discuss the market but none states a decision or an open question. Never infer what no paragraph in the list states

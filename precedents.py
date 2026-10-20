@@ -241,12 +241,24 @@ def items_text(unit, names, only=None):
     return rules.redact("\n".join(lines).strip(), names)
 
 
+def headings_of(p):
+    """The decision's own headings above a paragraph, e.g. 'IV. COMPETITIVE ASSESSMENT > 1. RELEVANT PRODUCT MARKETS >
+    C. Sweet biscuits' (empty if the corpus has none)."""
+    return " > ".join(h for h in p.get("headings") or [] if h)
+
+
 def paragraphs_text(paragraphs):
-    """The retrieved paragraphs as the reflection sees them: id, decision, year, section, text and footnotes."""
+    """The retrieved paragraphs as the reflection sees them: id, decision, year, section, the decision's headings,
+    text and footnotes.
+    20 Oct (fix): the headings are sent too. Before, only the section ("Relevant product market") was, so a general
+    sentence such as M.5644 (31) "it can be left open how the product markets should be exactly defined", which sits
+    under "C. Sweet biscuits", was attached to tablets and pralines as "a further question left open" (TC1)."""
     out = []
     for p in paragraphs:
         notes = " ".join(f"[fn {f['n']}] {f['text']}" for f in p.get("footnotes") or [])
         head = f"[{p['id']}] {p['case']} {p['title']} ({p['date'][:4]}) · {p.get('section') or 'section not stated'}"
+        if headings_of(p):
+            head += f" · headings: {headings_of(p)}"
         out.append(head + "\n" + p["text"] + (f"\nFootnotes: {notes}" if notes else ""))
     return "\n\n".join(out)
 
@@ -260,7 +272,9 @@ def _call(ai, step, schema, instructions, prompt, names, guard_text=None):
     if leftover:
         return None, f"blocked: names found {leftover}"
     model = ai.model(step)
-    path, hit = ai.cache_get(step, [model, instructions, schema.model_json_schema(), prompt])
+    # 20 Oct: the reasoning effort is part of the key, so a test with EFFORT_REFLECT=medium never replays low-effort
+    # answers from the development cache
+    path, hit = ai.cache_get(step, [model, ai.effort(step), instructions, schema.model_json_schema(), prompt])
     if hit:
         ai.log_cached(step, model)
         return hit, None
@@ -423,14 +437,36 @@ def run_unit(ai, unit, names, retriever, corpus=None):
 
 def upgrade_market(m):
     """Records from before the decided / left-open split (20 Oct) had one 'conclusion' quotation: it becomes the decided
-    or the left-open passage, according to the label. Changes the market in place; idempotent."""
-    if "decided_quote" in m or "conclusion_quote" not in m:
-        return m
-    part = "open" if m.get("conclusion") == "left open" else "decided"
-    for f in ("quote", "paragraph", "quote_found"):
-        m[f"{part}_{f}"] = m.get(f"conclusion_{f}", False if f == "quote_found" else "")
-        other = "decided" if part == "open" else "open"
-        m.setdefault(f"{other}_{f}", False if f == "quote_found" else "")
+    or the left-open passage, according to the label. Then separate_other_decision, so that a loaded audit log shows
+    the same as a new search. Changes the market in place; idempotent."""
+    if "decided_quote" not in m and "conclusion_quote" in m:
+        part = "open" if m.get("conclusion") == "left open" else "decided"
+        for f in ("quote", "paragraph", "quote_found"):
+            m[f"{part}_{f}"] = m.get(f"conclusion_{f}", False if f == "quote_found" else "")
+            other = "decided" if part == "open" else "open"
+            m.setdefault(f"{other}_{f}", False if f == "quote_found" else "")
+    return separate_other_decision(m)
+
+
+def case_of(pid):
+    """'M.6872-22' -> 'M.6872'."""
+    return (pid or "").rpartition("-")[0]
+
+
+def separate_other_decision(m):
+    """20 Oct (fix, Linda): the decided and the left-open passage of one market must come from the same decision. In the
+    runs of 20 Oct the reflection combined them 26 times, e.g. M.6872 (22) "cocoa liquor, cocoa butter and cocoa powder
+    each constitutes a separate relevant product market" with M.7408 (45), a later decision, which left open whether
+    standard and non-standard products are separate. The market was then labelled "defined, a further question left
+    open" under M.6872, although M.6872 itself left nothing open. Now the label follows the decision of the decided
+    passage, and the other decision's passage is kept apart ('other_open_*') and shown as left open in THAT decision.
+    Code, no AI call; changes the market in place; idempotent."""
+    d, o = m.get("decided_paragraph"), m.get("open_paragraph")
+    if m.get("decided_quote_found") and m.get("open_quote_found") and d and o and case_of(d) != case_of(o):
+        m["other_open_quote"], m["other_open_paragraph"], m["other_open_quote_found"] = m["open_quote"], o, True
+        m["open_quote"], m["open_paragraph"], m["open_quote_found"] = "", "", False
+        if m.get("conclusion") == PARTLY:
+            m["conclusion"] = "defined"
     return m
 
 
@@ -452,7 +488,7 @@ def complete_conclusions(markets):
         m["conclusion_from"] = [o["market_id"] for o in donors]
         quoted = next((o for o in donors if o.get("decided_quote_found") or o.get("open_quote_found")), None)
         if quoted:                       # the passages that state it, from the search that found them
-            for part in ("decided", "open"):
+            for part in ("decided", "open", "other_open"):
                 for f in (f"{part}_quote", f"{part}_paragraph", f"{part}_quote_found"):
                     m[f] = quoted.get(f, "" if not f.endswith("found") else False)
         m["product_paragraphs"] = _sorted_ids(set(m["product_paragraphs"]) |
@@ -657,8 +693,13 @@ def check(data, index, pool, paras):
         d, o = markets[mid]["decided_quote_found"], markets[mid]["open_quote_found"]
         if d or o:
             markets[mid]["conclusion"] = PARTLY if d and o else "defined" if d else "left open"
-        extra = {markets[mid]["decided_paragraph"], markets[mid]["open_paragraph"], markets[mid]["scope_paragraph"]} \
-            | {r["paragraph"] for r in reasons}
+        separate_other_decision(markets[mid])      # 20 Oct: one decision per label
+        if markets[mid].get("other_open_paragraph"):
+            rejected.append(f"{mid}: the left-open passage is from {case_of(markets[mid]['other_open_paragraph'])}, "
+                            f"not from {case_of(markets[mid]['decided_paragraph'])}: shown as left open in that "
+                            "decision (corrected)")
+        extra = {markets[mid]["decided_paragraph"], markets[mid]["open_paragraph"], markets[mid]["scope_paragraph"],
+                 markets[mid].get("other_open_paragraph") or ""} | {r["paragraph"] for r in reasons}
         markets[mid]["product_paragraphs"] = _sorted_ids(set(prod) | {x for x in extra if x})
     placements = {}
     for p in data.get("placements") or []:
@@ -708,7 +749,8 @@ def _para_view(p, paras, corpus):
         q = paras.get(nid) or (corpus or {}).get(nid)
         return {"id": nid, "text": q["text"]} if q else None
     return {"id": p["id"], "case": p["case"], "title": p["title"], "date": p["date"], "para": p["para"],
-            "section": p.get("section"), "decision": p.get("decision"), "url": p.get("url"), "text": p["text"],
+            "section": p.get("section"), "headings": p.get("headings") or [],      # 20 Oct: shown in the hover
+            "decision": p.get("decision"), "url": p.get("url"), "text": p["text"],
             "footnotes": p.get("footnotes") or [],
             "neighbours": [x for x in (neighbour(p["para"] - 1), neighbour(p["para"] + 1)) if x]}
 
