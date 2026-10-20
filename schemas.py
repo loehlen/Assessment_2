@@ -373,14 +373,16 @@ QueryLevel = Literal[tuple(VALUE_CHAIN_LEVELS) + ("any",)]
 
 QUERY_INSTRUCTIONS = f"""You help a competition lawyer find how the European Commission defined relevant product markets in its
 past merger decisions. You receive products and services ("items") of one or more business activities, described without
-company names; each item has an id such as [2.3], and each activity comes with its level of trade and direct customers.
+company names; each item has an id such as [2.3], and each activity comes with its level of trade, direct customers,
+a description of what it is ("What it is") and its main inputs.
 Sort the items into TYPES OF PRODUCT: 1 to 16 types, each ONE type of product or service, named in the generic words a
 Commission decision would use for it (e.g. "nitrogen fertilisers", "electric bicycles", "office chairs"). Never combine
 different types of product in one type. Put items of the same type from different activities into the SAME type (a
 type is searched once, and its items are then placed in markets together). Assign EVERY item id to exactly one type;
 an item that fits no other type gets a type of its own. Sort by what an item IS, not by what it is used for or who
 buys it: an item that names only a use or a customer group (e.g. "parts for bicycles") belongs to the type of its
-activity's product. Generic words only: never a company, brand or place name. The search questions are built from
+activity's product, as its description says. An item is what its activity's description and main inputs say it is
+and is made from, not what a word in its name suggests. Generic words only: never a company, brand or place name. The search questions are built from
 your types in code.
 For each type give the level of trade at which its items are sold: {"; ".join(f"{k} = {v}" for k, v in VALUE_CHAIN_LEVELS.items())};
 or "any" if they are sold at several levels."""
@@ -404,7 +406,8 @@ class RewriteQuery(BaseModel):
 REFLECTION_INSTRUCTIONS = """You help a competition lawyer with the step "What did the European Commission find?" of an
 overlap screen. You receive:
 (1) ITEMS: products and services of ONE type, from one or more business activities, without company names, each with an
-    id such as [2.3], grouped by activity, with the activity's level of trade and direct customers;
+    id such as [2.3], grouped by activity, with the activity's level of trade, direct customers, a description of what
+    it is ("What it is") and its main inputs;
 (2) PARAGRAPHS: paragraphs retrieved from European Commission merger decisions, each with its id such as [M.1234-56]
     (case number and paragraph number), the decision's title and year, its section, and the decision's own headings
     above the paragraph.
@@ -467,7 +470,10 @@ placements: one entry for EVERY item id in the list:
   together with market_ids []. Sharing customers, being used in the same end product or being an input for the same
   product is NOT a basis for an analogy: different components of one end product are not analogous (e.g. a market for
   bicycle tyres is no analogy for bicycle saddles, although both are sold to bicycle makers). If an item names only a
-  use or a customer group (e.g. "parts for bicycles"), judge the product of its activity line
+  use or a customer group (e.g. "parts for bicycles"), judge the product of its activity line, as its description
+  says. An item is what its activity's description and main inputs say it is and is made from: a word its name shares
+  with a market is no basis for a precedent or an analogy if the description says
+  it is made from something else
 - reason: a few words why (e.g. "same product, sold to retailers")
 rewrite_queries: if any item has no market, 1 or 2 TYPES OF PRODUCT to search for next (one type per entry, in other
 terminology a decision might use, or the related product a decision might have defined), each with the level of trade

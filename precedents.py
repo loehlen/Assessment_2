@@ -205,14 +205,7 @@ def unit_input(unit, names):
     code. Returns (text, index {item_id: (aid, item)}, leftover names)."""
     lines, index = [], {}
     for k, e in enumerate(unit["activities"], start=1):
-        a = e["activity"]
-        customers = rules._join(a.get("direct_customers"))
-        details = a.get("customer_details") or "not stated"
-        if details != "not stated":
-            customers += f" ({details})"
-        lines.append(f"Activity {k}: {a.get('product', 'not stated')} · level of trade: "
-                     f"{a.get('value_chain_level', 'not stated')} · direct customers: {customers} · status: "
-                     f"{a.get('status', 'not stated')}")
+        lines += activity_head(k, e["activity"], status=True)
         for j, item in enumerate(e["items"], start=1):
             iid = f"{k}.{j}"
             index[iid] = (e["aid"], item)
@@ -230,15 +223,30 @@ def items_text(unit, names, only=None):
         ids = [(f"{k}.{j}", item) for j, item in enumerate(e["items"], start=1) if only is None or f"{k}.{j}" in only]
         if not ids:
             continue
-        a = e["activity"]
-        customers = rules._join(a.get("direct_customers"))
-        details = a.get("customer_details") or "not stated"
-        if details != "not stated":
-            customers += f" ({details})"
-        lines.append(f"Activity {k}: {a.get('product', 'not stated')} · level of trade: "
-                     f"{a.get('value_chain_level', 'not stated')} · direct customers: {customers}")
+        lines += activity_head(k, e["activity"])
         lines += [f"[{iid}] {item}" for iid, item in ids] + [""]
     return rules.redact("\n".join(lines).strip(), names)
+
+
+DESCRIPTION_CHARS = 600      # the merged "Other activities" line joins several descriptions
+
+
+def activity_head(k, a, status=False):
+    """The lines that introduce activity k in the query and reflection calls (names are removed by the caller).
+    20 Oct (fix): also what the activity IS, its description and main inputs, as in the abstract of step 3. Before,
+    only its name, level and customers were sent, so items naming only a use ("ingredients for beverages") were judged
+    by the activity's name alone; in TC3 "cocoa-fruit food ingredients", made from fruit pulp, was placed in the
+    markets for cocoa liquor, butter and powder in both runs of 20 Oct (medium effort)."""
+    customers = rules._join(a.get("direct_customers"))
+    details = a.get("customer_details") or "not stated"
+    if details != "not stated":
+        customers += f" ({details})"
+    head = (f"Activity {k}: {a.get('product', 'not stated')} · level of trade: {a.get('value_chain_level', 'not stated')}"
+            f" · direct customers: {customers}" + (f" · status: {a.get('status', 'not stated')}" if status else ""))
+    description = re.sub(r"\s+", " ", a.get("description") or "").strip()
+    if len(description) > DESCRIPTION_CHARS:
+        description = description[:DESCRIPTION_CHARS].rsplit(" ", 1)[0] + " …"
+    return [head, f"What it is: {description or 'not stated'} · main inputs: {rules._join(a.get('main_inputs'))}"]
 
 
 def headings_of(p):
