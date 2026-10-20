@@ -1698,6 +1698,9 @@ def run_summary():
     text = (f"Run summary: {call_count(calls)} · models: {', '.join(sorted(models)) or 'none'} · USD {cost:.3f} "
             f"(of which USD {fees:.3f} for {searches} web search calls at USD {ai_client.WEB_SEARCH_FEE:g} each; "
             f"prices to verify) · {seconds:.0f} s")
+    waits = sum(c.get("rate_limit_waits", 0) for c in calls)
+    if waits:                            # 20 Oct: 16 requests at once; the key's rate limit is waited out, never failed
+        text += f" · waited {plural(waits, 'time')} for the API key's rate limit"
     lf = ss.get("loaded_from")
     if lf:                               # 20 Oct: steps ①–③ restored from a saved audit log (their calls were paid then)
         before = lf.get("calls_before") or {}
@@ -1761,7 +1764,7 @@ def stale_units(todo):
 
 
 def run_precedents(ai):
-    """Runs the searches that are needed, in parallel (at most 8 AI requests at once), and opens step ④."""
+    """Runs the searches that are needed, in parallel (at most ai_client.MAX_PARALLEL AI requests at once), and opens step ④."""
     import retrieval                       # ChromaDB is loaded only when step ④ runs
     current_overrides()
     units, todo = prec_plan()
@@ -1780,30 +1783,51 @@ def run_precedents(ai):
                      "and try again.")
             st.button("← Back to the assessment", on_click=go_to, args=(3,))
             return False
+        # 20 Oct: a progress bar per type of product (with medium effort step ④ takes several minutes, and before,
+        # nothing moved until a whole search was finished); the worker threads count, this thread only reads
+        st.caption("This takes one to three minutes: each type of product is searched and read in a call of its own, "
+                   f"at most {ai_client.MAX_PARALLEL} at a time.")
+        progress, bar = prec.Progress(), st.progress(0.0, text="Sorting the products into types of product …")
         with cf.ThreadPoolExecutor(ai_client.MAX_PARALLEL) as ex:
-            futures = {ex.submit(prec.run_unit, ai, u, ss.names, retriever, retriever.paragraphs): u for u in todo}
-            for fut in cf.as_completed(futures):
-                u = futures[fut]
-                try:
-                    rec = fut.result()
-                except Exception as e:  # noqa: BLE001 - shown in the row as an error, never as "no precedent"
-                    rec = prec.empty_record(u, error=f"the search failed: {type(e).__name__}: {e}")
-                store[u["target_aid"]] = rec
-                name = capital(u["target_product"])
-                if rec.get("error"):
-                    st.write(f"✖ {name}: {rec['error']}")
-                else:
-                    placed = sum(1 for p in rec["placements"].values() if prec.ids_of(p))
-                    failed = len(prec.failed_ids(rec))
-                    st.write(f"{'⚠' if failed else '✔'} {name}: {plural(len(rec['markets']), 'market')}, {placed} of "
-                             f"{plural(len(rec['placements']), 'product')} placed"
-                             + (f", the search failed for {failed}" if failed else "") + f" · {rec['stop']}")
+            futures = {ex.submit(prec.run_unit, ai, u, ss.names, retriever, retriever.paragraphs, progress): u
+                       for u in todo}
+            pending, finished = set(futures), 0
+            while pending:
+                done, pending = cf.wait(pending, timeout=1, return_when=cf.FIRST_COMPLETED)
+                finished += len(done)
+                if progress.planned:
+                    bar.progress(min(progress.done / progress.planned, 1.0),
+                                 text=f"{progress.done} of {progress.planned} types of product looked up so far · "
+                                      f"{finished} of {plural(len(todo), 'search', 'searches')} finished · "
+                                      f"{time.time() - t0:.0f} s")
+                for fut in done:
+                    u = futures[fut]
+                    try:
+                        rec = fut.result()
+                    except Exception as e:  # noqa: BLE001 - shown in the row as an error, never as "no precedent"
+                        rec = prec.empty_record(u, error=f"the search failed: {type(e).__name__}: {e}")
+                    show_search_done(store, u, rec)
+        bar.empty()
         status.update(label=f"Market definitions looked up for {plural(len(todo), 'activity', 'activities')} of the "
                             f"target in {time.time() - t0:.0f} s", state="complete", expanded=False)
     ss.precedents = store
     log_stage("precedents", first, time.time() - t0)
     ss.step = 4
     return True
+
+
+def show_search_done(store, u, rec):
+    """Stores one finished search and writes its line in the progress box (20 Oct: split out of run_precedents)."""
+    store[u["target_aid"]] = rec
+    name = capital(u["target_product"])
+    if rec.get("error"):
+        st.write(f"✖ {name}: {rec['error']}")
+        return
+    placed = sum(1 for p in rec["placements"].values() if prec.ids_of(p))
+    failed = len(prec.failed_ids(rec))
+    st.write(f"{'⚠' if failed else '✔'} {name}: {plural(len(rec['markets']), 'market')}, {placed} of "
+             f"{plural(len(rec['placements']), 'product')} placed"
+             + (f", the search failed for {failed}" if failed else "") + f" · {rec['stop']}")
 
 
 def prec_record(r):

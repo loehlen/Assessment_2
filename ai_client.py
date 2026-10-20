@@ -53,7 +53,9 @@ STEPS = ("search", "extract", "compare", "query", "reflect", "assess", "summary"
 
 PROFILES = {
     # Default during the build: GPT-6 Luna for every step (plus the saved Sol searches, see activity_mapping.py)
-    "dev": {step: ("gpt-6-luna", "low") for step in STEPS},
+    # 20 Oct (Linda): the reflection of stage 4 at medium effort, in both profiles, so that every test runs the setting
+    # that is submitted (at low effort the same input gave different placements from run to run)
+    "dev": {step: ("gpt-6-luna", "medium" if step == "reflect" else "low") for step in STEPS},
     # Sol checkpoints and the submitted version
     "final": {
         # 17 Oct (Linda): Luna with two complementary searches per company instead of one Sol search. Live test of
@@ -63,7 +65,9 @@ PROFILES = {
         "extract": ("gpt-6-luna", "low"),      # Luna missed nothing when extracting from the Sol notes on 15 Oct
         "compare": ("gpt-6-luna", "low"),      # decided by test, 15 Oct
         "query": ("gpt-6-luna", "low"),
-        "reflect": ("gpt-6.1-sol", "low"),
+        # 20 Oct (Linda): Luna at medium effort, as tested on TC1-TC3 and OS (was Sol at low effort, never tested in
+        # stage 4 and about 20 times the cost: USD 0.4-1.2 per screen instead of 0.03-0.09)
+        "reflect": ("gpt-6-luna", "medium"),
         "assess": ("gpt-6.1-sol", "medium"),
         "summary": ("gpt-6-luna", "low"),
         "check": ("gpt-6-luna", "low"),        # the one-word connection test of the deployment check
@@ -87,9 +91,25 @@ PRICES = {
 WEB_SEARCH_FEE = float(setting("WEB_SEARCH_FEE", "0.01") or 0)    # USD per web search call
 
 TIMEOUT = 300           # seconds; the slowest Sol search took 211 s on 14 Oct
-MAX_PARALLEL = 8        # requests at once per run (19 Oct: enforced in AI.respond / AI.embed, see _slots); each one
-                        # is a separate, stateless call
+# Requests at once per run (19 Oct: enforced in AI.respond / AI.embed, see _slots); each one is a separate, stateless
+# call. 20 Oct (Linda): 16 instead of 8, because step 4 at medium effort took several minutes; a rate limit of the key
+# is waited out (_with_retry) instead of failing the call. MAX_PARALLEL in .env / Secrets overrides it.
+MAX_PARALLEL = max(1, int(setting("MAX_PARALLEL", "16") or 16))
+RATE_LIMIT_WAITS = (5, 10, 20, 40)      # seconds between the attempts after HTTP 429 (at most 75 s in all)
 CACHE_DIR = Path("cache")
+
+
+def _rate_limited(e):
+    """Whether an API error is a rate limit (HTTP 429), not another error."""
+    return getattr(e, "status_code", None) == 429 or type(e).__name__ == "RateLimitError"
+
+
+def _retry_after(e):
+    """The wait the API asks for in its 'retry-after' header, in seconds (at most 60), or None."""
+    try:
+        return min(60.0, float(getattr(getattr(e, "response", None), "headers", {}).get("retry-after")))
+    except (TypeError, ValueError):
+        return None
 
 
 def reasoning(model, effort):
@@ -197,19 +217,19 @@ class AI:
         fn = self.client().responses.parse if schema is not None else self.client().responses.create
         with self._slots:
             t = time.time()
-            resp = self._with_retry(fn, **kwargs)
+            resp, waits = self._with_retry(fn, **kwargs)
             seconds = time.time() - t
-        self._log_response(step, model, resp, seconds, note, names)
+        self._log_response(step, model, resp, seconds, note, names, waits)
         return resp
 
     def embed(self, texts, note="", step="embed"):
         """Embeddings for a list of texts (one request). Returns a list of vectors."""
         with self._slots:
             t = time.time()
-            resp = self._with_retry(self.client().embeddings.create, model=EMBED_MODEL, input=texts)
+            resp, waits = self._with_retry(self.client().embeddings.create, model=EMBED_MODEL, input=texts)
             seconds = time.time() - t
         tokens = getattr(getattr(resp, "usage", None), "prompt_tokens", 0) or 0
-        self._add(step, EMBED_MODEL, tokens, 0, seconds, note=note)
+        self._add(step, EMBED_MODEL, tokens, 0, seconds, note=note, rate_limit_waits=waits)
         return [d.embedding for d in resp.data]
 
     def embed_fn(self, step="embed_query"):
@@ -217,16 +237,26 @@ class AI:
         return lambda texts: self.embed(texts, note="retrieval query", step=step)
 
     def _with_retry(self, fn, **kwargs):
-        for attempt in (1, 2):
+        """Returns (response, number of rate-limit waits). Any API error: one retry after 3 s, then the caller decides.
+        20 Oct: a rate limit (HTTP 429, e.g. requests or tokens per minute of a new key) is waited out instead, up to
+        four times (RATE_LIMIT_WAITS, or the time the API asks for, at most 60 s), so that 16 requests at once never
+        turn into failed calls; the waits are recorded in the call log."""
+        errors, waits = 0, 0
+        while True:
             try:
-                return fn(**kwargs)
-            except Exception:  # noqa: BLE001 - one retry for any API error, then the caller decides
-                if attempt == 2:
+                return fn(**kwargs), waits
+            except Exception as e:  # noqa: BLE001 - retried below, then raised to the caller
+                if _rate_limited(e) and waits < len(RATE_LIMIT_WAITS):
+                    time.sleep(_retry_after(e) or RATE_LIMIT_WAITS[waits])
+                    waits += 1
+                    continue
+                errors += 1
+                if errors == 2:
                     raise
                 time.sleep(3)
 
     # ------------------------------------------------------------------ logging
-    def _log_response(self, step, model, resp, seconds, note, names):
+    def _log_response(self, step, model, resp, seconds, note, names, waits=0):
         u = getattr(resp, "usage", None)
         tokens_in = getattr(u, "input_tokens", 0) or 0
         tokens_out = getattr(u, "output_tokens", 0) or 0
@@ -235,7 +265,7 @@ class AI:
         searches = sum(1 for item in (getattr(resp, "output", None) or [])
                        if getattr(item, "type", "") == "web_search_call")
         self._add(step, model, tokens_in, tokens_out, seconds, note=note, names=list(names),
-                  reasoning_tokens=reasoning_tokens, web_searches=searches)
+                  reasoning_tokens=reasoning_tokens, web_searches=searches, rate_limit_waits=waits)
 
     def _add(self, step, model, tokens_in, tokens_out, seconds, cached=False, **extra):
         price = PRICES.get(model)

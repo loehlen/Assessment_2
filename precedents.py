@@ -28,6 +28,7 @@ of the screen; such names are recorded in the audit log.
 import hashlib
 import json
 import re
+import threading
 
 import rules
 import schemas
@@ -50,7 +51,8 @@ MAX_PARAGRAPHS = 14       # paragraphs per reflection of one type (its hits firs
                           # second attempt. 20 Oct (Linda, option B): one focused call per type of product with a few
                           # paragraphs, as in the class code and the chatbot, instead of 30-40 products against up to
                           # 40 paragraphs in one call (the compound paragraph was in that call, but ChoViva was missed)
-TYPE_PARALLEL = 6         # types of one search run at the same time (the AI gate allows 8 requests at once in all)
+TYPE_PARALLEL = 16        # types of one search run at the same time; the AI gate allows MAX_PARALLEL requests at
+                          # once in all (20 Oct: was 6, so a target with one activity, as in TC3, used only 6)
 FALLBACK_ITEMS = 8        # items of an "Other activities" line used when a row names no items
 SOURCE_DECISION = "Commission decision"
 
@@ -382,7 +384,25 @@ def empty_record(unit, text="", index=None, error=""):
             "error": error, "paragraphs": {}}
 
 
-def run_unit(ai, unit, names, retriever, corpus=None):
+class Progress:
+    """How many types of product are planned and done in one run of stage 4, for the progress bar (20 Oct: with medium
+    effort step 4 takes several minutes, and before, nothing moved until a whole search was finished). Thread-safe;
+    the worker threads count, the script thread only reads."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.planned = self.done = 0
+
+    def plan(self, n):
+        with self._lock:
+            self.planned += n
+
+    def tick(self):
+        with self._lock:
+            self.done += 1
+
+
+def run_unit(ai, unit, names, retriever, corpus=None, progress=None):
     """The search for one target activity (option B, Linda 20 Oct): one AI call sorts the products into types of
     product; then each type is searched and placed on its own (run_type), in parallel; code merges the results.
     Returns the record that the table, 'Details' and the audit log read."""
@@ -406,7 +426,16 @@ def run_unit(ai, unit, names, retriever, corpus=None):
         record["error"] = record["stop"] = "the query step returned no type of product"
         return record
     with cf.ThreadPoolExecutor(TYPE_PARALLEL) as ex:
-        results = list(ex.map(lambda t: run_type(ai, t, unit, index, names, retriever), types))
+        if progress:
+            progress.plan(len(types))
+
+        def one(t):
+            try:
+                return run_type(ai, t, unit, index, names, retriever)
+            finally:
+                if progress:
+                    progress.tick()
+        results = list(ex.map(one, types))
     paras_all = {}
     for k, (t, res) in enumerate(zip(types, results), start=1):
         prefix = f"T{k}."
