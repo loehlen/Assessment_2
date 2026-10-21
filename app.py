@@ -418,7 +418,7 @@ def source_tip(s, c, kind_text):
     if s.get("origin") == "text link":
         tip += "\nLink written by the AI in its notes (not a search citation)"
     if not c:
-        return tip + "\n\nNot checked (source check off, or mapped before 18 Oct). Open the page to check."
+        return tip + "\n\nNot checked (source check off, or from an older saved file). Open the page to check."
     r, quote = check_result(c), (c.get("quote") or "")[:600]
     reason = (c.get("reason") or "").rstrip(".")
     page = f" (PDF page {c['page']})" if c.get("page") else ""
