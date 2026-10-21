@@ -1,5 +1,5 @@
 """
-build_corpus.py - builds the built-in decision corpus (spec section 12) from the official PDFs.
+build_corpus.py - builds the built-in decision corpus from the official PDFs.
 
 Run once:   python build_corpus.py
 Reads:      corpus_src/*.pdf   (the four Commission decisions and the Market Definition Notice)
@@ -17,7 +17,7 @@ from ingest import ingest_text, pdf_text
 
 SRC, OUT = Path("corpus_src"), Path("corpus")
 
-# Corpus ranges fixed on 14 Oct (spec section 12). Only the market definition paragraphs, plus the few
+# Corpus ranges: only the market definition paragraphs, plus the few
 # competitive-assessment paragraphs that define market segments.
 SOURCES = [
     {"file": "M5644.pdf", "short": "Kraft Foods / Cadbury", "case": "M.5644", "title": "Kraft Foods / Cadbury", "date": "2010-01-06",
@@ -34,7 +34,7 @@ SOURCES = [
      "decision": "Article 6(1)(b) (Phase I)",
      "url": "https://ec.europa.eu/competition/mergers/cases/decisions/m7120_1451_2.pdf",
      "levels": ["raw materials", "intermediate products"],
-     # the coffee paragraphs (42)-(51) and (67) onwards are kept out on purpose: hold-out test TC4
+     # the coffee paragraphs (42)-(51) and (67) onwards are kept out on purpose, as a hold-out for testing
      "ranges": [(9, 41), (52, 66)]},
     {"file": "M7408.pdf", "short": "Cargill / ADM", "case": "M.7408", "title": "Cargill / ADM Chocolate Business", "date": "2015-07-17",
      "decision": "Article 8(2) with commitments (Phase II)",
@@ -51,7 +51,7 @@ SOURCES = [
 
 def context_header(rec):
     """Embedded together with the text, so that paragraphs that never name the product ('the exact market
-    definition can be left open') are still found (spec section 12, chunking step 4)."""
+    definition can be left open') are still found."""
     year = rec["date"][:4]
     # the short party label, not the full title: words such as "Chocolate Business" or "Cocoa Ingredients
     # Division" in every header would pull all chocolate or cocoa queries towards one decision
@@ -64,7 +64,7 @@ def context_header(rec):
     return " · ".join(out)
 
 
-# Corrections after the check of every paragraph against the PDFs (20 Oct): the parser cannot know these.
+# Corrections after the check of every paragraph against the PDFs: the parser cannot know these.
 # M.6872: the Commission's correction note "∗ Should read: B (i)." belongs to the "B (ii)∗" in paragraph (55); pdftotext
 # prints it at the foot of the page of (57), so the parser had appended it to the text of (57).
 CORRECTIONS = [
@@ -79,7 +79,7 @@ CORRECTIONS = [
     # M.6872: the unnumbered headings "Relevant product markets" (before (10)) and "Relevant geographic markets" (before
     # (26)) were not recognised, so (10)-(25) carried only the generic section "Market definition", while M.7120's
     # equivalent paragraphs say "Relevant product market"; section and headings are part of the keyword search and the
-    # embedded context header (found on 20 Oct when the defining paragraphs (21)-(22) ranked low)
+    # embedded context header
     {"case": "M.6872", "paras": (10, 25), "section": "Relevant product market",
      "insert_heading": ("A. Relevant market definitions", "Relevant product markets"), "why": "heading not recognised"},
     {"case": "M.6872", "paras": (26, 37), "section": "Relevant geographic market",

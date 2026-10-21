@@ -1,10 +1,10 @@
 """
 ingest.py - turns a Commission decision (or the Market Definition Notice) into numbered paragraphs.
 
-One function for the built-in corpus and, unchanged, for user uploads later (optional feature 1):
+One function for the built-in corpus (and, unchanged, for user uploads, should that feature be added):
     ingest_text(text, source)  ->  list of paragraph records
 
-What it does (spec section 12):
+What it does:
   1. splits the text into pages and removes page numbers and running headers;
   2. separates the footnotes at the bottom of each page from the body text;
   3. splits the body at the numbered paragraphs. A number is accepted only if it follows on from the previous

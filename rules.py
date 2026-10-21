@@ -1,5 +1,5 @@
 """
-rules.py - the sector-neutral rules of the overlap screen (replaces the cocoa-specific categories.py).
+rules.py - the sector-neutral rules of the overlap screen.
 
 Only rules that hold in every sector live here:
   - the fixed answer lists for the activity overview (value-chain levels, direct-customer types, ...)
@@ -10,8 +10,8 @@ Only rules that hold in every sector live here:
   - the EEA check
 
 No sector knowledge lives here: which products are related, or which inputs go into which
-outputs, is judged by the AI on anonymised pairs of activities (stage 3), and what the
-Commission found comes from the decisions in the corpus (stage 4).
+outputs, is judged by the AI on anonymised pairs of activities (step ③), and what the
+Commission found comes from the decisions in the corpus (step ④).
 
 Pure Python, no API calls, so it can be tested for free:  python rules.py
 """
@@ -22,17 +22,16 @@ import unicodedata
 # =============================================================== answer lists (used by schemas.py)
 VALUE_CHAIN_LEVELS = {
     "raw materials": "growing, extracting, sourcing or trading unprocessed commodities",
-    # 18 Oct (Linda): defined by the BUYER'S USE, not by the nature of the goods, following the Vertical Guidelines
-    # (2022/C 248/01) para 287 ("Intermediate goods or services are sold to undertakings for use as an input to
-    # produce other goods or services [...]. Final goods or services are, directly or indirectly, sold to end users")
-    # and para 3 (end users include undertakings). Before, "ready for use" let goods sold to processors count as
-    # finished products.
+    # Defined by the BUYER'S USE, not by the nature of the goods, following the Vertical Guidelines (2022/C 248/01)
+    # para 287 ("Intermediate goods or services are sold to undertakings for use as an input to produce other goods or
+    # services [...]. Final goods or services are, directly or indirectly, sold to end users") and para 3 (end users
+    # include undertakings).
     "intermediate products": "processed goods sold to businesses that use them as an input to produce their own goods "
                              "or services (processed, built in or used up; usually no longer recognisable in the "
                              "result), whatever the goods are called",
     "finished products": "goods the company makes and sells, directly or through distributors, to end users: "
                          "consumers, or businesses that use them themselves rather than as an input",
-    # 19 Oct: TC1 run on Cloud made a line "wholesale distribution of own chocolate" (own goods sold via distributors)
+    # Selling one's own goods through distributors is not wholesale (otherwise the AI tends to call it wholesale)
     "wholesale / distribution": "reselling goods made by OTHER companies to businesses (selling the company's own goods "
                                 "through its own sales companies or distributors is not wholesale)",
     "retail": "selling to consumers through own shops, outlets or an own online shop",
@@ -53,7 +52,7 @@ DIRECT_CUSTOMER_TYPES = {
 }
 
 END_USERS = ["consumers", "businesses", "consumers and businesses", "not stated"]
-# Defined, not listed by example (decided 15 Oct, sector-neutral): main = offered to customers as a business in its
+# Defined, not listed by example (sector-neutral): main = offered to customers as a business in its
 # own right (at most MAX_MAIN per company); other = not offered on the market (own use), or a side line that exists
 # to support or promote the main business. Size is never a criterion. All "other" lines of a company are merged in
 # code into ONE line, "Other activities", which is compared once, like any activity.
@@ -85,16 +84,12 @@ INPUT_SELLER_LEVELS = {"raw materials", "intermediate products"}
 # own products to retailers is not itself retail or wholesale. "other" is kept because it cannot be told.
 RESELLER_OR_UNCLEAR_LEVELS = {"retail", "wholesale / distribution", "other"}
 
-# =============================================================== thresholds (to calibrate)
-# Cosine similarity of text-embedding-3-large vectors. Placeholders until test_compare.py has
-# printed the similarities of all test-case pairs; then set them so that no benchmark overlap
-# is lost (over-inclusive by design).
-SIMILARITY_UNCLEAR = 0.50   # NOT APPLIED since 15 Oct (option B): the "descriptions close -> unclear" rule kept 29
-                            # pairs in TC1-TC3 that the AI had dropped, none of them a benchmark overlap. Kept only
-                            # for the old reports.
+# =============================================================== thresholds
+# Cosine similarity of text-embedding-3-large vectors, set low enough that no expected overlap of the test cases is
+# lost (over-inclusive by design).
 INPUT_MATCH = 0.50          # A's product is this close to one of B's listed inputs -> input signal
 RESALE_MATCH = 0.50         # A's product is this close to B's retail / wholesale range -> resale signal
-                            # (TC1, 15 Oct: real resale pairs 0.68 and 0.82; wrong links to merchandise shops 0.41-0.46)
+                            # (in testing, real resale pairs scored well above it, wrong links just below it)
 
 
 # =============================================================== anonymisation
@@ -123,14 +118,14 @@ def name_variants(names):
     return {v for v in variants if len(v) >= MIN_NAME_LENGTH}
 
 
-# 19 Oct: "&", "+" and "and" only (language-neutral decision of 18 Oct; "und" removed)
+# "&", "+" and "and" only (language-neutral)
 NAME_JOINER = re.compile(r"\s*(?:&|\+|\band\b)\s*", re.IGNORECASE)
 MIN_PART_LENGTH = 4
 
 
 def name_parts(names):
-    """The parts of company names joined by "&", "and" or "+" (18 Oct): "Lindt & Sprungli" -> "Lindt", "Sprungli".
-    Everyday language uses the short forms, which the guard and the name removal did not recognise. Only for the
+    """The parts of company names joined by "&", "and" or "+": "Smith & Jones" -> "Smith", "Jones".
+    Everyday language uses the short forms, which the guard and the name removal must also recognise. Only for the
     entered company names and their other names (brands such as "Salt & Pepper" may be ordinary words); each part
     needs at least 4 letters after the legal form is removed."""
     parts = []
@@ -191,7 +186,7 @@ def build_abstract(activity, names):
         customers += f" ({details})"
     lines = [
         f"Product: {activity.get('product', 'not stated')}",
-        # items separated by semicolons (16 Oct): an item may itself contain commas, and the comparison names the
+        # items separated by semicolons: an item may itself contain commas, and the comparison names the
         # items that meet, which code then checks against this list (check_items)
         f"Includes: {_join(activity.get('includes'), sep='; ')}",
         f"Description: {activity.get('description', 'not stated')}",
@@ -219,7 +214,7 @@ def _norm(text):
 
 def check_items(given, items, names):
     """
-    Code check of the items the AI says meet (added 16 Oct, like the check of source numbers): each must be one of
+    Code check of the items the AI says meet (like the check of source numbers): each must be one of
     the activity's own items as the AI saw them (product line or an entry of 'includes', names removed). An item the
     AI shortened or extended is accepted only if it matches exactly one item. Returns (items in their original
     wording, rejected items); a rejected item is shown in the audit trail, never in the assessment.
@@ -297,9 +292,9 @@ def is_reseller(activity):
 
 def captive_only(activity):
     """Produced only for the group's own use: not active on the merchant market (Draft Merger Guidelines
-    para 103(i)). Shown as a flag on every pair with this activity. Since 17 Oct (Linda, option b) an own-use activity
-    cannot be the supplying side of a vertical link (check_ai_links); the pair is then listed under "No overlap found"
-    with the reason, and can be added back."""
+    para 103(i)). Shown as a flag on every pair with this activity. An own-use activity cannot be the supplying side
+    of a vertical link (check_ai_links); the pair is then listed under "No overlap found" with the reason, and can be
+    added back."""
     customers = set(activity.get("direct_customers") or []) - {"not stated"}
     return customers == {"internal use (captive)"}
 
@@ -312,11 +307,11 @@ def category(activity):
 
 
 def level_hint(activity, own_names=()):
-    """A hint for step ② (18 Oct, Linda: only if rare; 5 of 183 activities in the audits so far): 'finished products'
-    although the only buyers named are manufacturers or processors, i.e. businesses that probably use the goods as an
-    input (Vertical Guidelines para 287). The tool proposes, the lawyer decides: nothing is changed, and the hint
-    disappears once the activity has been saved in the edit form (even unchanged).
-    19 Oct, second case: "wholesale / distribution" although every brand on the line is the company's own (own_names:
+    """A hint for step ② (deliberately rare): 'finished products' although the only buyers named are manufacturers or
+    processors, i.e. businesses that probably use the goods as an input (Vertical Guidelines para 287). The tool
+    proposes, the lawyer decides: nothing is changed, and the hint disappears once the activity has been saved in the
+    edit form (even unchanged).
+    Second case: "wholesale / distribution" although every brand on the line is the company's own (own_names:
     its entered names, group companies and the brands of its other lines). Wholesale means reselling goods made by
     others; selling one's own goods through own sales companies or distributors is not wholesale."""
     if activity.get("level_checked"):
@@ -341,12 +336,12 @@ def level_hint(activity, own_names=()):
 
 
 def merge_other(activities):
-    """All 'other' activities of one company become ONE line, 'Other activities' (decided 15 Oct): listed item by
+    """All 'other' activities of one company become ONE line, 'Other activities': listed item by
     item under 'includes', compared once. Done in code, so there is always exactly one such line. The original
     activities are kept under 'merged_from' for the audit trail."""
-    # 18 Oct: a line whose product is not stated is never merged (before, it became the item "not stated" and its
-    # name disappeared); it stays its own question for the company, as a main line so that it is not treated as
-    # part of "Other activities" anywhere else.
+    # A line whose product is not stated is never merged (it would become the item "not stated" and its name would
+    # disappear); it stays its own question for the company, as a main line so that it is not treated as part of
+    # "Other activities" anywhere else.
     gaps = [dict(a, category="main") for a in activities if is_gap(a)]
     main = [a for a in activities if category(a) == "main" and not is_gap(a)]
     others = [a for a in activities if category(a) == "other" and not is_gap(a)]
@@ -387,17 +382,17 @@ def merge_other(activities):
         "status": "on the market" if any(a.get("status") == "on the market" for a in others) else "not stated",
         "source_numbers": sorted({n for a in others for n in a.get("source_numbers") or []}),
         "evidence": " | ".join(uniq(a.get("evidence") for a in others))[:800] or "not stated",
-        "quotes": [q for a in others for q in a.get("quotes") or []],       # unchanged, per source (18 Oct)
+        "quotes": [q for a in others for q in a.get("quotes") or []],       # unchanged, per source
         "merged_from": others,
-        # the levels of trade of the merged lines, so that the reseller check can still be applied (16 Oct)
+        # the levels of trade of the merged lines, so that the reseller check can still be applied
         "merged_levels": uniq(a.get("value_chain_level") for a in others),
     }
     return main + gaps + [merged]
 
 
 def is_gap(activity):
-    """A line the sources name without saying what it offers (17 Oct, e.g. a drinks brand named only in a company
-    overview): product "not stated". Shown as a question for the company and not compared until the user fills it
+    """A line the sources name without saying what it offers (e.g. a brand named only in a company overview):
+    product "not stated". Shown as a question for the company and not compared until the user fills it
     in, because a comparison of an empty description can only come back "not enough information"."""
     return (activity.get("product") or "").strip().lower() in {"not stated", "unknown", "n/a"}
 
@@ -415,16 +410,11 @@ GAP_FALLBACK = "A business named in the sources"
 
 
 def compared_pair(a, b):
-    """Whether a target activity and a portco activity are compared at all (17 Oct): never two "Other activities"
-    lines with each other. Own use and side lines of one company against those of the other cannot compete, and
-    nobody supplies anybody; in the runs of 17 Oct these pairs only produced noise. Each "Other activities" line is
-    still compared with every main activity of the other company."""
+    """Whether a target activity and a portco activity are compared at all: never two "Other activities" lines with
+    each other. Own use and side lines of one company against those of the other cannot compete, and nobody supplies
+    anybody; in testing these pairs only produced noise. Each "Other activities" line is still compared with every
+    main activity of the other company."""
     return not (category(a) == "other" and category(b) == "other")
-
-
-def pair_tier(a, b):
-    """'main' if both activities are main activities, else 'other'."""
-    return "main" if category(a) == "main" and category(b) == "main" else "other"
 
 
 _WORD = re.compile(r"[a-z]{4,}")
@@ -439,14 +429,14 @@ def _words(activity):
 
 def possible_duplicates(activities, threshold=0.4):
     """Pairs of activities of ONE company that may be the same activity split twice: same level of trade, same
-    category and largely the same words (Jaccard >= threshold). Only a hint for the review in stage 2."""
+    category and largely the same words (Jaccard >= threshold). Only a hint for the review in step ②."""
     out = []
     for i in range(len(activities)):
         for j in range(i + 1, len(activities)):
             a, b = activities[i], activities[j]
             if a.get("value_chain_level") != b.get("value_chain_level") or category(a) != category(b):
                 continue
-            # 21 Oct (Linda): the same name is always flagged (19 Oct: "frozen foods" twice scored 0.35 and was missed)
+            # the same name is always flagged, even if the word overlap is below the threshold
             if (a.get("product") or "").strip().lower() == (b.get("product") or "").strip().lower():
                 out.append((i, j))
                 continue
@@ -482,8 +472,8 @@ def code_vertical_signals(a, b, sims):
 
 def selling_levels(activity):
     """The levels of trade at which an activity sells. The merged 'Other activities' line has the level 'other' by
-    construction; there the levels of the lines it was merged from count (merged_levels, or merged_from in data
-    saved before 16 Oct), unless the user has set a level of their own."""
+    construction; there the levels of the lines it was merged from count (merged_levels, or merged_from in older
+    saved data), unless the user has set a level of their own."""
     level = activity.get("value_chain_level")
     if level == "other":
         merged = activity.get("merged_levels") or [m.get("value_chain_level") for m in activity.get("merged_from") or []]
@@ -510,8 +500,8 @@ def check_ai_links(ai_links, a, b, vertical_items=None):
     1. a resale link needs a reseller. An AI resale link whose reseller side is not at retail or wholesale level is
        disregarded. Input links are otherwise left to the AI (any product, by-product or service may be an input,
        Draft Merger Guidelines para 250), so code does not second-guess them.
-       For the merged 'Other activities' line, the levels of the merged lines are checked (16 Oct).
-    2. (17 Oct, Linda: option b) the supplying side, and a reseller, must deal with third parties. Production or
+       For the merged 'Other activities' line, the levels of the merged lines are checked.
+    2. the supplying side, and a reseller, must deal with third parties. Production or
        services only for the group's own use are not on the market (Draft Merger Guidelines para 103(i)): they supply
        nobody, so they cannot be an input for the other company or resell its goods. Such a link is disregarded; the
        pair then appears under "No overlap found", with this reason under "Why?", and can be added back.
@@ -543,10 +533,9 @@ def check_ai_links(ai_links, a, b, vertical_items=None):
 def decide(comparison, code_signals, similarity, a=None, b=None):
     """
     Combines the AI comparison of one anonymised pair with the code signals.
-    Option B (decided 15 Oct): the AI decides whether the products are the same or similar; code keeps a pair the AI
-    would drop only where the structured facts show a vertical relationship (input or resale signal), and corrects
-    the AI where they show a legal condition is not met (a resale link needs a reseller). Errors and blocked calls
-    are never screened out. The former rule "descriptions close -> unclear" is no longer applied.
+    The AI decides whether the products are the same or similar; code keeps a pair the AI would drop only where the
+    structured facts show a vertical relationship (input or resale signal), and corrects the AI where they show a
+    legal condition is not met (a resale link needs a reseller). Errors and blocked calls are never screened out.
     If the two activities are passed, AI resale links are checked against the reseller condition
     (check_ai_links); a disregarded link is recorded in the rule text, never silently dropped.
     """
@@ -556,7 +545,7 @@ def decide(comparison, code_signals, similarity, a=None, b=None):
     if a is not None and b is not None:
         ai_links, disregarded = check_ai_links(ai_links, a, b, comparison.get("vertical_items"))
     rule_links = {link for link, _ in code_signals}
-    if a is not None and b is not None:          # the own-use condition applies to the code signals too (17 Oct)
+    if a is not None and b is not None:          # the own-use condition applies to the code signals too
         kept_rules, dropped = check_ai_links(rule_links, a, b)
         disregarded += [(link, why) for link, why in dropped if link not in {x for x, _ in disregarded}]
         rule_links = kept_rules
@@ -573,8 +562,8 @@ def decide(comparison, code_signals, similarity, a=None, b=None):
             (["horizontal (AI: " + relation + ")"] if horizontal else [])
             + [f"vertical: {link} ({found_by[link]})" for link in links]
         )
-    # 19 Oct: blocked and failed calls are checked before "not enough information". compare() records them as "not
-    # enough information", so before this the lawyer saw "the descriptions do not allow a comparison" for them.
+    # Blocked and failed calls are checked before "not enough information": compare() records them as "not enough
+    # information", but the lawyer should see the real reason.
     elif comparison.get("blocked"):
         status = "unclear"
         rule = ("Unclear, please check: the call was blocked because a company name was still in a description "
@@ -631,8 +620,7 @@ def eea_status(countries):
 
 # =============================================================== self-test (no API, no sector)
 if __name__ == "__main__":
-    # Deliberately from a sector outside the test cases (19 Oct: bicycles; the earlier paint maker and DIY store were
-    # the other-sector test case), to show that nothing here is sector-specific.
+    # Deliberately from a sector outside the test cases (bicycles), to show that nothing here is sector-specific.
     bike_maker = {
         "product": "City bicycles", "description": "Aluminium city bicycles with hub gears.",
         "intended_use": "Everyday cycling", "main_inputs": ["aluminium frames", "hub gears"],

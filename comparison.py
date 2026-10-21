@@ -1,17 +1,14 @@
 """
-comparison.py - stage 3: anonymisation and the factual comparison (spec sections 6 and 7, step 3).
+comparison.py - step ③: anonymisation and the factual comparison.
 
     collect_names(companies, activities, group_companies)   every name that must never reach a comparison
     anonymise(activities, names)                            the abstracts, with the name check
     embed_company(ai, label, activities, names)             one embedding request per company
     build_pairs(target, portcos, profiles)                  every target activity x every portco activity (except
-                                                            "Other activities" x "Other activities", 17 Oct)
+                                                            "Other activities" x "Other activities")
     assess(ai, pair, names)                                 ONE anonymised pair per AI call + code signals + rule
 
-Stage 3 was frozen on 15 Oct in test_compare.py: Luna as the comparison model, the prompt of 15 Oct, the reseller
-check and the resale threshold of 0.50. This module is the same logic, moved out of the test script so that the
-app can use it: same prompts (schemas.py), same rules (rules.py), same cache keys, same result format (so
-benchmark.py can check the app's results too).
+The prompts are in schemas.py, the decision rules (reseller check, resale threshold) in rules.py.
 """
 import hashlib
 import json
@@ -23,7 +20,7 @@ import schemas
 from ai_client import EMBED_MODEL
 
 
-# =============================================================== stable activity IDs and content keys (16 Oct)
+# =============================================================== stable activity IDs and content keys
 # Each activity carries a fixed ID ("aid") from the moment it is extracted or added, so that the user's dismissals
 # and notes stay with the right pair when activities are added, deleted or re-ordered. The content key decides
 # whether a pair must go to the AI again: it changes when anything in the activity or its anonymised abstract
@@ -33,7 +30,7 @@ def new_aid():
 
 
 def ensure_ids(activities_by_company):
-    """Gives every activity without an ID one (activities from before 16 Oct, or added by the user)."""
+    """Gives every activity without an ID one (e.g. an activity added by the user)."""
     for acts in activities_by_company.values():
         for a in acts:
             if not a.get("aid"):
@@ -50,16 +47,16 @@ def activity_key(activity, abstract):
 def collect_names(companies, activities, group_companies, keep=()):
     """All entered names and aliases, the group companies found by the extraction, and every brand in the
     (confirmed) activity lists. activities / group_companies: {company name: [...]}.
-    keep (17 Oct, Linda: option b): brands or group company names the lawyer marked as ordinary product words, which
-    stay in the descriptions (e.g. "Cacaofruit", a brand that is also the word for the product). The entered names and
-    aliases can never be kept. A part of an entered name (19 Oct) can be kept when it is an ordinary word in the
-    descriptions ("Black" of "Black & Decker"); a part that is itself an entered name or alias cannot."""
+    keep: brands or group company names the lawyer marked as ordinary product words, which stay in the descriptions
+    (e.g. a brand that is also the word for the product). The entered names and aliases can never be kept. A part of
+    an entered name can be kept when it is an ordinary word in the descriptions ("Black" of "Black & Decker"); a part
+    that is itself an entered name or alias cannot."""
     keep = {k.strip().lower() for k in keep or () if k}
     names = []
     for c in companies:
         entered = [c["name"]] + [a for a in c.get("aliases", []) if a]
         fixed = {v.lower() for v in rules.name_variants(entered)}
-        names += entered + [p for p in rules.name_parts(entered)      # "Lindt" for "Lindt & Sprungli" (18 Oct)
+        names += entered + [p for p in rules.name_parts(entered)      # "Smith" for "Smith & Sons"
                             if p.lower() in fixed or p.strip().lower() not in keep]
         names += [g for g in group_companies.get(c["name"], []) if g and g.strip().lower() not in keep]
         for a in activities.get(c["name"], []):
@@ -72,10 +69,10 @@ GENERIC_FIELDS = ("product", "includes", "description", "intended_use", "main_in
 
 def names_used_as_words(companies, activities, group_companies):
     """Brands and group company names that also appear in the generic fields of the activities, where the extraction
-    writes no names (17 Oct). Such a word is either an ordinary product word that happens to be a brand ("Cacaofruit")
-    or a name that slipped in; removing it can take away what the comparison needs, so the lawyer decides.
-    Since 19 Oct also the parts of entered names ("Black" of "Black & Decker"), which are removed everywhere by default
-    and may be ordinary product words; a part that is itself an entered name or alias is never listed.
+    writes no names. Such a word is either an ordinary product word that happens to be a brand or a name that slipped
+    in; removing it can take away what the comparison needs, so the lawyer decides.
+    Also the parts of entered names ("Black" of "Black & Decker"), which are removed everywhere by default and may be
+    ordinary product words; a part that is itself an entered name or alias is never listed.
     Returns [{"word", "company" (whose name, brand or group company it is), "kind" ("part of the name" or "brand or
     group company"), "examples": [(company, text)]}]. Pure code."""
     typed = [n for c in companies for n in [c["name"]] + list(c.get("aliases") or []) if n]
@@ -114,11 +111,10 @@ def names_used_as_words(companies, activities, group_companies):
 
 
 def used_in_lower_case(text, word):
-    """Whether the word appears at least once starting with a lower-case letter ("cacaofruit ingredients"). 19 Oct: in
-    the TC1 run on Cloud 5 of 6 words in the review box were brand names the extraction had written into a description
-    ("Ghirardelli baking products"), always capitalised; the one ordinary product word appeared in lower case. Scripts
-    without upper and lower case simply never count as lower case, so such a word stays in the folded list (removed by
-    default, the safe side)."""
+    """Whether the word appears at least once starting with a lower-case letter ("cacaofruit ingredients"). Brand
+    names written into a description are almost always capitalised, while an ordinary product word usually appears in
+    lower case somewhere. Scripts without upper and lower case never count as lower case, so such a word stays in the
+    folded list (removed by default, the safe side)."""
     for m in re.finditer(r"(?<!\w)" + re.escape(word) + r"(?!\w)", text, re.IGNORECASE):
         first = m.group(0)[:1]
         if first.islower():
@@ -182,7 +178,7 @@ def build_pairs(target, portcos, profiles):
         p = profiles[portco]
         for ti, ta in enumerate(t["activities"]):
             for ki, pa in enumerate(p["activities"]):
-                if not rules.compared_pair(ta, pa):        # never "Other activities" with "Other activities" (17 Oct)
+                if not rules.compared_pair(ta, pa):        # never "Other activities" with "Other activities"
                     continue
                 tv, pv = t["vectors"][ti], p["vectors"][ki]
                 sims = {"product": rules.cosine(tv["product"], pv["product"]),
@@ -241,7 +237,7 @@ def assess(ai, pair, names):
 
 
 def check_matches(comparison, decision, pair, names):
-    """Option C (16 Oct): the items the AI says meet, checked in code against each activity's own items. Only for
+    """The items the AI says meet, checked in code against each activity's own items. Only for
     what the decision kept: matching items for a horizontal candidate, items for each vertical link that counts
     (a link disregarded by the reseller check keeps no items). Rejected items go to the audit trail only."""
     items_a, items_b = rules.activity_items(pair["a"]), rules.activity_items(pair["b"])
@@ -263,13 +259,9 @@ def check_matches(comparison, decision, pair, names):
 
 
 # =============================================================== presentation helpers (names re-attached in code)
-CUSTOMER_ORDER = {"●●●": 0, "●●○": 1, "●○○": 2, "?": 3, "": 4}
-FOUND_BY_ORDER = {"AI and rule": 0, "rule": 1, "AI": 2}
-
-
 def pair_id(r):
-    """The pair's fixed ID (16 Oct): the two activity IDs, so overrides survive re-ordering and partial updates.
-    Results from before 16 Oct have no IDs and fall back to the position labels."""
+    """The pair's fixed ID: the two activity IDs, so overrides survive re-ordering and partial updates. Results
+    without IDs (e.g. from an older saved audit log) fall back to the position labels."""
     return f"{r['a'].get('aid') or r['label_a']}×{r['b'].get('aid') or r['label_b']}"
 
 
@@ -283,23 +275,9 @@ def describe_link(link, target, portco):
     }.get(link, link)
 
 
-def is_indirect(r):
-    return "indirect" in (r["comparison"].get("vertical_reason") or "").lower()
-
-
-def horizontal_sort_key(r):
-    return (CUSTOMER_ORDER.get(r["customers"], 4), -r["sims"]["product"])
-
-
-def vertical_sort_key(r):
-    """Direct links before indirect ones (spec section 6), then links found by AI and rule, then similarity."""
-    best = min((FOUND_BY_ORDER.get(f, 3) for f in r["decision"]["found_by"].values()), default=3)
-    return (is_indirect(r), best, -r["sims"]["product"])
-
-
 def assessment_parts(r):
-    """The labels of a kept pair that the lawyer can dismiss one by one (17 Oct, Linda): "horizontal" and each vertical
-    link. A pair with both a horizontal and a vertical label, or two vertical links, has several parts."""
+    """The labels of a kept pair that the lawyer can dismiss one by one: "horizontal" and each vertical link. A pair
+    with both a horizontal and a vertical label, or two vertical links, has several parts."""
     d = r["decision"]
     if d["status"] != "candidate":
         return []
@@ -307,8 +285,8 @@ def assessment_parts(r):
 
 
 def dismissed_parts(r, overrides):
-    """The parts of a pair the user dismissed. 'dismiss' (the single box of a pair with one label, and every override
-    saved before 17 Oct) dismisses all parts."""
+    """The parts of a pair the user dismissed. 'dismiss' (the single box of a pair with one label) dismisses all
+    parts."""
     o = overrides.get(pair_id(r), {})
     parts = assessment_parts(r)
     if o.get("dismiss"):

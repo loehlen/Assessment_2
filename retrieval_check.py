@@ -1,21 +1,21 @@
 """
-retrieval_check.py - the half-day retrieval check of spec section 12.
+retrieval_check.py - development tool: checks that the retrieval finds the right Commission paragraphs.
 
 Run after build_index.py:   python retrieval_check.py
-Compares three configurations on test queries whose correct paragraphs are known from the precedent analysis
-(spec section 19), by how often a correct paragraph is in the top 3:
+Compares three configurations on test queries whose correct paragraphs were identified by reading the decisions,
+by how often a correct paragraph is in the top 3:
   A  paragraph chunks without context headers, vector search only
   B  with context headers, vector search only
   C  with context headers + BM25 keyword search + neighbouring paragraphs (the design of the app)
 The queries are worded the way the app will generate them: generic product descriptions in Commission
 terminology, without company names. Cost: a few query embeddings, well under USD 0.01.
-Output: test_results/retrieval_check_<time>.md (a table for A3).
+Output: test_results/retrieval_check_<time>.md.
 
-    python retrieval_check.py --forms      (added 20 Oct) the stage 4 question: for 11 markets of the test cases, does
-                                           a paragraph that DEFINES the market reach the top 5 of the decisions, with
-                                           (A) product words, (B) the Commission's question, (C) both, top 3 each, as
-                                           the app does since 20 Oct (precedents.QUERY_FORMS)? Hybrid search, as in the
-                                           app. Output: test_results/query_forms_<time>.md. Cost: about 22 embeddings.
+    python retrieval_check.py --forms      the step ④ question: for 11 markets of the test cases, does a paragraph
+                                           that DEFINES the market reach the top 5 of the decisions, with (A) product
+                                           words, (B) the Commission's question, (C) both, top 3 each, as the app does
+                                           (precedents.QUERY_FORMS)? Hybrid search, as in the app.
+                                           Output: test_results/query_forms_<time>.md. Cost: about 22 embeddings.
 """
 from datetime import datetime
 from pathlib import Path

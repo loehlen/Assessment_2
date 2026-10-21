@@ -1,46 +1,32 @@
 """
-activity_mapping.py - stages 1-2: the activity overview, ONE company per call (spec section 7, steps 1-2).
+activity_mapping.py - steps ① and ②: the activity overview, ONE company per call.
 
-    map_company(ai, company, companies)     web search + extraction for one company (isolated calls: since 17 Oct two
-                                            searches in parallel, main business and beyond it, then one extraction)
+    map_company(ai, company, companies)     web search + extraction for one company (isolated calls: two searches in
+                                            parallel, main business and beyond it, then one extraction)
     find_relationships(mapped, companies)   the 🔗 notes: public sources of one company that mention another
 
 A company is a dict: {"name", "role" ("target" / "portco"), "website", "aliases": [...], "source", "pasted"}.
-  website  optional (added 16 Oct): identifies the company in the search and marks its own pages as "company"
+  website  optional: identifies the company in the search and marks its own pages as "company"
   aliases  other names of the company (removed from every abstract, like the name itself)
-  source   how the activities are found (added 16 Oct): "web search" (public sources), "my description" (no web
-           search: only the text the user entered) or "both"
+  source   how the activities are found: "web search" (public sources), "my description" (no web search: only the
+           text the user entered) or "both"
   pasted   the user's description; a numbered source "provided by the user"
-  hint     earlier one-line identifying description; still read for test_compare.py, no longer entered in the app
 
-Ported from test_compare.py (same prompts, same source check, same cache keys), without global state, so that
-several Streamlit sessions can run at the same time.
+The module keeps no global state, so several Streamlit sessions can run at the same time.
 """
 import concurrent.futures as cf
-import json
 import re
-from pathlib import Path
 from urllib.parse import urlparse
 
 import rules
 import schemas
-import sources as source_check      # option B: checks the cited pages and quotations (18 Oct)
+import sources as source_check      # opens the cited pages and checks the quotations
 from ai_client import setting
 
-# Development only: saved Sol searches (spec section 8, dev profile): the seven test companies of 14 Oct, and any
-# further file written by save_searches.py (e.g. the other-sector companies). SAVED_SEARCH_FILE limits it to one file.
-SAVED_SEARCH_FILE = setting("SAVED_SEARCH_FILE", "")
-SAVED_SEARCH_MODEL = "gpt-6.1-sol"
-# The second, complementary search per company (17 Oct, Linda): on by default; SECOND_SEARCH=0 switches it off. Read
-# here, at import, because the searches run in worker threads, which cannot read Streamlit's Secrets.
+# The second, complementary search per company: on by default; SECOND_SEARCH=0 switches it off. Read here, at
+# import, because the searches run in worker threads, which cannot read Streamlit's Secrets.
 SECOND_SEARCH = setting("SECOND_SEARCH", "1").strip().lower() not in {"0", "false", "no", "off"}
 SEARCHES = (("main business", schemas.search_prompt), ("beyond the main business", schemas.search_prompt_beyond))
-
-
-def saved_search_files():
-    if SAVED_SEARCH_FILE:
-        return [Path(SAVED_SEARCH_FILE)]
-    return sorted(Path("test_results").glob("search_*.json"), reverse=True)     # newest first
 
 
 class Blocked(RuntimeError):
@@ -49,8 +35,7 @@ class Blocked(RuntimeError):
 
 # =============================================================== names and the guard
 def names_of(company):
-    """The entered name, the other names, and (18 Oct) their parts joined by "&" / "and" ("Lindt" for
-    "Lindt & Sprungli")."""
+    """The entered name, the other names, and their parts joined by "&" / "and" ("Smith" for "Smith & Sons")."""
     names = [company["name"]] + [a for a in company.get("aliases", []) if a]
     return names + [p for p in rules.name_parts(names) if p not in names]
 
@@ -65,10 +50,10 @@ def other_names_in(text, permitted, companies):
 
 
 def guard(text, permitted, companies, allowed=()):
-    """Text sent in one company's call may contain at most that company (spec section 7). Text the app builds itself
-    is always checked strictly. Text the lawyer typed (a description) may name another company if the lawyer chose
-    "Send anyway" for exactly those names (18 Oct, Linda: what a lawyer types is the lawyer's responsibility; the
-    choice is recorded in the audit log)."""
+    """Text sent in one company's call may contain at most that company. Text the app builds itself is always checked
+    strictly. Text the lawyer typed (a description) may name another company if the lawyer chose "Send anyway" for
+    exactly those names (what a lawyer types is the lawyer's responsibility; the choice is recorded in the audit
+    log)."""
     found = other_names_in(text, permitted, companies)
     allowed = {a.lower() for a in allowed or ()}
     blocking = [f for f in found if f.lower() not in allowed]       # allowed: the companies the lawyer confirmed
@@ -86,10 +71,9 @@ TEXT_LINK = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+)\)")
 
 
 def text_links(notes):
-    """Links the search wrote into its text as [title](url) (18 Oct: with the quotation rule, Luna often writes its
-    links into the text without attaching them as citations; for three companies the app then saw no source at all).
-    They become sources too, marked as such; the source check opens each one, so a made-up or dead link is removed
-    and its quotation must still be found on the page."""
+    """Links the search wrote into its text as [title](url) instead of attaching them as citations (otherwise such a
+    search would show no source at all). They become sources too, marked as such; the source check opens each one,
+    so a made-up or dead link is removed and its quotation must still be found on the page."""
     seen = {}
     for title, url in TEXT_LINK.findall(notes or ""):
         seen.setdefault(clean_url(url.rstrip(".,;")), title.strip())
@@ -116,7 +100,7 @@ def _domain_words(name):
 
 
 def site_of(url):
-    """'https://www.brillux.com/de/' or 'brillux.com' -> 'brillux.com' (empty if none)."""
+    """'https://www.example.com/de/' or 'example.com' -> 'example.com' (empty if none)."""
     url = (url or "").strip()
     if not url:
         return ""
@@ -143,40 +127,15 @@ def label_sources(sources, company, group_companies):
     return sources
 
 
-# =============================================================== step 1-2a: search (web search, one company)
-def saved_search(name):
-    """A saved Sol search for this company (development only), or None. The newest file wins."""
-    for path in saved_search_files():
-        if not path.exists():
-            continue
-        try:
-            entries = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if not isinstance(entries, list):
-            continue
-        for e in entries:
-            if e.get("company") == name and e.get("search_model") == SAVED_SEARCH_MODEL:
-                sources = [{"n": s["number"], "url": clean_url(s["url"]), "title": s.get("title") or s["url"],
-                            "type": s.get("type", "")} for s in e["sources"]]
-                return {"company": name, "model": f"{SAVED_SEARCH_MODEL} (saved {path.name})",
-                        "date": e.get("date", "2026-10-14"), "notes": e["notes"], "sources": sources}
-    return None
-
-
-def search(ai, company, companies, use_saved=False):
-    """The web research for ONE company. Since 17 Oct: two searches in parallel, each a separate stateless call with
-    only this company's name (search 1: the main business; search 2: what lies beyond it). Their notes are joined and
-    their sources merged and numbered once, in code, before the extraction reads them. If one search fails, the other
-    is kept and the failure recorded; only if both fail is the error raised."""
+# =============================================================== step ①-②a: search (web search, one company)
+def search(ai, company, companies):
+    """The web research for ONE company: two searches in parallel, each a separate stateless call with only this
+    company's name (search 1: the main business; search 2: what lies beyond it). Their notes are joined and their
+    sources merged and numbered once, in code, before the extraction reads them. If one search fails, the other is
+    kept and the failure recorded; only if both fail is the error raised."""
     name = company["name"]
-    if use_saved:
-        found = saved_search(name)
-        if found:
-            ai.log_cached("search", SAVED_SEARCH_MODEL, f"{name} (saved search)", names=[name])
-            return found
     plan = SEARCHES if SECOND_SEARCH else SEARCHES[:1]
-    prompts = [(focus, make(name, company.get("hint", ""), company.get("website", ""))) for focus, make in plan]
+    prompts = [(focus, make(name, company.get("website", ""))) for focus, make in plan]
     for _, prompt in prompts:
         guard(prompt, name, companies)
     with cf.ThreadPoolExecutor(len(prompts)) as ex:
@@ -215,7 +174,7 @@ def merge_searches(name, model, runs):
                 numbered[s["url"]] = s.get("title") or s["url"]
             found_by.setdefault(s["url"], []).append(k)
             cited.add(s["url"])
-        for url, title in text_links(r.get("notes")).items():     # then links written only in the text (18 Oct)
+        for url, title in text_links(r.get("notes")).items():     # then links written only in the text
             if url not in numbered:
                 numbered[url] = title or url
             if k not in found_by.setdefault(url, []):
@@ -245,7 +204,7 @@ def add_pasted(found, pasted):
                                             "type": "provided by user"}]}
 
 
-# =============================================================== step 1-2b: extraction (no search, one company)
+# =============================================================== step ①-②b: extraction (no search, one company)
 class ExtractionFailed(RuntimeError):
     pass
 
@@ -260,7 +219,7 @@ def extract(ai, company, found, companies):
     if hit:
         ai.log_cached("extract", model, name, names=[name])
         return hit
-    # Retrieved public text that names another company in the run is allowed, but recorded (spec section 7)
+    # Retrieved public text that names another company in the run is allowed, but recorded
     others = [n for c in companies if c["name"] != name for n in names_of(c)]
     flagged = rules.find_names(found["notes"], others)
     resp = None
@@ -277,7 +236,7 @@ def extract(ai, company, found, companies):
     data = resp.output_parsed.model_dump()
     data["warnings"] = []
     data["extracted_activities"] = len(data["activities"])
-    move_gaps(data, company)                                          # 18 Oct: no "not stated" lines any more
+    move_gaps(data, company)                                          # no "not stated" activity lines
     data["activities"] = consolidate(ai, name, data["activities"], data["warnings"])
     data["activities"] = rules.merge_other(data["activities"])        # exactly one "Other activities" line
     valid = {s["n"] for s in found["sources"]}
@@ -291,17 +250,16 @@ def extract(ai, company, found, companies):
 
 
 def move_gaps(data, company=None):
-    """Names the sources mention without saying what they offer are not activities (18 Oct, Linda: activity + source is
-    enough for the lawyer). They are shown as one caption under the company ('named_without_activity').
+    """Names the sources mention without saying what they offer are not activities (an activity needs a product and a
+    source). They are shown as one caption under the company ('named_without_activity').
     - A line the extraction still returns with product "not stated" is moved there; what is known about it (level of
-      trade) is kept in brackets. Its brand or company name was the group's own, so it is added to 'group_companies'
-      (name removal before the comparison, 🔗 relationship check), as before.
-    - Names the extraction lists itself are shown only if they are also among its own 'group_companies' (first live
-      run, 18 Oct: partners and customers such as other food groups were listed; added to the group list, they would
-      have been removed as "names of the company" and could have caused false 🔗 notes). They are never added to
-      'group_companies' by code.
-    - Not shown either: names that carry the company's own name (national, holding or sales companies of the group;
-      first live run: 28 of them for the target) and names already on an activity line (brand or company)."""
+      trade) is kept in brackets. Its brand or company name is the group's own, so it is added to 'group_companies'
+      (name removal before the comparison, 🔗 relationship check).
+    - Names the extraction lists itself are shown only if they are also among its own 'group_companies' (otherwise
+      partners and customers would be removed as "names of the company" and could cause false 🔗 notes). They are
+      never added to 'group_companies' by code.
+    - Not shown either: names that carry the company's own name (national, holding or sales companies of the group)
+      and names already on an activity line (brand or company)."""
     group = [g for g in data.get("group_companies") or [] if g]
     in_group = {g.strip().lower() for g in group}
     named = [n.strip() for n in data.get("named_without_activity") or []
@@ -336,10 +294,10 @@ def move_gaps(data, company=None):
 
 
 def consolidate(ai, name, activities, warnings):
-    """Code check of the limit of rules.MAX_MAIN main activities (decided 15 Oct). If the extraction returned more,
+    """Code check of the limit of rules.MAX_MAIN main activities. If the extraction returned more,
     ONE extra call (same company, no other names) merges the main activities; the 'other' activities are left to
     code. If that call fails or still returns too many, the longer list is kept with a warning: nothing is lost."""
-    gaps = [a for a in activities if rules.is_gap(a)]      # 18 Oct: lines without a product are not merged away
+    gaps = [a for a in activities if rules.is_gap(a)]      # lines without a product are not merged away
     main = [a for a in activities if rules.category(a) == "main" and not rules.is_gap(a)]
     other = [a for a in activities if rules.category(a) == "other" and not rules.is_gap(a)]
     if len(main) <= rules.MAX_MAIN:
@@ -368,17 +326,17 @@ SOURCE_OPTIONS = ("web search", "my description", "both")
 
 
 def source_mode(company):
-    """How this company's activities are found. Companies from before 16 Oct have no 'source': a pasted
-    description then meant 'both'."""
+    """How this company's activities are found. A company without 'source' (e.g. from an older saved audit log): a
+    pasted description means 'both'."""
     mode = company.get("source")
     if mode in SOURCE_OPTIONS:
         return mode
     return "both" if (company.get("pasted") or "").strip() else "web search"
 
 
-def map_company(ai, company, companies, use_saved=False):
+def map_company(ai, company, companies):
     """Search (unless the user chose 'my description') + extraction for one company. Never raises: errors are
-    returned, so the other companies' results are kept and the user can correct this one (spec section 7)."""
+    returned, so the other companies' results are kept and the user can correct this one."""
     name = company["name"]
     mode = source_mode(company)
     pasted = (company.get("pasted") or "").strip() if mode != "web search" else ""
@@ -388,14 +346,14 @@ def map_company(ai, company, companies, use_saved=False):
         if mode == "my description" and not pasted:
             result["error"] = "No description entered. Enter a description of the company's activities, or choose web search."
             return result
-        if pasted:      # the lawyer's own text: names they confirmed with "Send anyway" are allowed (18 Oct)
+        if pasted:      # the lawyer's own text: names they confirmed with "Send anyway" are allowed
             guard(pasted, name, companies, company.get("typed_names_confirmed") or ())
         if mode == "my description":       # no web search at all: the extraction reads only the user's text
             from datetime import date
             found = {"company": name, "model": "no web search (description provided by the user)",
                      "date": date.today().isoformat(), "notes": "", "sources": []}
         else:
-            found = search(ai, company, companies, use_saved)
+            found = search(ai, company, companies)
         found = add_pasted(found, pasted)
         result["search"] = found
         if not found["sources"]:
@@ -404,7 +362,7 @@ def map_company(ai, company, companies, use_saved=False):
             return result
         data = extract(ai, company, found, companies)
         label_sources(found["sources"], company, data.get("group_companies"))
-        # option B (18 Oct): open the cited pages, check the quotations in code, remove dead links
+        # open the cited pages, check the quotations in code, remove dead links
         found["source_check"] = source_check.check(found, data, pasted)
         result["extraction"] = data
     except Blocked as e:
@@ -416,8 +374,8 @@ def map_company(ai, company, companies, use_saved=False):
 
 # =============================================================== existing relationships (🔗)
 # The research notes are prose with citations as markdown links, e.g. "... a long-term partnership. ([site.com](url))".
-# A passage is the sentence together with the citations that follow it (17 Oct: before, a citation on its own could be
-# shown as the "passage", and a name that appeared only in a web address counted as a mention without any context).
+# A passage is the sentence together with the citations that follow it, so that a citation on its own is never shown
+# as the "passage" and a name that appears only in a web address is still shown with its context.
 LINK = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+)\)")
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
@@ -450,15 +408,15 @@ def _url_words(urls):
 
 
 def _strict_hits(text, words):
-    """21 Oct: group names that are single words count only where written like a name, with their capital letter
-    ("Foodservice", not "foodservice"; "Classic", not "classic varieties")."""
+    """Group names that are single words count only where written like a name, with their capital letter
+    ("Classic", not "classic varieties")."""
     return [w for w in words if re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", text or "")]
 
 
 def passages(text, names, limit=3, width=400, strict=()):
     """The sentences that mention one of the names, with their sources (shown to the user only, never sent to an AI).
     A name found only in a source's web address is shown with the sentence it belongs to, and marked as such.
-    strict: names matched only as written (with their capital letter) and never in a web address (21 Oct)."""
+    strict: names matched only as written (with their capital letter) and never in a web address."""
     in_text, in_url = [], []
     for seg in segments(text):
         named = bool(rules.find_names(seg["plain"], names)) or bool(_strict_hits(seg["plain"], strict))
@@ -466,7 +424,7 @@ def passages(text, names, limit=3, width=400, strict=()):
             continue
         s = seg["text"] if len(seg["text"]) <= width else seg["text"][:width - 1] + "…"
         sites = list(dict.fromkeys(site_of(u) for u in seg["urls"]))
-        if sites and not all(site in s for site in sites):      # 21 Oct: the source not named twice
+        if sites and not all(site in s for site in sites):      # the source is not named twice
             s += f" (source: {', '.join(x for x in sites if x not in s)})"
         if not named:
             s += " [the name appears only in the source's web address]"
@@ -475,9 +433,9 @@ def passages(text, names, limit=3, width=400, strict=()):
 
 
 def relationship_names(other, mapped, ordinary=()):
-    """(names matched as usual, names matched only as written) for one company of the run (21 Oct, Linda: a group name
-    that is also an ordinary word must not create an "existing relationship"). The entered name, the other names and
-    their parts are matched as before; a group company or brand of one word only where written like a name; a word the
+    """(names matched as usual, names matched only as written) for one company of the run, so that a group name that
+    is also an ordinary word does not create an "existing relationship". The entered name, the other names and their
+    parts are matched as usual; a group company or brand of one word only where written like a name; a word the
     lawyer kept as an ordinary word in step ② never."""
     group = ((mapped.get(other["name"]) or {}).get("extraction") or {}).get("group_companies", []) or []
     loose = names_of(other)
@@ -496,9 +454,8 @@ def relationship_names(other, mapped, ordinary=()):
 
 def find_relationships(mapped, companies, ordinary=()):
     """For every company: the other companies of the run (names, aliases, group companies) that its public
-    sources mention, with the passages. Also sets mapped[name]["mentions"] (the format benchmark.py reads).
-    Pure code on each company's own research notes: no AI call, nothing leaves the app.
-    21 Oct: group names of one word count only where written like a name (see relationship_names)."""
+    sources mention, with the passages. Pure code on each company's own research notes: no AI call, nothing leaves
+    the app. Group names of one word count only where written like a name (see relationship_names)."""
     found = {}
     for c in companies:
         m = mapped.get(c["name"])
@@ -515,6 +472,4 @@ def find_relationships(mapped, companies, ordinary=()):
                 plain = _clean(LINK.sub("", notes))
                 hits = rules.find_names(plain + " " + _url_words(urls), names) + _strict_hits(plain, strict)
                 found[c["name"]].append({"other": other["name"], "names": hits, "passages": ps})
-        if m is not None:
-            m["mentions"] = [r["other"] for r in found[c["name"]]]
     return found

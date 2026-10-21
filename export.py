@@ -1,9 +1,8 @@
 """
-export.py - the Word document (stage ⑥, decided by Linda on 21 October; spec section 12).
+export.py - the Word document, the app's final output.
 
-Linda: "The output should be a fully usable work product for the lawyer. Therefore, the editing of the table itself
-should be something the lawyer could easily do himself in Word ... Everything that points to AI should be an Annex
-that could easily be ignored." So:
+The document is meant to be a fully usable work product for the lawyer: easy to edit in Word, with everything that
+points to the AI in an Annex that can be ignored.
     main part   the lawyer's work product: only the lawyer's final choices (no "by you" tags, no struck-through tool
                 labels, nothing dismissed), Word's own styles, borders and bullets, Times New Roman throughout; colour
                 only on the two relationship labels (light shading, changeable in Word); the Commission's result in

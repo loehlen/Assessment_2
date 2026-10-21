@@ -46,8 +46,8 @@ GAP_RULE = """Only report what the sources say; write "not stated" where they sa
 nothing about the company, say so and stop: a gap is an acceptable answer, a guess is not."""
 
 
-def _who_and_start(company, hint, website):
-    who = f"{company} ({hint})" if hint else company
+def _who_and_start(company, website):
+    who = company
     if website:
         who += f", whose own website is {website}"
         start = (f"Start with the company's own website ({website}) and its most recent annual report. The website "
@@ -58,11 +58,11 @@ def _who_and_start(company, hint, website):
     return who, start
 
 
-def search_prompt(company, hint="", website=""):
-    """Search 1 (main business). Since 17 Oct each company is searched twice, in parallel and in separate calls: this
-    search covers the business as the company presents it, search 2 (search_prompt_beyond) what such a search easily
-    misses. Both contain only this one company's name (the guard checks it)."""
-    who, start = _who_and_start(company, hint, website)
+def search_prompt(company, website=""):
+    """Search 1 (main business). Each company is searched twice, in parallel and in separate calls: this search covers
+    the business as the company presents it, search 2 (search_prompt_beyond) what such a search easily misses. Both
+    contain only this one company's name (the guard checks it)."""
+    who, start = _who_and_start(company, website)
     return f"""Research the business activities of {who}, including all subsidiaries and brands that the group controls.
 
 {SOURCE_RULES}
@@ -85,12 +85,11 @@ that the sources mention.
 {GAP_RULE}"""
 
 
-def search_prompt_beyond(company, hint="", website=""):
-    """Search 2 (added 17 Oct, Linda: Luna with a double search): the same company, a complementary focus. The live
-    test of 17 Oct showed that one search finds the core reliably but misses side lines from run to run (e.g. a
-    drinks brand, cafes, sales to businesses, private label). Sector-neutral: it names kinds of activity, not
-    products."""
-    who, start = _who_and_start(company, hint, website)
+def search_prompt_beyond(company, website=""):
+    """Search 2: the same company, a complementary focus. In testing, one search found the core business reliably but
+    missed side lines from run to run (e.g. a drinks brand, cafes, sales to businesses, private label).
+    Sector-neutral: it names kinds of activity, not products."""
+    who, start = _who_and_start(company, website)
     return f"""Research {who}. A separate search already covers the company's main business as it presents it. This search
 looks for the activities that such a search easily misses, including those of subsidiaries and brands that the group
 controls.
@@ -347,7 +346,7 @@ class VerticalItems(BaseModel):
 class Comparison(BaseModel):
     product_relation: ProductRelation
     product_reason: str
-    # added 16 Oct (option C): which items meet, so the assessment can say "with regard to ..." (checked in code)
+    # which items meet, so the assessment can say "with regard to ..." (checked in code)
     matching_items_a: list[str] = Field(description="Items of A that meet items of B (same or similar product), "
                                                     "copied exactly; else []")
     matching_items_b: list[str] = Field(description="Items of B that meet items of A, copied exactly; else []")
@@ -359,16 +358,15 @@ class Comparison(BaseModel):
 def comparison_input(abstract_a, abstract_b):
     return f"ACTIVITY A\n{abstract_a}\n\nACTIVITY B\n{abstract_b}"
 
-# =============================================================== 4. Commission market definitions (stage 4, 20 Oct)
-# Stage 4 finds and cites; the lawyer decides (Linda, 16 Oct). One search per target activity covers the items of all its
-# kept rows, on both sides (Linda, 20 Oct), so that one market keeps one name across the rows and code can say where
-# the precedent puts the items of the two companies. The calls contain anonymised items only: no company names and no
-# company labels (the items of several companies are listed by activity number). Examples come from sectors outside
-# the test set (decided 18 Oct). Product markets only: geography is stage 5 (Linda, 20 Oct).
-# 20 Oct, after the runs on the baselines: the AI names TYPES OF PRODUCT, one per query; code turns each into two search
-# questions (precedents.QUERY_FORMS). Queries that mixed several products and described them in product words found the
-# paragraphs that DESCRIBE the products, not those that DEFINE their market (TC1, TC2: "left open" where the Commission
-# had defined the market).
+# =============================================================== 4. Commission market definitions (step ④)
+# Step ④ finds and cites; the lawyer decides. One search per target activity covers the items of all its kept rows, on
+# both sides, so that one market keeps one name across the rows and code can say where the precedent puts the items of
+# the two companies. The calls contain anonymised items only: no company names and no company labels (the items of
+# several companies are listed by activity number). Examples come from sectors outside the test set. Product markets
+# only: geography is not part of the screen.
+# The AI names TYPES OF PRODUCT, one per query; code turns each into two search questions (precedents.QUERY_FORMS).
+# Queries that mixed several products and described them in product words found the paragraphs that DESCRIBE the
+# products, not those that DEFINE their market.
 QueryLevel = Literal[tuple(VALUE_CHAIN_LEVELS) + ("any",)]
 
 QUERY_INSTRUCTIONS = f"""You help a competition lawyer find how the European Commission defined relevant product markets in its

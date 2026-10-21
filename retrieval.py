@@ -1,5 +1,5 @@
 """
-retrieval.py - the decision corpus in ChromaDB and the hybrid search of stage 4 (spec section 12).
+retrieval.py - the decision corpus in ChromaDB and the hybrid search of step ④.
 
     build_index(embed)          once, before deployment: chunks, embeds and stores the corpus in corpus/chroma
     Retriever(embed).search()   in the app: vector search + keyword search (BM25), combined by reciprocal rank
@@ -8,7 +8,7 @@ retrieval.py - the decision corpus in ChromaDB and the hybrid search of stage 4 
 `embed` is a function that takes a list of texts and returns a list of vectors (text-embedding-3-large).
 It is passed in, so this module makes no API calls of its own and can be tested without a key.
 """
-# ChromaDB needs a newer SQLite than Streamlit Cloud provides; pysqlite3-binary replaces it there (spec section 12).
+# ChromaDB needs a newer SQLite than Streamlit Cloud may provide; pysqlite3-binary replaces it there if installed.
 try:
     __import__("pysqlite3")
     import sys
@@ -28,18 +28,17 @@ CHROMA_DIR = Path("corpus/chroma")
 COLLECTION = "decisions"
 COLLECTION_NO_HEADER = "decisions_no_header"     # only for the retrieval check (with v without context headers)
 EMBED_MODEL = "text-embedding-3-large"
-MAX_TOKENS = 350                                 # longer paragraphs are split with semchunk (spec section 12)
+MAX_TOKENS = 350                                 # longer paragraphs are split with semchunk
 RRF_K = 60                                       # standard constant of reciprocal rank fusion
 
 
 # =============================================================== chunking
-MIN_TAIL_TOKENS = 30      # 20 Oct: a last piece shorter than this is merged back (Notice (23) left "This is analysed in
-                          # the competitive assessment." as a 7-word chunk of its own)
-# 20 Oct: footnotes that only cite (earlier cases, questionnaire replies, the Form CO) are kept with the paragraph for
-# display and the audit, but no longer embedded: in 34 paragraphs the footnotes were longer than the text, and the key
-# defining paragraphs looked like lists of case names to the vector search (M.7120 (30): 18 words of text, 79 of
-# footnotes). A footnote that says something (a finding, an example "where the Commission ...", a quotation, a second
-# sentence) stays in the embedding. Legal citation patterns only, no sector knowledge.
+MIN_TAIL_TOKENS = 30      # a last piece shorter than this is merged back (no chunk of a single short sentence)
+# Footnotes that only cite (earlier cases, questionnaire replies, the Form CO) are kept with the paragraph for display
+# and the audit, but not embedded: where the footnotes are longer than the text, a key defining paragraph would look
+# like a list of case names to the vector search. A footnote that says something (a finding, an example "where the
+# Commission ...", a quotation, a second sentence) stays in the embedding. Legal citation patterns only, no sector
+# knowledge.
 CITATION_ONLY = re.compile(r"^\s*(see,?\s+(also\s+|for example,?\s+|in particular\s+|e\.g\.,?\s+)?)?(case\b|cases\b|"
                            r"comp/m|m\.\s?\d|commission decision|decision of|replies to|reply to|response to|ibid|"
                            r"form co|judgment|order of|oj\b|answers? to|minutes)", re.I)
@@ -69,7 +68,7 @@ def chunk_corpus(paragraphs):
     chunks = []
     for p in paragraphs:
         pieces = [p["text"]] if count(p["text"]) <= MAX_TOKENS else chunker(p["text"])
-        if len(pieces) > 1 and count(pieces[-1]) < MIN_TAIL_TOKENS:      # no orphan tail (20 Oct)
+        if len(pieces) > 1 and count(pieces[-1]) < MIN_TAIL_TOKENS:      # no orphan tail
             pieces = pieces[:-2] + [pieces[-2] + " " + pieces[-1]]
         notes = " ".join(f"[fn {f['n']}] {f['text']}" for f in p["footnotes"] if embedded_footnote(f["text"]))
         for k, piece in enumerate(pieces):
@@ -158,8 +157,8 @@ class Retriever:
     def __init__(self, embed, collection=COLLECTION):
         import chromadb
         self.embed = embed
-        # 20 Oct: one lock for the whole server process. Each run of step ④ makes its own Retriever, so a lock per
-        # instance did not keep two sessions (two users at once) from reading the same index at the same time
+        # one lock for the whole server process: each run of step ④ makes its own Retriever, so a lock per instance
+        # would not keep two sessions (two users at once) from reading the same index at the same time
         self._lock = _INDEX_LOCK
         self.client = chromadb.PersistentClient(path=str(CHROMA_DIR))
         self.col = self.client.get_collection(collection)
@@ -169,10 +168,10 @@ class Retriever:
         self.bm25 = BM25([" ".join([p["section"]] + p["headings"] + [p["text"]]) for p in self.paragraphs.values()])
 
     def _vector(self, query, n, vector=None):
-        # the API request runs outside the lock (20 Oct); a vector embedded beforehand (several questions in one
-        # request, stage 4) is used as it is
+        # the API request runs outside the lock; a vector embedded beforehand (several questions in one request,
+        # step ④) is used as it is
         vector = [vector] if vector is not None else self.embed([query])
-        with self._lock:                         # one read of the index at a time (stage 4 searches in parallel)
+        with self._lock:                         # one read of the index at a time (step ④ searches in parallel)
             res = self.col.query(query_embeddings=vector, n_results=n, include=["metadatas", "distances"])
         ranked, seen = [], set()
         for meta, dist in zip(res["metadatas"][0], res["distances"][0]):
@@ -191,7 +190,7 @@ class Retriever:
         """
         Returns up to k hits, best first: {paragraph, score, found_by, rank_vector, rank_keyword, neighbours}.
         level: a value-chain level from rules.VALUE_CHAIN_LEVELS. Paragraphs of decisions at other levels are
-        dropped first; if that leaves nothing, the search is repeated without the filter (spec section 12), and
+        dropped first; if that leaves nothing, the search is repeated without the filter, and
         the result says so. The Notice (no level) always passes the filter.
         """
         vec = self._vector(query, pool, vector)

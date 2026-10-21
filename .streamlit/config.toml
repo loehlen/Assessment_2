@@ -1,4 +1,4 @@
-# Visual design (spec v14, decided by Linda on 20 Oct): "B1 ink and ivory", calm and professional.
+# Visual design: ink on ivory, calm and professional.
 # Ink for buttons and the active step; red, yellow and slate blue are kept for meaning only (horizontal, vertical,
 # Commission). Headings in Times New Roman (Tinos where it is not installed: same letter widths), text in IBM Plex Sans.
 # The two fonts are served by the app itself (static/fonts, SIL Open Font License), so the page does not depend on

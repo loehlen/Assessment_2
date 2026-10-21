@@ -1,5 +1,5 @@
 """
-no_rag_check.py - the "comparison without RAG" for A3 (spec section 15): what does the model know about the
+no_rag_check.py - development tool, the "comparison without RAG": what does the model know about the
 Commission's market definitions WITHOUT the decision corpus? Does it know M.5644? Does it invent paragraph numbers?
 
     python no_rag_check.py                               Luna and Sol, three questions, no web search
@@ -11,7 +11,7 @@ corpus/paragraphs.json and compared with the paragraphs the retrieval check veri
   ◐ in the corpus, but not one of the verified paragraphs (read it: right decision, wrong paragraph?)
   ? not in the corpus: outside the market-definition ranges of the four decisions, or invented (check the PDF)
   ✖ a case number that is not one of the four decisions (may exist, but cannot be checked here)
-Cost: a few cents (Sol about USD 0.01-0.03 per answer). Development tool: stays out of the final app.
+Cost: a few cents (Sol about USD 0.01-0.03 per answer). Not part of the app.
 """
 import argparse
 import json

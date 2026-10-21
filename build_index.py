@@ -1,5 +1,5 @@
 """
-build_index.py - builds the ChromaDB index of the decision corpus, once, before deployment (spec section 14).
+build_index.py - builds the ChromaDB index of the decision corpus, once, before deployment.
 
     python build_index.py        embeds every chunk of corpus/paragraphs.json into corpus/chroma (two collections:
                                  "decisions" with context headers, used by the app, and "decisions_no_header", used
@@ -8,7 +8,7 @@ build_index.py - builds the ChromaDB index of the decision corpus, once, before 
     python build_index.py --export-chunks
                                  only writes corpus/chunks.json from the existing index (no API call)
 
-corpus/chunks.json (20 Oct): the chunks as stored in ChromaDB, readable without a database: id, case, paragraph, part,
+corpus/chunks.json: the chunks as stored in ChromaDB, readable without a database: id, case, paragraph, part,
 section, value-chain levels, the context header that was embedded with the text, and the text. No vectors.
 
 Run in the Codespace after build_corpus.py; then commit corpus/ including corpus/chroma (never cache/ or .env).
@@ -18,9 +18,6 @@ Also imported by retrieval_check.py:
     openai_embed(texts)   a list of texts -> a list of vectors (text-embedding-3-large), cached in cache/embed_corpus/
                           during development, so a re-run or a retrieval check costs nothing twice
     USAGE                 calls, cache hits and tokens of this process, for the cost line of the reports
-
-Rebuilt on 19 Oct 2026: the file had been overwritten by a copy of comparison.py. Same interface as before
-(USAGE, openai_embed, the build when run on its own); the committed index in corpus/chroma does not need rebuilding.
 """
 import hashlib
 import json

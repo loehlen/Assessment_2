@@ -1,26 +1,23 @@
 """
 app.py - EU Overlap Screen (LAWS90286 Assignment 2): a preliminary EU merger control overlap screen.
 
-Built: stages ① Companies, ② Activities, ③ Preliminary assessment, ④ Commission market definitions, the step 5 Summary
-and ⑥ the Word document (export.py); the visual design of 20 Oct (spec v14: ink and ivory theme, Times New Roman
-headings, flat labels, sidebar with the actions and the legend, the lawyer's "Edit" with wording and added labels) and
-the changes of 21 Oct (Change_list_21_Oct.md: the password screen, "Your view" per label, the source marks as levels of
-trust, the Commission as its own column in step ④, the guides per step). Geography (the former stage ⑤) is not built.
+The steps: ① Companies, ② Activities, ③ Preliminary assessment, ④ Commission market definitions, ⑤ Summary, and the
+Word document (export.py). Geography is not part of the screen.
 Going back never deletes anything: a changed company is researched again and only new or changed pairs are compared
-again (stable activity IDs and content keys, 16 Oct); dismissals and notes stay with their pair.
-The table of stage ③ follows the overlap table used in practice: one box per portfolio company; in it, each target
-activity with the portfolio company's activities that meet it and the preliminary assessment; stage ④ adds, under each
+again (stable activity IDs and content keys); dismissals and notes stay with their pair.
+The table of step ③ follows the overlap table used in practice: one box per portfolio company; in it, each target
+activity with the portfolio company's activities that meet it and the preliminary assessment; step ④ adds, under each
 row, the Commission's market definition and what follows from it.
 
     streamlit run app.py
 
-Settings (.env in the Codespace, Secrets on Streamlit Cloud; see .env.example):
+Settings (.env locally, Secrets on Streamlit Cloud):
     DEV_MODE=1, APP_PASSWORD, OPENAI_API_KEY      development: password gate, cost counter, development tools
     MODEL_PROFILE=dev | final                      the models per step (ai_client.py); default: dev with
                                                    DEV_MODE on, final with DEV_MODE off (the submitted version)
-    USE_CACHE=1, USE_SAVED_SEARCHES=1              development only: reuse paid calls and the saved Sol searches
-With DEV_MODE off (the submitted version) the sidebar asks for the user's own OpenAI key; the course
-credentials module replaces that field before the final deployment tests.
+    USE_CACHE=1                                    development only: reuse calls already paid for
+With DEV_MODE off (the submitted version) the first screen asks for the user's own OpenAI key, which is kept for
+the session only.
 """
 import concurrent.futures as cf
 import copy
@@ -45,13 +42,12 @@ import rules
 
 st.set_page_config(page_title="EU Overlap Screen", page_icon="⚖️", layout="wide")
 
-# =============================================================== visual design (spec v14, 20 Oct, Linda)
+# =============================================================== visual design
 # The theme (colours, fonts) is in .streamlit/config.toml. Here: the few things the theme cannot reach, in one place:
 # the flat labels, the Commission line, the step tabs, the row rules and the hover boxes. Colours carry meaning only:
 # red = potential horizontal overlap, yellow = potential vertical relationship; in step ④ the result of the
 # Commission's view: blue = confirmed, grey = possible / not excluded, green = not supported, outline = no
 # precedent. Neutral bands (no result: an unclear row, a rewritten line, a decision entry) are sand.
-INK, TEXT2, RULE, SAND = "#22313F", "#55514A", "#E2DDD2", "#F2EFE8"
 APP_CSS = """<style>
 .lab{display:inline-block;font-size:.8rem;font-weight:600;padding:.08rem .45rem;border-radius:4px;line-height:1.45;
  margin:.05rem .25rem .05rem 0}
@@ -131,7 +127,6 @@ st.html(APP_CSS)            # style only: takes no space on the page
 DEV_MODE = ai_client.flag("DEV_MODE")
 PROFILE = ai_client.setting("MODEL_PROFILE", "dev" if DEV_MODE else "final")   # the submitted version never runs on dev
 USE_CACHE = DEV_MODE and ai_client.flag("USE_CACHE", default=True)
-USE_SAVED = DEV_MODE and ai_client.flag("USE_SAVED_SEARCHES", default=True)
 MAX_PORTCOS = 5
 
 ss = st.session_state
@@ -144,9 +139,9 @@ ss.setdefault("acts_version", 0)              # a new version = fresh widgets fo
 
 # =============================================================== credentials
 def credentials():
-    """The OpenAI key for this session. 21 Oct (Linda): the password (in the submitted version the user's own key; the
-    course credentials module replaces that field before the final deployment tests) is the first screen on its own;
-    once entered, it disappears, also from the sidebar. The key is kept for the session only (never stored)."""
+    """The OpenAI key for this session. The password (in the submitted version the user's own key) is the first
+    screen on its own; once entered, it disappears, also from the sidebar. The key is kept for the session only (never
+    stored)."""
     if ss.get("auth_key"):
         return ss.auth_key
     if DEV_MODE:
@@ -212,7 +207,7 @@ def words_list(items):
 
 
 def log_stage(name, first, seconds):
-    """Records one run of a stage (a stage can run several times: partial updates since 16 Oct)."""
+    """Records one run of a stage (a stage can run several times: partial updates)."""
     ss.stage_logs.setdefault(name, []).append((first, ss.log.mark(), seconds))
 
 
@@ -228,8 +223,8 @@ EMBED_STEPS = ("embed", "embed_query")
 
 
 def call_count(calls):
-    """'30 AI calls + 25 embedding requests' (20 Oct, Linda: an embedding request turns the search questions into
-    numbers for the vector search; it is not an AI answer, so it is counted separately)."""
+    """'30 AI calls + 25 embedding requests' (an embedding request turns the search questions into numbers for the
+    vector search; it is not an AI answer, so it is counted separately)."""
     emb = sum(1 for c in calls if c["step"] in EMBED_STEPS)
     text = f"{len(calls) - emb} AI calls"
     return text + (f" + {emb} embedding request{'s' if emb != 1 else ''}" if emb else "")
@@ -255,11 +250,10 @@ def go_to(step):
     ss.step = step
 
 
-# =============================================================== the working screen (17 Oct)
-# Long work (research, comparison) used to run in the middle of the page: Streamlit keeps the elements of the previous
-# screen, faded, until a run ends, so old blocks lingered for a minute below the progress, sometimes in the wrong
-# columns. Now a button only records the work and reloads; the next run clears the page body first and shows nothing
-# but the progress, then opens the next step.
+# =============================================================== the working screen
+# Long work (research, comparison) does not run in the middle of the page: Streamlit keeps the elements of the previous
+# screen, faded, until a run ends, so old blocks would linger below the progress. A button only records the work and
+# reloads; the next run clears the page body first and shows nothing but the progress, then opens the next step.
 def start_work(kind, **args):
     ss.pending = {"kind": kind, **args}
     st.rerun()
@@ -285,10 +279,9 @@ def do_work(ai, job):
 
 
 class WorkCard:
-    """The loading screen (20 Oct, Linda: a clean card instead of a list of checks, the same everywhere): a heading,
-    one progress bar and one plain sentence. The detailed lines are kept for development only, collapsed.
-    21 Oct (Linda: "everything should be uniform"): every card shows the seconds since it started, refreshed every
-    second while the work runs (wait())."""
+    """The loading screen, the same everywhere: a heading, one progress bar and one plain sentence. The detailed lines
+    are kept for development only, collapsed. Every card shows the seconds since it started, refreshed every second
+    while the work runs (wait())."""
 
     def __init__(self, title, text, note=""):
         self.t0, self.text, self.fraction = time.time(), text, 0.0
@@ -353,7 +346,7 @@ def confirm_reset(snap):
 
 # =============================================================== value chain and sources (shown in steps ② and ③)
 # The stage in the value chain, from the activity's own level of trade (where the company SELLS; what it buys is not
-# compared: purchasing overlaps are a listed limitation, spec section 14). Display only: the data keep the schema terms.
+# compared: purchasing overlaps are a known limitation). Display only: the data keep the schema terms.
 STAGE = {"raw materials": "Raw materials", "intermediate products": "Intermediate products",
          "finished products": "Manufacturing", "wholesale / distribution": "Wholesale", "retail": "Retail",
          "services": "Services", "other": "Other"}
@@ -361,7 +354,7 @@ SOURCE_KIND = {"company": "company website", "third party": "other public source
 
 
 ROW_RULE_SOLID = "<hr style='margin:2px 0 6px 0;border:none;border-top:1px solid #E2DDD2'>"
-OTHER_NAME = "Side lines and own use"      # the merged "Other activities" line, as shown (20 Oct, Linda)
+OTHER_NAME = "Side lines and own use"      # the merged "Other activities" line, as shown
 
 
 def stage_of(a):
@@ -371,7 +364,7 @@ def stage_of(a):
 
 
 def stage_text(a):
-    """The stage as plain grey text (16 Oct, Linda: no grey highlight)."""
+    """The stage as plain grey text (no highlight)."""
     return f":gray[{stage_of(a)}]"
 
 
@@ -393,7 +386,7 @@ def display_title(s):
     return title or site
 
 
-# 21 Oct (Linda, for A3): the marks as levels of trust, so that the lawyer sees at a glance which sources can be relied
+# The marks are levels of trust, so that the lawyer sees at a glance which sources can be relied
 # on and where a check is worth it. ✔ checked · ≈ probably right, worth a quick look · ○ not checked · ⚠ check before
 # relying on it. The search reads pages through the AI provider's own access; the app's check is a second, separate
 # visit, which some sites refuse: "not checked" says nothing about the source itself.
@@ -411,9 +404,9 @@ NOT_CHECKED_WHY = {
 
 
 def check_result(c):
-    """The result as shown. Files saved before 21 Oct have no "close": a quotation not found word for word that is the
-    search's translation, or whose words are mostly on the page, is shown as ≈ too (the figure check of 21 Oct needs
-    the page text, which a saved file does not keep)."""
+    """The result as shown. Older saved files have no "close": a quotation not found word for word that is the
+    search's translation, or whose words are mostly on the page, is shown as ≈ too (the figure check needs the page
+    text, which a saved file does not keep)."""
     r = (c or {}).get("result", "")
     if r == "not found" and (c.get("translated") or (c.get("words_on_page") or 0) >= am.source_check.WORDING_SHARE):
         return "close"
@@ -443,7 +436,7 @@ def source_tip(s, c, kind_text):
                 if c.get("translated") else ", but most of its words are: probably reworded by the search"))
         return tip + f"\n\n{TRUST_HEAD['close']}\n{why}.\nQuotation given by the search:\n“{quote}”"
     if r == "not found":
-        # files saved before 21 Oct were checked for the wording only (no "substance_on_page"): claim no more
+        # older saved files were checked for the wording only (no "substance_on_page"): claim no more
         what = ("Neither the wording nor its figures or names were found on the page" if "substance_on_page" in c
                 else "The wording was not found on the page")
         return (tip + f"\n\n{TRUST_HEAD['not found']}\n{what}{page}"
@@ -460,10 +453,10 @@ def source_tip(s, c, kind_text):
 
 def source_markers(a, company, checks=None):
     """Numbered source markers next to an activity (or the profile). Each marker shows the result of the code check of
-    its quotation (21 Oct: as a level of trust, see TRUST_HEAD); hover shows the quotation of THAT source and why it
-    got its mark. Dead links were removed as sources and are not shown here. A source whose quotation was found on
-    another source (19 Oct) gets no mark (21 Oct: its own check says nothing). Company websites and other public
-    sources share one style; the hover names the kind."""
+    its quotation (as a level of trust, see TRUST_HEAD); hover shows the quotation of THAT source and why it got its
+    mark. Dead links were removed as sources and are not shown here. A source whose quotation was found on another
+    source gets no mark (its own check says nothing). Company websites and other public sources share one style; the
+    hover names the kind."""
     idx = source_index(company)
     by_n = {c["n"]: c for c in (a.get("quote_checks") if checks is None else checks) or []}
     out = []
@@ -489,10 +482,10 @@ def source_markers(a, company, checks=None):
         else:
             tip = source_tip(s, c, SOURCE_KIND.get(kind, kind))
         tip = html.escape(tip, quote=True).replace("\n", "&#10;")
-        style = "text-decoration:none;font-size:0.85em"       # 20 Oct: one style; the hover says the kind
+        style = "text-decoration:none;font-size:0.85em"       # one style; the hover says the kind
         href = (c or {}).get("link") or s.get("url", "")
         if not str(href).lower().startswith(("http://", "https://")):
-            href = ""                    # 20 Oct: only web links (a loaded audit log could carry anything)
+            href = ""                    # only web links (a loaded audit log could carry anything)
         out.append(f"<a href='{html.escape(href, quote=True)}' target='_blank' title='{tip}' "
                    f"style='{style}'>[{n}]{mark}</a>")
     if a.get("no_available_source") and not out:
@@ -504,24 +497,6 @@ def source_markers(a, company, checks=None):
                    else "<span title='No source returned by the search supports this activity' "
                         "style='font-size:0.85em'>⚠ no source</span>")
     return " ".join(out)
-
-
-def quote_lines(act, who):
-    """The quotations behind an activity, each with its source marker and check result (for 'Why?')."""
-    lines = []
-    for c in act.get("quote_checks") or []:
-        if c.get("quote") and c["result"] != "dead":
-            mark = am.source_check.STATUS_MARK.get(check_result(c), "")
-            page = f", PDF page {c['page']}" if c.get("page") else ""
-            note = {"found": "", "close": " · probably right: reworded or translated", "not found":
-                    " · not found on the page", "not checked": " · not checked"}.get(check_result(c), "")
-            ctx = c.get("context") if c["result"] == "found" else None
-            if ctx:              # 19 Oct: the passage in bold, in its surroundings on the page
-                text = (f"{esc(ctx['before'])}**{esc(ctx['passage'])}**{esc(ctx['after'])}").strip()
-                lines.append(f"> {text} :gray[(source {c['n']} {mark}{page}, the passage in bold)]")
-            else:
-                lines.append(f"> “{esc(c['quote'][:500])}” :gray[(source {c['n']} {mark}{page}{note})]")
-    return lines
 
 
 def context_text(ctx, left, right):
@@ -586,7 +561,7 @@ def example_buttons():
     st.markdown("**Try an example**")
     st.caption("The examples use real companies in a hypothetical portfolio: no real transaction is implied. "
                "The research and the comparison run live.")
-    with st.container(horizontal=True):          # side by side, not spread over the page width (20 Oct)
+    with st.container(horizontal=True):          # side by side, not spread over the page width
         for key, ex in examples.EXAMPLES.items():
             st.button(ex["button"], key=f"ex_{key}", help=ex["what"], on_click=fill_example, args=(key,))
 
@@ -635,7 +610,7 @@ def portfolio_card():
     return edited
 
 
-# Text the lawyer types (18 Oct, Linda): a description that names another company of the screen is not blocked but
+# Text the lawyer types: a description that names another company of the screen is not blocked but
 # shown with a warning; the lawyer decides ("Send anyway"), and the decision is recorded with the company in the audit
 # log. What may be typed into an AI tool is the lawyer's professional responsibility; the warning catches slips.
 def typed_names(c, companies):
@@ -729,7 +704,7 @@ def company_key(c):
 
 
 def run_mapping(ai, companies):
-    """Maps the companies that are new or whose input changed (16 Oct); the others keep their research and the
+    """Maps the companies that are new or whose input changed; the others keep their research and the
     user's edits of their activities. A new screen starts with "↺ New screen" (reset_all), not here."""
     first, t0 = ss.log.mark(), time.time()
     old, old_keys = ss.get("mapped") or {}, ss.get("map_keys") or {}
@@ -747,7 +722,7 @@ def run_mapping(ai, companies):
     for name in sorted(kept):
         card.log(f"✔ {name}: kept from before (no change)")
     with cf.ThreadPoolExecutor(ai_client.MAX_PARALLEL) as ex:
-        futures = {ex.submit(am.map_company, ai, c, companies, USE_SAVED): c for c in todo}
+        futures = {ex.submit(am.map_company, ai, c, companies): c for c in todo}
         for done, fut in enumerate(card.wait(futures), start=1):
             c = futures[fut]
             m = fut.result()
@@ -776,9 +751,9 @@ def extracted(m):
     return (m.get("extraction") or {}).get("activities", [])
 
 
-# =============================================================== stage ② activities
+# =============================================================== step ② activities
 # Activities are kept as the extraction's dicts (ss.acts) and changed only through the edit form, so a change to one
-# field keeps every other field (decided 16 Oct: the table editor replaced a cell's whole text when typing).
+# field keeps every other field (a table editor would replace a cell's whole text when typing).
 CUSTOMER_WORDS = {"consumers": "consumers", "retailers": "shops", "wholesalers / distributors": "wholesalers",
                   "manufacturers / processors": "other manufacturers", "other businesses": "businesses",
                   "public sector": "public bodies", "internal use (captive)": "its own group"}
@@ -814,7 +789,7 @@ def short_item(item):
 
 
 def item_html(item):
-    """An item in full (21 Oct): 'menu branding program (approved use of brand …)' with the brackets in grey."""
+    """An item in full: 'menu branding program (approved use of brand …)' with the brackets in grey."""
     head, sep, rest = item.partition(" (")
     return he(head) + (f" <span class='br'>({he(rest)}</span>" if sep else "")
 
@@ -824,9 +799,8 @@ def capital(text):
 
 
 def activity_line(a, company):
-    """One activity in step ② (20 Oct evening, Linda: option A, two lines with labels; the text stays complete): the
-    name, the stage and the sources on the first line; below, what the company does, examples and brands, each with
-    a small grey label."""
+    """One activity in step ② (two lines with labels; the text stays complete): the name, the stage and the sources
+    on the first line; below, what the company does, examples and brands, each with a small grey label."""
     markers = source_markers(a, company)
     stage = f"<span class='chip'>{h(stage_of(a))}</span>"
 
@@ -836,7 +810,7 @@ def activity_line(a, company):
         return (f"<s><b>{he(capital(a['product']))}</b></s> {stage} {markers}  \n"
                 + field("Not relevant", f"<i>{he(a.get('exclusion_reason', ''))}</i> (excluded by you)"))
     brands = [b for b in a.get("brands") or [] if b and b != "not stated"]
-    if rules.is_gap(a):        # 18 Oct (Linda): the bold part names the activity, as on every other line
+    if rules.is_gap(a):        # the bold part names the activity, as on every other line
         level = a.get("value_chain_level")
         known = level in rules.VALUE_CHAIN_LEVELS and level != "other"
         lines = [f"<b>{'Products not stated' if known else 'Activity not stated'}</b> "
@@ -853,8 +827,7 @@ def activity_line(a, company):
         return "  \n".join(lines)
     includes = [i for i in a.get("includes") or [] if i]
     if rules.category(a) == "other":
-        # 21 Oct (Linda): every item in full, the text in brackets in the secondary colour (it often says what the
-        # item is); before, only the part before the first bracket was shown, less than the Edit dialog
+        # every item in full, the text in brackets in the secondary colour (it often says what the item is)
         return (f"<b>{OTHER_NAME}</b> {stage} {markers}  \n"
                 + field("Includes", "; ".join(item_html(i) for i in includes[:6]) + more_items(includes, 6)))
     first = f"<b>{he(capital(a['product']))}</b> {stage}"
@@ -864,19 +837,19 @@ def activity_line(a, company):
     if hint:
         first += f" <span class='hov' title='{h(hint)}'>⚠ level of trade?</span>"
     lines = [first + " " + markers]
-    what = everyday(a)          # empty for the level "other" (18 Oct)
+    what = everyday(a)          # empty for the level "other"
     if what:
-        lines.append(field("What it does", he(what)))     # 21 Oct (Linda): "What it does" instead of "Does"
+        lines.append(field("What it does", he(what)))
     raw = [i for i in includes if i.strip().lower() != a["product"].strip().lower()]
     if raw:
         lines.append(field("Examples", ", ".join(he(i) for i in raw[:4]) + more_items(raw, 4)))
-    if brands:                 # 18 Oct: step ② is where names may be shown, so the brands are visible here
+    if brands:                 # step ② is where names may be shown, so the brands are visible here
         lines.append(field("Brands", he(", ".join(brands[:4])) + more_items(brands, 4)))
     return "  \n".join(lines)
 
 
 def own_names(company):
-    """The company's own names, for the level hint (19 Oct): entered name, other names and their parts, group companies
+    """The company's own names, for the level hint: entered name, other names and their parts, group companies
     and the brands of its lines that are not at wholesale level."""
     c = next((x for x in ss.get("companies") or [] if x["name"] == company), {"name": company})
     group = (((ss.get("mapped") or {}).get(company) or {}).get("extraction") or {}).get("group_companies") or []
@@ -886,7 +859,7 @@ def own_names(company):
 
 
 def more_items(items, shown):
-    """'(+6 more)' after the examples of an activity; hovering shows every item (18 Oct)."""
+    """'(+6 more)' after the examples of an activity; hovering shows every item."""
     if len(items) <= shown:
         return ""
     tip = html.escape("All items: " + "; ".join(items), quote=True)
@@ -907,8 +880,8 @@ def _row_words(act):
 
 
 def relationship_rows(target, portco, rows):
-    """The rows an existing relationship is shown in (20 Oct, Linda: in the preliminary assessment of the row, as a
-    supporting argument): the rows whose portfolio activity (its name, products or brands) appears in the passages,
+    """The rows an existing relationship is shown in (in the preliminary assessment of the row, as a supporting
+    argument): the rows whose portfolio activity (its name, products or brands) appears in the passages,
     else those whose target activity does, else every kept row of the company. Code only."""
     rel = relationship_between(target, portco)
     if not rel or not rows:
@@ -928,8 +901,8 @@ def relationship_rows(target, portco, rows):
 
 def relationship_between(target, portco):
     """The passages in which the public sources of the target or of this portfolio company mention the other, both
-    directions merged (20 Oct, Linda: shown only in the result box of the company concerned, as a supporting argument;
-    no longer in step ② or above the table). Relationships between two portfolio companies are not shown."""
+    directions merged (shown only in the result box of the company concerned, as a supporting argument).
+    Relationships between two portfolio companies are not shown."""
     rels = ss.get("relationships") or {}
     out = []
     for who, other in ((target, portco), (portco, target)):
@@ -940,10 +913,9 @@ def relationship_between(target, portco):
 
 
 def profile_of(name):
-    """The company profile as edited by the user, else as extracted.
-    20 Oct (bug fix): the profile confirmed with the comparison (profiles_text) used to come first, so after the first
-    comparison an edit of the profile in step ② and a company mapped again kept showing the old profile, and pressing
-    "Update the comparison" confirmed the old one again. It is now only the fallback (a company without a mapping)."""
+    """The company profile as edited by the user, else as extracted. The profile confirmed with the comparison
+    (profiles_text) is only the fallback (a company without a mapping), so that an edit in step ② or a new mapping is
+    always shown."""
     if name in (ss.get("profiles_edit") or {}):
         return ss.profiles_edit[name]
     ext = (((ss.get("mapped") or {}).get(name) or {}).get("extraction") or {})
@@ -983,7 +955,7 @@ def edit_activity(company, idx):
     k = f"ea_{ss.acts_version}_{company}_{idx}_"
     st.caption(f"{company} · {'new activity' if idx is None else 'changes are kept for this screen and recorded in the audit log'}")
     shown_name = OTHER_NAME if rules.category(a) == "other" and a.get("product") == "Other activities" else \
-        a.get("product", "")      # 21 Oct: the merged line has the same name here as in the table
+        a.get("product", "")      # the merged line has the same name here as in the table
     name = st.text_input("Activity", value=shown_name, key=k + "name",
                          help="What the business area offers (product or service), in generic words; who buys it goes under "
                               "“Direct customers”, not into the name; no company or brand names")
@@ -1033,7 +1005,7 @@ def edit_activity(company, idx):
         st.markdown("Sources: " + source_markers(a, company), unsafe_allow_html=True)
     typed = " ".join([name, includes, description, intended, inputs, details, channels, area])
     found = am.other_names_in(typed, company, ss.companies)
-    if found:      # 18 Oct: the lawyer's own text; the name is removed before the comparison, the rest is sent
+    if found:      # the lawyer's own text; the name is removed before the comparison, the rest is sent
         st.warning(f"This text names {words_list(found)}, another company in this screen. Company names are removed "
                    "before the comparison, but the rest of the text is sent. Change the text, or save it anyway.")
         anyway = st.checkbox("Save anyway (my responsibility; recorded in the audit log)", key=k + "anyway")
@@ -1061,11 +1033,11 @@ def edit_activity(company, idx):
         if idx is None:
             acts.append(new)
         else:
-            # 19 Oct: extracted activities carry no "origin" (only added ones do: "added by user"), so the earlier
-            # test origin == "search" never fired and the audit log could not show which lines the lawyer changed
+            # extracted activities carry no "origin" (only added ones do), so any change to one of them is marked
+            # as edited, for the audit log
             if new != acts[idx] and new.get("origin") != "added by user":
                 new["edited_by_user"] = True
-            new["level_checked"] = True         # saved in the edit form: the lawyer has seen the level (18 Oct)
+            new["level_checked"] = True         # saved in the edit form: the lawyer has seen the level
             acts[idx] = new
         ss.acts_version += 1
         st.rerun()
@@ -1088,7 +1060,7 @@ def stage_activities(ai):
     cmp.ensure_ids(ss.acts)
     guide_box(2)
     for i, c in enumerate(ss.companies):
-        # 21 Oct (Linda, C2): a visual cut between the target and the portfolio companies
+        # a visual cut between the target and the portfolio companies
         if i == 0:
             st.markdown("<div class='sec'>The target</div><div class='secsub'>The business to be acquired</div>",
                         unsafe_allow_html=True)
@@ -1131,7 +1103,7 @@ SOURCE_STATE = {
 
 def sources_list(found):
     """All sources of one company with the result of the check; links that no longer exist are listed apart, as
-    'no longer available (cited by the search, not used)', and not as links (18 Oct, Linda)."""
+    'no longer available (cited by the search, not used)', and not as links."""
     check = found.get("source_check") or {}
     st.markdown(f"**Sources** · {found.get('model', '')} · accessed {found.get('date', '')}"
                 + (f" · checked by the app on the same day ({check.get('seconds')} s)" if check.get("checked") else ""))
@@ -1165,7 +1137,7 @@ def company_block(ai, c, index):
     v = ss.acts_version
     is_target = c["role"] == "target"
     with st.container(border=True, key="tbox" if is_target else None):
-        # 21 Oct (Linda, C2): the target's name and profile on a sand band; its activities stay ivory
+        # the target's name and profile on a sand band; its activities stay ivory
         with st.container(key="tband" if is_target else None):
             st.markdown(f"#### {name if is_target else f'Portfolio company {index}: {name}'}")
             facts = [c["website"]] if c.get("website") else []
@@ -1196,7 +1168,7 @@ def company_block(ai, c, index):
         if not acts:
             st.caption("No activities.")
         named = ext.get("named_without_activity") or []
-        if named:               # 18 Oct: names without a described activity, one quiet line instead of activity lines
+        if named:               # names without a described activity, one quiet line instead of activity lines
             more = f" and {len(named) - 8} more" if len(named) > 8 else ""
             st.caption("Also named in the sources, without a described activity: " + "; ".join(esc(n) for n in named[:8])
                        + more + ". Add an activity if one of them matters for this deal.")
@@ -1206,7 +1178,7 @@ def company_block(ai, c, index):
             pair = f"“{esc(a1['product'])}” and “{esc(a2['product'])}”"
             c1, c2 = set(_shown(a1.get("direct_customers"))), set(_shown(a2.get("direct_customers")))
             if c1 and c2 and not c1 & c2:
-                # 21 Oct (Linda): same products for different customers may be separate sales channels
+                # same products for different customers may be separate sales channels
                 st.caption(f"Same products, different customers: {pair}. Keep both if they are separate sales "
                            "channels; merge them with “Edit” if they are one activity (widen one, delete the other).")
             else:
@@ -1252,7 +1224,7 @@ def remap_company(ai, name, website, mode, pasted, confirmed=()):
     card = WorkCard(f"Researching {name} again", "Researching …",
                     "Only this company is researched again; the others are kept. This usually takes one to two minutes.")
     with cf.ThreadPoolExecutor(1) as ex:
-        fut = ex.submit(am.map_company, ai, company, companies, USE_SAVED)
+        fut = ex.submit(am.map_company, ai, company, companies)
         for f in card.wait([fut]):
             ss.mapped[name] = f.result()
     card.update(1.0, "Done")
@@ -1268,7 +1240,7 @@ def remap_company(ai, name, website, mode, pasted, confirmed=()):
 
 
 def around(text, word, width=70):
-    """The passage around the first place where the word appears (18 Oct; before: the first 120 characters)."""
+    """The passage around the first place where the word appears."""
     m = re.search(r"(?<!\w)" + re.escape(word) + r"(?!\w)", text, re.IGNORECASE)
     if not m:
         return text[:2 * width]
@@ -1282,33 +1254,32 @@ def _store_keep(word, key):
     if ss.get(key):
         keep.add(word.lower())
         dropped.discard(word.lower())
-    else:                       # unticked by the lawyer: never proposed again in this screen (19 Oct)
+    else:                       # unticked by the lawyer: never proposed again in this screen
         keep.discard(word.lower())
         dropped.add(word.lower())
     ss.keep_words, ss.drop_words = sorted(keep), sorted(dropped)
 
 
 def name_word_review():
-    """Option b (17 Oct, Linda): before the comparison, the brands and group company names that also appear as words in
-    the descriptions. They are removed by default (confidentiality first); the lawyer can keep an ordinary product
+    """Before the comparison: the brands and group company names that also appear as words in the descriptions.
+    They are removed by default (confidentiality first); the lawyer can keep an ordinary product
     word, so the comparison still sees it. The choice is recorded in the audit log."""
     group = {c["name"]: ((ss.mapped[c["name"]].get("extraction") or {}).get("group_companies") or [])
              for c in ss.companies}
     found = cmp.names_used_as_words(ss.companies, ss.acts, group)
     if not found:
         return
-    # 19 Oct (Linda, option 1): a word that also appears in lower case ("cacaofruit ingredients") is an ordinary
-    # product word, so it is kept by default; the lawyer can untick it. TC3 on Cloud: with the word removed, the AI saw
-    # "[name removed] ingredients" and could not recognise the central horizontal overlap. Words that appear only
-    # capitalised (names that slipped into a description) stay removed unless the lawyer keeps one. Both the proposal
-    # and the lawyer's choice are recorded in the audit log.
+    # A word that also appears in lower case ("cacaofruit ingredients") is an ordinary product word, so it is kept by
+    # default; the lawyer can untick it (with the word removed, the AI would see "[name removed] ingredients" and could
+    # miss an obvious horizontal overlap). Words that appear only capitalised (names that slipped into a description)
+    # stay removed unless the lawyer keeps one. Both the proposal and the lawyer's choice are recorded in the audit log.
     keep = set(ss.get("keep_words") or [])
     dropped = set(ss.get("drop_words") or [])
     proposed = set(ss.get("keep_proposed") or [])
     if ss.pop("freeze_proposals", False):
-        # 20 Oct: a screen continued from a saved file keeps the lawyer's saved choice; words the rule of 19 Oct would
-        # propose now count as already proposed (before, they were ticked on top, which changed the activities and
-        # made the app report a change nobody had made)
+        # a screen continued from a saved file keeps the lawyer's saved choice; words the lower-case rule would
+        # propose count as already proposed (otherwise they would be ticked on top, changing the activities and
+        # making the app report a change nobody had made)
         proposed |= {f["word"].lower() for f in found if f.get("lower_case")}
     for f in found:
         w = f["word"].lower()
@@ -1330,7 +1301,7 @@ def name_word_review():
         for f in ordinary:
             keep_word_box(f, keep)
         if names:
-            # 19 Oct: words that appear only capitalised are almost always names that slipped into a description; they
+            # words that appear only capitalised are almost always names that slipped into a description; they
             # stay removed unless the lawyer opens the list and keeps one
             label = (f"{plural(len(names), 'name')} that appear only as names in the descriptions "
                      "(removed; open to keep one)")
@@ -1370,18 +1341,18 @@ def activity_problems():
 
 
 def activities_hash(activities):
-    """What the comparison depends on: the activities and (17 Oct) the words the lawyer keeps in the descriptions."""
+    """What the comparison depends on: the activities and the words the lawyer keeps in the descriptions."""
     state = {"activities": activities, "keep_words": sorted(ss.get("keep_words") or [])}
     return hashlib.sha256(json.dumps(state, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
 
 
-# =============================================================== stage ③ factual comparison
+# =============================================================== step ③ factual comparison
 POSITION_FIELDS = ("portco", "label_a", "label_b", "a", "b", "abstract_a", "abstract_b", "sims")
 
 
 def prepare_comparison(activities):
     """Names, abstracts and content keys of the activities to compare, and how many pairs are new: a pair goes to the
-    AI only if no result for exactly these two anonymised activities exists in this session (16 Oct). Pure code."""
+    AI only if no result for exactly these two anonymised activities exists in this session. Pure code."""
     companies = ss.companies
     target, portcos = companies[0]["name"], [c["name"] for c in companies[1:]]
     group = {c["name"]: ((ss.mapped[c["name"]].get("extraction") or {}).get("group_companies") or [])
@@ -1452,7 +1423,7 @@ def confirm_activities(ai, activities, problems, profiles_text):
     card.log(f"{plural(len(todo), 'pair')} compared, {len(pairs) - len(todo)} kept, in {time.time() - t0:.0f} s")
     ss.confirmed = activities
     ss.profiles_text = profiles_text
-    # 21 Oct: names that are also ordinary words (the lawyer's choice in step ②) never make an existing relationship
+    # names that are also ordinary words (the lawyer's choice in step ②) never make an existing relationship
     ss.relationships = am.find_relationships(ss.mapped, ss.companies, ss.get("keep_words") or ())
     ss.confirmed_hash = activities_hash(activities)
     ss.current_hash = ss.confirmed_hash
@@ -1466,18 +1437,18 @@ def confirm_activities(ai, activities, problems, profiles_text):
     return True
 
 
-# =============================================================== stage ③ the preliminary assessment table
-# One box per portfolio company (decided 16 Oct). In it: a result box (20 Oct), then each target activity (the fixed
-# reference point) with the portfolio company's activities that meet it; columns: target activity · portco activity ·
-# preliminary assessment (one line per label, each with its own "Dismiss") · notes · Edit and Why?. In step ④ the
-# Commission line and the Commission's markets follow under each row, full width. Each target activity's block ends
-# with one line naming the activities that do not meet it, with the reasons and "Add back" behind "Why?".
-# 20 Oct (Linda): side lines are shown with the main activities; only rows that involve production for the group's
-# own use are collapsed below ("Own use"). Lawyer's labels (option C): a label the lawyer adds is shown and used in
-# the result, the summary and the step ④ grouping, but never changes what step ④ searches (no new search).
+# =============================================================== step ③ the preliminary assessment table
+# One box per portfolio company. In it: a counting sentence, then each target activity (the fixed reference point) with
+# the portfolio company's activities that meet it; columns: target activity · portco activity · preliminary assessment
+# (one line per label, each with its own "Your view") · notes · Edit and Why?. In step ④ the Commission line and the
+# Commission's markets follow under each row, full width. Each target activity's block ends with one line naming the
+# activities that do not meet it, with the reasons and "Add back" behind "Why?". Side lines are shown with the main
+# activities; only rows that involve production for the group's own use are collapsed below ("Own use"). Lawyer's
+# labels: a label the lawyer adds is shown and used in the result, the summary and the step ④ grouping, but never
+# changes what step ④ searches (no new search).
 WIDTHS = [1.5, 1.5, 4.5, 1.4, 0.95]           # step ③
-# 21 Oct (Linda, option 2): in step ④ the Commission as its own column, after the preliminary assessment, so that the
-# row reads in the order of the work: facts → the AI's assessment → the Commission → the lawyer's view
+# In step ④ the Commission is its own column, after the preliminary assessment, so that the row reads in the order
+# of the work: facts → the AI's assessment → the Commission → the lawyer's view
 WIDTHS4 = [1.1, 1.1, 3.75, 3.1, 1.05, 0.8]
 _THEAD = [0]                                    # a fresh key for every table header of this run
 
@@ -1495,13 +1466,11 @@ RULE_WORDS = {
     "B could be resold by A": "{p} sells to shops or wholesalers, and {t} resells a close range",
 }
 UPSTREAM_LINKS = ("A could be an input for B", "A could be resold by B")
-OVERRIDE_KEYS = ("dismiss", "add_back", "note", "dismissed_parts", "added_h", "added_v", "text_assessment",
-                 "text_commission", "views")
 
 
 def he(text):
     """Text from the sources or the AI inside an HTML line that Streamlit also reads as markdown: HTML escaped and the
-    markdown characters neutralised (20 Oct)."""
+    markdown characters neutralised."""
     out = h(text)
     for a, b in (("*", "&#42;"), ("_", "&#95;"), ("[", "&#91;"), ("]", "&#93;"), ("~", "&#126;"), ("`", "&#96;")):
         out = out.replace(a, b)
@@ -1522,9 +1491,9 @@ def _remove_added(pid, field):
     _entry(pid)[field] = False if field == "added_h" else ""
 
 
-# 21 Oct (Linda): "Your view" next to every label instead of the Dismiss box. Dismiss works as the box did (it sets
-# dismissed_parts, so steps ④ and the counts follow as before); the other views are the lawyer's assessment, shown in
-# the summary and the Word document; "Ask the company" also puts the row into the Open points. Overrides only.
+# "Your view" next to every label. Dismiss sets dismissed_parts (so step ④ and the counts follow); the other views are
+# the lawyer's assessment, shown in the summary and the Word document; "Ask the company" also puts the row into the Open
+# points. Overrides only.
 VIEWS = ["To check", "Likely", "Unlikely", "Ask the company", "Dismiss"]
 
 
@@ -1573,7 +1542,7 @@ def has_added(o):
 
 def row_status(r):
     """The status shown and counted: the code's decision, changed only by the lawyer. A row whose labels the lawyer
-    dismissed but to which the lawyer added a label of their own (option C, 20 Oct) stays in the table."""
+    dismissed but to which the lawyer added a label of their own stays in the table."""
     s = cmp.effective_status(r, ss.overrides)
     if s == "dismissed by user" and has_added(ss.overrides.get(cmp.pair_id(r))):
         return r["decision"]["status"]
@@ -1582,13 +1551,13 @@ def row_status(r):
 
 def search_overrides():
     """The overrides as step ④ sees them. A row with a lawyer's label is searched as the tool found it (its
-    dismissals are left out here), so that adding a label never needs a new search (20 Oct, option C)."""
+    dismissals are left out here), so that adding a label never needs a new search."""
     return {pid: ({k: v for k, v in o.items() if k not in ("dismiss", "dismissed_parts")} if has_added(o) else o)
             for pid, o in (ss.get("overrides") or {}).items()}
 
 
 def listing(items, limit=4):
-    """Items as HTML; more than `limit`: “and 2 more”, hovering shows every item (20 Oct)."""
+    """Items as HTML; more than `limit`: “and 2 more”, hovering shows every item."""
     items = [i for i in items if i]
     if not items:
         return ""
@@ -1600,19 +1569,15 @@ def listing(items, limit=4):
 
 
 def side_items(r, side):
-    """The items of one side that the comparison named for this row (option C), horizontal and vertical."""
+    """The items of one side that the comparison named for this row, horizontal and vertical."""
     m = r.get("matches") or {}
     return list(dict.fromkeys(list(m.get(side) or []) + [i for v in r.get("vertical_items") or []
                                                           for i in (v.get(side) or [])]))
 
 
-def is_other(r):
-    return rules.category(r["a"]) == "other" or rules.category(r["b"]) == "other"
-
-
 def is_own_use(r):
-    """A row that involves only production for the group's own use (20 Oct): shown in the collapsed "Own use" section.
-    Side lines sold to third parties stay in the main table (Linda)."""
+    """A row that involves only production for the group's own use: shown in the collapsed "Own use" section.
+    Side lines sold to third parties stay in the main table."""
     for side in ("a", "b"):
         act = r[side]
         if rules.category(act) == "other":
@@ -1649,7 +1614,7 @@ def direction(link, r, target, portco):
 
 
 def link_sentence(link, vitems, r, target, portco, html_out=True):
-    """A vertical link in words, with the names re-attached and the items the link concerns (option C)."""
+    """A vertical link in words, with the names re-attached and the items the link concerns."""
     if html_out:
         a = f"{he(target)}'s {listing(vitems.get('a', [])) or he(r['a']['product'])}"
         b = f"{he(portco)}'s {listing(vitems.get('b', [])) or he(r['b']['product'])}"
@@ -1665,7 +1630,7 @@ def link_sentence(link, vitems, r, target, portco, html_out=True):
 
 
 def customer_dots(r, target, portco):
-    """The customer score with its explanation on hover (20 Oct, Linda: keep the dots, explain them better)."""
+    """The customer score (dots) with its explanation on hover."""
     score = r.get("customers")
     if score not in ("●●●", "●●○", "●○○"):
         return ""
@@ -1684,7 +1649,7 @@ def own_use_flag(r):
 
 
 def label_parts(r, target, portco):
-    """The labels of one row as shown (20 Oct): the tool's labels, each with whether the lawyer dismissed it, and the
+    """The labels of one row as shown: the tool's labels, each with whether the lawyer dismissed it, and the
     labels the lawyer added. [{part, kind "h"/"v", origin "tool"/"lawyer", up "a"/"b" (vertical), off}]"""
     o = ss.overrides.get(cmp.pair_id(r)) or {}
     off = set(cmp.dismissed_parts(r, ss.overrides))
@@ -1726,11 +1691,11 @@ def part_detail(p, r, target, portco, html_out=True):
             return lines
         dots = customer_dots(r, target, portco)
         lines = [f"<span class='basis'>{kind} · {level}{' · ' + dots if dots else ''}{own}</span>"]
-        if sa != sb and not p["off"]:      # 21 Oct (Linda): display only
+        if sa != sb and not p["off"]:      # display only
             lines.append("<span class='basis'>different levels: usually a vertical relationship; horizontal only if "
                          "both sell to the same customers</span>")
         a, b = listing(m.get("a", [])), listing(m.get("b", []))
-        if (a or b) and not p["off"]:      # 21 Oct (Linda): one line per company
+        if (a or b) and not p["off"]:      # one line per company
             lines.append(f"with regard to<span class='wr'><i>{he(target)}:</i> {a or '–'}</span>"
                          f"<span class='wr'><i>{he(portco)}:</i> {b or '–'}</span>")
         return lines
@@ -1767,8 +1732,8 @@ def assessment_plain(r, target, portco):
 
 
 def assessment_cell(r, status, rv, target, portco):
-    """The preliminary assessment column: one line per label, each with its own "Your view" (21 Oct, Linda; before: a
-    "Dismiss" box). The lawyer's wording, if any, replaces the app's lines under the labels."""
+    """The preliminary assessment column: one line per label, each with its own "Your view". The lawyer's wording, if
+    any, replaces the app's lines under the labels."""
     pid = cmp.pair_id(r)
     o = ss.override_store.get(pid, {})
     parts = label_parts(r, target, portco)
@@ -1810,7 +1775,7 @@ def assessment_cell(r, status, rv, target, portco):
 
 
 def quoted(passage):
-    """A passage in quotation marks, unless it already starts with one (21 Oct: no ““…)."""
+    """A passage in quotation marks, unless it already starts with one (no ““…)."""
     t = (passage or "").strip()
     return he(t) if t[:1] in "“\"„«" else f"“{he(t)}”"
 
@@ -1819,8 +1784,8 @@ RESELLER_LEVELS = ("retail", "wholesale / distribution")
 
 
 def set_aside_text(r, link, reason, target, portco):
-    """A link the tool set aside, explained (21 Oct, Linda: "Link set aside" read as if the company had no retail at
-    all). The tool compares one activity of each company at a time; a resale link needs the reseller's activity in
+    """A link the tool set aside, explained (so that it does not read as if the company had no retail at all). The
+    tool compares one activity of each company at a time; a resale link needs the reseller's activity in
     THIS row to be in wholesale or retail. Where that company's shop or wholesale activity is compared in another row,
     the note points there."""
     side = "a" if reason.startswith("A ") else "b"
@@ -1844,8 +1809,8 @@ def set_aside_text(r, link, reason, target, portco):
 
 
 def why_popover(r, target, portco):
-    """'Why?' (20 Oct, Linda: only the reasoning; the sources are in step ② and in the hover of each source, and what
-    the AI saw is in the audit log)."""
+    """'Why?': only the reasoning (the sources are in step ② and in the hover of each source, and what the AI saw is in
+    the audit log)."""
     c, d = r["comparison"], r["decision"]
     why = []
     if d["horizontal"] or d["status"] in ("unclear", "screened out"):
@@ -1861,7 +1826,7 @@ def why_popover(r, target, portco):
         why.append(esc(c.get("vertical_reason", "")))
     for link, reason in d.get("disregarded", []):
         why.append(set_aside_text(r, link, reason, target, portco))
-    # 21 Oct (Linda): say what "Why?" contains: the AI's reasoning and the app's own checks, for the lawyer to check
+    # say what "Why?" contains: the AI's reasoning and the app's own checks, for the lawyer to check
     st.caption("The AI's reasoning on the anonymised descriptions, and the app's own checks: who each company sells to "
                "directly, and whether supply or resale is possible in this row.")
     st.markdown("\n\n".join(why) or "No reason given.")
@@ -1889,8 +1854,8 @@ def why_popover(r, target, portco):
 
 @st.dialog("Edit this row", width="large")
 def edit_row(pid, target, portco):
-    """'Edit' (20 Oct, Linda): the wording of the row (and in step ④ of the Commission line), and labels the lawyer adds
-    (option C). The tool's labels are dismissed with the box next to them; nothing here changes what step ④ searches."""
+    """'Edit': the wording of the row (and in step ④ of the Commission line), and labels the lawyer adds. The tool's
+    labels are dismissed with the box next to them; nothing here changes what step ④ searches."""
     r = next((x for x in ss.results if cmp.pair_id(x) == pid), None)
     if r is None:
         st.write("This row no longer exists.")
@@ -1939,7 +1904,7 @@ def edit_row(pid, target, portco):
 def pair_row(r, status, rv, target, portco, first):
     """One sub-row: target activity (first sub-row of a block only), portco activity, assessment, in step ④ the
     Commission's view, the user's note, and Edit / Why?; in step ④ the Commission's markets for this pair on request,
-    full width under the row (21 Oct, Linda: option 2)."""
+    full width under the row."""
     pid = cmp.pair_id(r)
     o = ss.override_store.get(pid, {})
     s = status[pid]
@@ -1970,7 +1935,7 @@ def pair_row(r, status, rv, target, portco, first):
 
 
 def table_header(target, portco):
-    """The header of a company's table, in ink with white text (21 Oct, Linda: as in the Word document)."""
+    """The header of a company's table, in ink with white text (as in the Word document)."""
     w = col_widths()
     _THEAD[0] += 1
     labels = [f"{esc(target)} activity", f"{esc(portco)} activity", "Preliminary assessment"]
@@ -1986,14 +1951,14 @@ def short_name(a):
 
 
 def no_overlap_row(ta, rows, rv, target, portco, n_portco, first):
-    """The last line of a target activity's block (16 Oct): the portfolio company's activities that do not meet it.
+    """The last line of a target activity's block: the portfolio company's activities that do not meet it.
     'Why?' shows the AI's reasons; 'Add back' moves a pair into the table as a row of its own."""
     w = col_widths()
     cols = st.columns([w[0], sum(w[1:-1]), w[-1]], vertical_alignment="top")
     if first:
         cols[0].markdown(table_cell(ta, target), unsafe_allow_html=True)
     def named(r):
-        # 21 Oct (Linda): an own-use side line says why it never meets (it can only be the customer side)
+        # an own-use side line says why it never meets (it can only be the customer side)
         own = rules.category(r["b"]) == "other" and (rules.captive_only(r["b"]) or any(
             "own use" in why for _, why in r["decision"].get("disregarded") or []))
         return esc(short_name(r["b"])) + (" :gray[(own use only, so it can only be the customer side)]" if own else "")
@@ -2016,10 +1981,10 @@ def no_overlap_row(ta, rows, rv, target, portco, n_portco, first):
                         on_change=_store_override, args=(pid, "add_back", key))
 
 
-def target_block(ta, kept_rows, screened, status, rv, target, portco, n_portco, first_block=False):
+def target_block(ta, kept_rows, screened, status, rv, target, portco, n_portco):
     """One target activity: the portfolio company's activities that meet it (one row each), then one line naming
-    those that do not (16 Oct: replaces the separate list of pairs without overlap). 20 Oct (Linda): a solid line
-    between target activities, a dashed line between the rows of one target activity."""
+    those that do not. A solid line between target activities, a dashed line between the rows of one target
+    activity."""
     st.markdown(BLOCK_RULE, unsafe_allow_html=True)
     for k, r in enumerate(kept_rows):
         if k:
@@ -2033,8 +1998,8 @@ def target_block(ta, kept_rows, screened, status, rv, target, portco, n_portco, 
 
 def portco_sentence(target, portco, pairs, status):
     """One sentence per portfolio company, counted by business area (not by pairs), assembled in code. Rows that
-    involve only own use are counted separately: they sit in the collapsed section (20 Oct: side lines count with the
-    main activities)."""
+    involve only own use are counted separately: they sit in the collapsed section (side lines count with the main
+    activities)."""
     acts = list(dict.fromkeys(r["label_b"] for r in pairs))
     live = [r for r in pairs if kept(status[cmp.pair_id(r)])]
     n_acts = plural(len(acts), "activity", "activities")
@@ -2050,82 +2015,14 @@ def portco_sentence(target, portco, pairs, status):
     return text + (f" Also {own_note}." if own_live else "")
 
 
-def result_lines(target, portco, pairs, status, html_out=True):
-    """The result box of one portfolio company (20 Oct, Linda): the bottom line first, assembled in code from the
-    rows (with the lawyer's dismissals and labels). In step ④ each entry carries the chip of the Commission's result
-    (20 Oct evening: Confirmed, Possible, Not excluded, Not supported, No precedent; for vertical rows Markets defined,
-    One side defined, No precedent); an existing relationship between the two companies is one line of its own."""
-    step4 = ss.get("step") == 4
-    hor, ver, check = [], [], []
-    for r in pairs:
-        s = status[cmp.pair_id(r)]
-        if not kept(s) or is_own_use(r):
-            continue
-        pair = f"{short_name(r['a'])} × {short_name(r['b'])}"
-        h_on, ups = active_labels(r, target, portco)
-        if h_on:
-            outcome, words = commission_short(r, target, portco) if step4 else ("", "")
-            hor.append((pair, outcome, words))
-        if ups:                 # target activity first; the arrow points from supplier to customer
-            arrow = "↔" if len(set(ups)) > 1 else ("→" if ups[0] == "a" else "←")
-            outcome = ""
-            if step4:
-                parts = commission_parts(r, target, portco)
-                if parts and parts[1] is not None and not parts[1].get("error"):
-                    outs = [vertical_outcome(parts[2], up, reseller_flags(r)) for up in ups]
-                    outcome = next((o for o in ("Markets defined", "One side defined", "No precedent") if o in outs), "")
-            ver.append((f"{short_name(r['a'])} {arrow} {short_name(r['b'])}", outcome, ""))
-        if not h_on and not ups:
-            check.append((pair + (" (unclear)" if r["decision"]["status"] == "unclear" else " (added back)"), "", ""))
-    dismissed = sum(1 for r in pairs if status[cmp.pair_id(r)] == "dismissed by user")
-    own = sum(1 for r in pairs if kept(status[cmp.pair_id(r)]) and is_own_use(r))
-    rel = relationship_between(target, portco)
-
-    def items(entries):
-        if html_out:
-            return "; ".join(he(t) + (outcome_chip(o) if o else "") + (f"<span class='sub2'>{he(w)}</span>" if w else "")
-                             for t, o, w in entries)
-        return "; ".join(t + (f" ({o}" + (f": {w}" if w else "") + ")" if o else "") for t, o, w in entries)
-    lines = []
-    if html_out:
-        if hor:
-            lines.append(f"<span class='lab lab-h'>{LABEL_TEXT['h']}</span> " + items(hor))
-        if ver:
-            lines.append(f"<span class='lab lab-v'>{LABEL_TEXT['v']}</span> " + items(ver)
-                         + f" <span class='sub2'>({he(target)} activity first; the arrow points to the customer)</span>")
-        if check:
-            lines.append("<span class='lab lab-q'>To check</span> " + items(check))
-        if rel:
-            quotes = "".join(f"<div class='it one'><span class='sub2'>{he(who)}'s sources:</span> {quoted(p)}</div>"
-                             for who, p in rel)
-            lines.append("<span class='lab lab-q'>Existing relationship</span> the public sources of "
-                         f"{he(target)} and {he(portco)} mention each other: check its nature (supply, distribution, "
-                         "partnership, equity); the tool does not assess it. "
-                         f"<details class='mkts' style='display:inline'><summary>{plural(len(rel), 'passage')}</summary>"
-                         f"{quotes}</details>")
-    else:
-        lines += [f"{LABEL_TEXT['h']}: " + items(hor)] if hor else []
-        lines += [f"{LABEL_TEXT['v']}: " + items(ver) + f" ({target} activity first; the arrow points to the "
-                  "customer)"] if ver else []
-        lines += ["To check: " + items(check)] if check else []
-        lines += [f"Existing relationship: the public sources of {target} and {portco} mention each other; check its "
-                  "nature (supply, distribution, partnership, equity)."] if rel else []
-    extra = [x for x in (f"dismissed by you: {dismissed}" if dismissed else "",
-                         f"own use: {plural(own, 'potential link')} (collapsed below)" if own else "") if x]
-    if extra:
-        lines.append((f"<span class='sub2'>{capital(' · '.join(extra))}</span>" if html_out
-                      else capital(" · ".join(extra))))
-    return lines
-
-
-# =============================================================== the report (step 5 and the Word document, 21 Oct)
-# Linda, 21 Oct: "The output should be a fully usable work product for the lawyer": the main part holds only the
-# lawyer's final choices (no "by you" tags, no struck labels, nothing dismissed); everything that points to the tool goes
-# into an Annex that can be ignored or deleted. Step 5 shows the summary of the same model, so that the screen and the
-# document always say the same. Built in code from the rows; no AI call.
+# =============================================================== the report (step ⑤ and the Word document)
+# The output is a fully usable work product for the lawyer: the main part holds only the lawyer's final choices (no "by
+# you" tags, no struck labels, nothing dismissed); everything that points to the tool goes into an Annex that can be
+# ignored or deleted. Step ⑤ shows the summary of the same model, so that the screen and the document always say the
+# same. Built in code from the rows; no AI call.
 def parse_commission(text):
-    """The Commission's view as the lawyer edited it ("Edit"), back into [(label, bullets, outcome)] (review fix,
-    21 Oct): the heading lines written by commission_plain ("Confirmed · Commission (horizontal):") keep the result
+    """The Commission's view as the lawyer edited it ("Edit"), back into [(label, bullets, outcome)]: the heading
+    lines written by commission_plain ("Confirmed · Commission (horizontal):") keep the result
     and the relationship, so an edited row still shows its result in the summary and the Word document."""
     groups = []
     for line in (x.strip() for x in text.split("\n")):
@@ -2206,7 +2103,7 @@ def activity_record(a, company):
 
 
 def report_model():
-    """Everything the summary and the Word document show (21 Oct). Pure code on the session."""
+    """Everything the summary and the Word document show. Pure code on the session."""
     current_overrides()
     target = ss.companies[0]["name"]
     portcos = [c["name"] for c in ss.companies[1:]]
@@ -2249,7 +2146,7 @@ def report_model():
                                 cited.setdefault(m.group(1), set()).add(int(m.group(2)))
                     if not is_own_use(r):
                         pair = f"{short_name(r['a'])} × {short_name(r['b'])}"
-                        outs = {}       # review fix: per relationship and direction; a label "" covers all
+                        outs = {}       # per relationship and direction; a label "" covers all
                         for lab_, _, o_ in rec["commission"]:
                             if lab_.startswith("horizontal"):
                                 keys = ["h"]
@@ -2263,7 +2160,7 @@ def report_model():
                             if lab["kind"] == "h":
                                 hor.append((pair, outs.get("h", ""), lab["view"]))
                             elif lab["kind"] == "v":
-                                arrow = "→" if lab["up"] == "a" else "←"     # the target supplies (review fix)
+                                arrow = "→" if lab["up"] == "a" else "←"     # the target supplies
                                 entry = (f"{short_name(r['a'])} {arrow} {short_name(r['b'])}",
                                          outs.get("va" if lab["up"] == "a" else "vb", ""), lab["view"])
                                 same = [x for x in ver if x[0] == entry[0] and x[1] == entry[1]]
@@ -2322,16 +2219,15 @@ def report_model():
 
 
 def company_lines(target, portco, pairs, status):
-    """Under each portfolio company's heading (20 Oct, late evening, Linda: the result boxes are cut, "the results are
-    clear enough from the table itself"): the counting sentence only. The existing relationship is shown in the rows
-    (relationship_rows). result_lines() stays for the Word document."""
+    """Under each portfolio company's heading: the counting sentence only (the results are clear from the table
+    itself). The existing relationship is shown in the rows (relationship_rows)."""
     st.markdown(portco_sentence(target, portco, pairs, status))
 
 
 def portco_section(i, p, target, pairs, status, rv):
     """One box per portfolio company. Every compared target activity appears once, in the target's order: with the
     rows that meet it and a line naming what does not. Rows involving only own use are collapsed below.
-    A portfolio company where nothing meets (17 Oct, Linda): its table is folded into one collapsed box, "open to
+    A portfolio company where nothing meets: its table is folded into one collapsed box, "open to
     check", with the same lines, reasons and "Add back" inside; once a pair is added back, the box opens up again."""
     with st.container(border=True):
         st.markdown(f"#### {i}. {esc(p)}")
@@ -2370,7 +2266,7 @@ def portco_section(i, p, target, pairs, status, rv):
 
 
 def section_body(t_acts, rows_of, is_out, pairs, status, rv, target, p, n_portco, nested):
-    """The table of one portfolio company's box: every target activity (side lines included, 20 Oct), then the rows
+    """The table of one portfolio company's box: every target activity (side lines included), then the rows
     that involve only own use, collapsed. Inside the collapsed box (nested) Streamlit allows no second expander, so
     "Own use" is a plain sub-heading there."""
     table_header(target, p)
@@ -2421,8 +2317,8 @@ STEP4_TEXT = ("How the European Commission defined the markets of the products i
               "decisions. Below each row: what follows for that row.")
 
 
-# 21 Oct (Linda): a short guide at the start of steps ②–④, open the first time the step appears, folded after that.
-# "A tool that states its limits openly makes the lawyer more willing to dismiss and apply their own judgement."
+# A short guide at the start of steps ②–④, open the first time the step appears, folded after that. A tool that
+# states its limits openly makes the lawyer more willing to dismiss and apply their own judgement.
 GUIDES = {
     2: ("How the research works", """Each company is researched on its own, in two searches of public websites: one for its main business, one for its side lines and own-use activities. The AI never sees another company of this screen or the planned deal.
 
@@ -2449,7 +2345,7 @@ def guide_box(step):
     title, text = GUIDES[step]
     seen = set(ss.get("guides_seen") or [])
     if step not in seen:                  # the first visit of this step: open, and open it stays during the visit
-        ss.guide_open = step              # (review fix: it used to fold at the first change on the page)
+        ss.guide_open = step              # (not folded by the first change on the page)
     ss.guides_seen = sorted(seen | {step})
     first = ss.get("guide_open") == step
     if step == 4:
@@ -2458,20 +2354,6 @@ def guide_box(step):
         text = text.replace("{years}", years or "see the decisions in the sidebar")
     with st.expander(title, expanded=first):
         st.markdown(text)
-
-
-@st.cache_data(show_spinner=False)
-def corpus_facts():
-    """What the corpus contains (no API call)."""
-    try:
-        paras = json.loads(open("corpus/paragraphs.json", encoding="utf-8").read())
-    except Exception:  # noqa: BLE001 - shown as unknown
-        return {"decisions": [], "paragraphs": 0}
-    cases = {}
-    for p in paras:
-        if p.get("source_type") == prec.SOURCE_DECISION:
-            cases[p["case"]] = f"{p['case']} {p['title']} ({p['date'][:4]})"
-    return {"decisions": sorted(cases.values()), "paragraphs": len(paras)}
 
 
 def stage_overview(ai, step=3):
@@ -2500,21 +2382,18 @@ def stage_overview(ai, step=3):
         for a in [ss.confirmed[target][i] for i in display_order(ss.confirmed[target])]:
             st.markdown(activity_line(a, target), unsafe_allow_html=True)
 
-    # 21 Oct (Linda): the decisions used are listed in the sidebar ("Commission decisions"), not above the rows
+    # the decisions used are listed in the sidebar ("Commission decisions"), not above the rows
     for i, p in enumerate(portcos, start=1):
         portco_section(i, p, target, [r for r in results if r["portco"] == p], status, rv)
 
-    # 20 Oct (Linda): no checklist of the Market Definition Notice on screen ("a lawyer would know that"); "No precedent"
-    # already says the market is to be assessed under the Notice. The questions only the company can answer go into
-    # the Word document as questions for the company (stage ⑥).
-    if DEV_MODE and ss.get("show_benchmark"):
-        benchmark_panel(results)
+    # no checklist of the Market Definition Notice on screen: "No precedent" already says the market is to be assessed
+    # under the Notice
     st.divider()
     precedent_button(units, todo)
 
 
 def run_summary():
-    """Required output (spec section 10): AI calls, models, cost and time of the run."""
+    """AI calls, models, cost and time of the run."""
     calls, cost, fees, searches, seconds, models = [], 0.0, 0.0, 0, 0.0, set()
     for stage in ("mapping", "confirm", "precedents"):
         part = stage_calls(stage)
@@ -2524,48 +2403,25 @@ def run_summary():
         searches += sum(c.get("web_searches", 0) for c in part)
         seconds += stage_seconds(stage)
         models |= {c["model"] for c in part}
-    # 19 Oct: the web search tool's per-call fee is included (ai_client.WEB_SEARCH_FEE, to verify)
+    # the web search tool's per-call fee is included (ai_client.WEB_SEARCH_FEE, to verify)
     text = (f"Run summary: {call_count(calls)} · models: {', '.join(sorted(models)) or 'none'} · USD {cost:.3f} "
             f"(of which USD {fees:.3f} for {searches} web search calls at USD {ai_client.WEB_SEARCH_FEE:g} each; "
             f"prices to verify) · {seconds:.0f} s")
     waits = sum(c.get("rate_limit_waits", 0) for c in calls)
-    if waits:                            # 20 Oct: 16 requests at once; the key's rate limit is waited out, never failed
+    if waits:                            # the key's rate limit is waited out, never failed
         text += f" · waited {plural(waits, 'time')} for the API key's rate limit"
     lf = ss.get("loaded_from")
-    if lf:                               # 20 Oct: steps ①–③ restored from a saved audit log (their calls were paid then)
+    if lf:                               # steps ①–③ restored from a saved audit log (their calls were paid then)
         before = lf.get("calls_before") or {}
-        # 20 Oct: counted like the run itself (the count included the embedding requests as "AI calls")
+        # counted like the run itself (embedding requests apart from AI calls)
         text += (f" · plus, before loading: {call_count(ss.get('loaded_calls') or [])}, USD "
                  f"{before.get('cost', 0):.3f} (the run of {lf.get('created') or 'unknown date'})")
     return text
 
 
-def benchmark_panel(results):
-    """Development only: the expert benchmark (benchmark.py) on the app's own results, for the examples (same target
-    and same portfolio only)."""
-    try:
-        import benchmark
-    except Exception:  # noqa: BLE001 - development tools not present
-        return
-    target = ss.companies[0]["name"]
-    portcos = {c["name"] for c in ss.companies[1:]}
-    case = next((k for k, ex in examples.EXAMPLES.items() if ex["target"] == target and set(ex["portfolio"]) == portcos),
-                None)
-    if not case:
-        return
-    view = {n: {"extraction": {"activities": acts}, "mentions": (ss.mapped.get(n) or {}).get("mentions", [])}
-            for n, acts in ss.confirmed.items()}
-    checks = benchmark.run_checks(case, target, view, results, rules.SIMILARITY_UNCLEAR)
-    with st.expander(f"Development: benchmark {case} (spec section 13)"):
-        st.dataframe(pd.DataFrame([{"Check": c["id"], "Portco": c["portco"], "Expected": c["expect"],
-                                    "Result": c["mark"], "What": c["what"], "Detail": c["detail"],
-                                    "Pairs": ", ".join(c["labels"][:6])} for c in checks]), hide_index=True)
-
-
-# =============================================================== step 5 summary (21 Oct, Linda)
-# "I like the summary, can we get it displayed in the app too as a step 5?" The same summary as page 1 of the Word
-# document (one bullet per relationship, the Commission's result and the lawyer's view), the open points, and the
-# download. Built in code from the rows, live; no AI call.
+# =============================================================== step ⑤ summary
+# The same summary as page 1 of the Word document (one bullet per relationship, the Commission's result and the lawyer's
+# view), the open points, and the download. Built in code from the rows, live; no AI call.
 def summary_html(model):
     def cell(entries):
         if not entries:
@@ -2602,10 +2458,9 @@ def stage_summary(ai):
                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 
-# =============================================================== stage ④ Commission market definitions (20 Oct)
-# Decided by Linda on 20 Oct: one search per target activity, covering the items of all its kept rows on both sides;
-# at most one rewrite of the queries; tested on the frozen step ③ through the loader below. The search itself is in
-# precedents.py; everything shown here is assembled in code from its stored records.
+# =============================================================== step ④ Commission market definitions
+# One search per target activity, covering the items of all its kept rows on both sides; at most one rewrite of the
+# queries. The search itself is in precedents.py; everything shown here is assembled in code from its stored records.
 def prec_plan():
     """(units, todo): one unit per target activity with kept rows; todo = those without a search that still covers
     them (new, changed, or rows added back since). Dismissing a row never forces a new search."""
@@ -2621,9 +2476,8 @@ def prec_plan():
 
 def stale_units(todo):
     """The target activities whose rows changed since their search: their rows say "Changed since the search".
-    20 Oct (bug fix): before, every search to run again counted as changed, also one that had failed, so the row
-    said "Changed since the search" and the line "✖ The search failed" could never appear. A failed search keeps
-    its record and shows its failure; "Update the market definitions" runs it again either way."""
+    A search that failed does not count as changed: it keeps its record and shows its failure; "Update the market
+    definitions" runs it again either way."""
     store = ss.get("precedents") or {}
     out = set()
     for u in todo:
@@ -2634,7 +2488,8 @@ def stale_units(todo):
 
 
 def run_precedents(ai):
-    """Runs the searches that are needed, in parallel (at most ai_client.MAX_PARALLEL AI requests at once), and opens step ④."""
+    """Runs the searches that are needed, in parallel (at most ai_client.MAX_PARALLEL AI requests at once), and opens
+    step ④."""
     import retrieval                       # ChromaDB is loaded only when step ④ runs
     current_overrides()
     units, todo = prec_plan()
@@ -2653,8 +2508,8 @@ def run_precedents(ai):
                  "Nothing was changed; go back and try again.")
         st.button("← Back to the assessment", on_click=go_to, args=(3,))
         return False
-    # 20 Oct: a progress bar per type of product (with medium effort step ④ takes several minutes); the worker
-    # threads count, this thread only reads
+    # a progress bar per type of product (step ④ takes several minutes); the worker threads count, this thread
+    # only reads
     progress = prec.Progress()
     with cf.ThreadPoolExecutor(ai_client.MAX_PARALLEL) as ex:
         futures = {ex.submit(prec.run_unit, ai, u, ss.names, retriever, retriever.paragraphs, progress): u
@@ -2685,7 +2540,7 @@ def run_precedents(ai):
 
 
 def show_search_done(store, u, rec, card):
-    """Stores one finished search and writes its line in the developer details (20 Oct: split out of run_precedents)."""
+    """Stores one finished search and writes its line in the developer details."""
     store[u["target_aid"]] = rec
     name = capital(u["target_product"])
     if rec.get("error"):
@@ -2709,11 +2564,11 @@ def row_view(r):
     return rec, prec.row_view(r, rec, search_overrides(), cmp.effective_status, cmp.dismissed_parts)
 
 
-# =============================================================== step ④ under each row (20 Oct, Linda)
-# The Commission's markets are no longer squeezed into a table column: under each row, full width, after the facts and
-# the preliminary assessment, one card per market says what the Commission defined (its own words, checked in code),
-# what the market covers, why it was separated, and which products of each company it covers. Every paragraph is cited
-# as [M.5644 (24)]; hovering shows the paragraph exactly as the AI saw it, a click opens the decision.
+# =============================================================== step ④ under each row
+# The Commission's markets: under each row, full width, after the facts and the preliminary assessment, one card per
+# market says what the Commission defined (its own words, checked in code), what the market covers, why it was
+# separated, and which products of each company it covers. Every paragraph is cited as [M.5644 (24)]; hovering shows the
+# paragraph exactly as the AI saw it, a click opens the decision.
 PREF_CSS = """<style>
 [data-testid="stMarkdownContainer"]{position:relative}
 .pref{position:static;cursor:help;color:#3A5A80;text-decoration:none !important;border-bottom:1px dotted #3A5A80;
@@ -2759,9 +2614,9 @@ PREF_CSS = """<style>
 </style>"""
 
 def h(text):
-    """Text from the decisions, the sources or the AI, made safe inside an HTML block. 20 Oct: line breaks become
-    spaces, because a blank line in AI text (a summary, a quotation not found) would end the HTML block and show the
-    rest of the step ④ block as raw code."""
+    """Text from the decisions, the sources or the AI, made safe inside an HTML block. Line breaks become spaces,
+    because a blank line in AI text (a summary, a quotation not found) would end the HTML block and show the rest of the
+    step ④ block as raw code."""
     return html.escape(re.sub(r"\s*\n\s*", " ", str(text or "")), quote=True).replace("$", "&#36;")
 
 
@@ -2776,7 +2631,7 @@ def corpus_paragraphs():
 
 def decision_text(d):
     """'Article 6(1)(b) in conjunction with Article 6(2), with commitments (Phase I)' -> 'Phase I, cleared with
-    commitments' (21 Oct, Linda: a calmer hover)."""
+    commitments' (a calmer hover)."""
     d = d or ""
     if not d:
         return ""
@@ -2790,8 +2645,8 @@ def decision_text(d):
 
 def para_ref(pid, paras):
     """[M.5644 (24)]: hover shows the paragraph as the AI saw it (decision, year, part of the decision, text,
-    footnotes); a click opens the decision. 21 Oct (Linda): the second line only names the part of the decision and
-    how the case ended ("Relevant product market · A. Chocolate confectionery · Phase I, cleared with commitments")
+    footnotes); a click opens the decision. The second line only names the part of the decision and how the case
+    ended ("Relevant product market · A. Chocolate confectionery · Phase I, cleared with commitments")
     instead of the whole path with ">" and the legal basis."""
     p = paras.get(pid) or corpus_paragraphs().get(pid)
     case, _, n = pid.rpartition("-")
@@ -2854,7 +2709,7 @@ def row_markets(view):
 CONCLUSION_TEXT = {"defined": "defined", "left open": "definition left open",
                    prec.PARTLY: "defined, a further question left open",
                    prec.NOT_STATED: "no market definition in the paragraphs found: check the decision"}
-SETTLED = ("defined", prec.PARTLY)          # a boundary the Commission decided (20 Oct)
+SETTLED = ("defined", prec.PARTLY)          # a boundary the Commission decided
 
 
 def decision_of(m):
@@ -2867,7 +2722,7 @@ def decision_of(m):
 
 
 def decision_years(cases):
-    """"M.5644: 2009, M.6872: 2013" (review fix: a decision missing from the corpus is left out, not "M.5644: M.5644")."""
+    """"M.5644: 2009, M.6872: 2013" (a decision missing from the corpus is left out)."""
     out = []
     for c in cases:
         p = next((x for pid, x in corpus_paragraphs().items() if pid.startswith(c + "-")), None)
@@ -2881,18 +2736,10 @@ def decision_label(case):
     return f"{case} {p['title']} ({str(p['date'])[:4]})" if p else case
 
 
-def screen_paragraphs():
-    out = {}
-    for rec in (ss.get("precedents") or {}).values():
-        out.update(rec.get("paragraphs") or {})
-    return out
-
-
 def screen_records():
-    """The stored searches of the rows kept NOW, each with the ids of the products those rows still use.
-    20 Oct (bug fix): the definitions section and "Are these decisions still applicable today?" read every stored
-    search, so a market stayed listed as "used in this screen" after its rows were dismissed, or after its target
-    activity was deleted or excluded in step ②."""
+    """The stored searches of the rows kept NOW, each with the ids of the products those rows still use, so that a
+    market is no longer listed as "used in this screen" after its rows were dismissed, or after its target activity
+    was deleted or excluded in step ②."""
     current_overrides()
     units, _ = prec_plan()
     store = ss.get("precedents") or {}
@@ -2930,26 +2777,17 @@ def _best(markets):
                                        bool(m.get("scope_quote_found"))))
 
 
-def _quote(m, part, paras):
-    quote, found, pid = m.get(f"{part}_quote"), m.get(f"{part}_quote_found"), m.get(f"{part}_paragraph")
-    if quote and found:
-        return f"<span class='qt'>“{h(quote)}”</span> {para_ref(pid, paras)}"
-    if quote:
-        return f"<span class='aiw'>{h(quote)} (the AI's wording: not found word for word)</span>"
-    return ""
-
-
 def mname(name):
-    """A market's name as shown (21 Oct): "Market for tablets" and "tablets" are the same market, shown as "Tablets"."""
+    """A market's name as shown: "Market for tablets" and "tablets" are the same market, shown as "Tablets"."""
     name = re.sub(r"^\s*(?:the\s+)?(?:relevant\s+)?(?:product\s+)?markets?\s+for\s+(?:the\s+)?", "", name or "",
                   flags=re.IGNORECASE)
     return capital(name.strip())
 
 
 def is_reseller(act):
-    """A shop or a wholesaler (21 Oct): its own market is the retail or wholesale of the products it sells. The
-    Commission's markets found for its products are markets for making and supplying them, so they describe what it
-    sells, not its own market (decided by Linda: "worth fixing")."""
+    """A shop or a wholesaler: its own market is the retail or wholesale of the products it sells. The Commission's
+    markets found for its products are markets for making and supplying them, so they describe what it sells, not its
+    own market."""
     return (act or {}).get("value_chain_level") in RESELLER_LEVELS
 
 
@@ -2958,9 +2796,8 @@ def level_word(act):
 
 
 def decisions_html():
-    """The sidebar's "Commission decisions" (21 Oct, Linda: moved from above the rows, where it was useful but
-    crowded): one line per decision used in this screen, linked to the decision; on hover, the markets the screen uses
-    from it. Plus the Market Definition Notice."""
+    """The sidebar's "Commission decisions": one line per decision used in this screen, linked to the decision; on
+    hover, the markets the screen uses from it. Plus the Market Definition Notice."""
     used = used_markets()
     if not used:
         return ""
@@ -2998,7 +2835,7 @@ def decisions_html():
 
 
 def market_hover(m, paras, category=None):
-    """A market name; hover shows its definition in short (21 Oct: the decisions are listed in the sidebar)."""
+    """A market name; hover shows its definition in short (the decisions are listed in the sidebar)."""
     case = decision_of(m)
     status = ("a category the Commission divided into separate markets (" + ", ".join(category) + ")"
               if category else CONCLUSION_TEXT.get(m.get("conclusion"), "defined"))
@@ -3006,7 +2843,7 @@ def market_hover(m, paras, category=None):
     box += f"<br><span style='opacity:.7'>{h(decision_label(case))}</span>" if case else ""
     prec.upgrade_market(m)
     for label, part in (("Decided", "decided"), ("Left open", "open"), ("Covers", "scope"),
-                        ("Left open in another decision", "other_open")):        # 20 Oct
+                        ("Left open in another decision", "other_open")):
         q, pid = m.get(f"{part}_quote"), m.get(f"{part}_paragraph")
         if q and m.get(f"{part}_quote_found"):
             box += f"<br><i>{label}:</i> “{h(q)}” ({h(pid.replace('-', ' (') + ')')})"
@@ -3017,7 +2854,7 @@ def market_hover(m, paras, category=None):
 
 
 def _items_html(g, market_name=""):
-    """One side's products in one market (20 Oct, Linda): a product that could be in several markets says where else
+    """One side's products in one market: a product that could be in several markets says where else
     it could be, e.g. “chocolate bars (or Tablets)”; a range or the activity's own name is marked “(general term)”."""
     if not g:
         return "–"
@@ -3095,9 +2932,9 @@ def outcome_chip(outcome):
 
 
 def horizontal_outcome(entries, verdict, rs=None):
-    """What the Commission's view means for a horizontal row (20 Oct evening, Linda): Confirmed · Possible · Not
-    excluded · Not supported · No precedent. The strongest result of the row counts.
-    21 Oct: a category the Commission divided into separate markets is not a market: both products in it is
+    """What the Commission's view means for a horizontal row: Confirmed · Possible · Not excluded · Not supported ·
+    No precedent. The strongest result of the row counts.
+    A category the Commission divided into separate markets is not a market: both products in it is
     "Possible" (which segment is to be checked). A shop or wholesaler on either side: "No precedent" (its own market
     is the retail or wholesale of the products, which the decisions found do not define)."""
     if rs and (rs.get("a") or rs.get("b")):
@@ -3116,7 +2953,7 @@ def horizontal_outcome(entries, verdict, rs=None):
 
 
 def vertical_outcome(entries, up, rs=None):
-    """21 Oct: a shop's or wholesaler's side counts as no precedent (see is_reseller)."""
+    """The same for a vertical relationship; a shop's or wholesaler's side counts as no precedent (see is_reseller)."""
     down = "b" if up == "a" else "a"
     sides = sum(1 for s in (up, down) if any(e[s] for e in entries) and not (rs and rs.get(s)))
     return {2: "Markets defined", 1: "One side defined", 0: "No precedent"}[sides]
@@ -3126,7 +2963,7 @@ PREFIX_SEP = ":\u2009 "         # plain text: ends the products a bullet concern
 
 
 def _prefix(es, html_out=True, limit=3):
-    """The products a bullet concerns (21 Oct, Linda: bullets that say which products meet)."""
+    """The products a bullet concerns (each bullet says which products meet)."""
     items = list(dict.fromkeys(i for e in es for side in ("a", "b") for i in ((e[side] or {}).get("items") or [])))
     text = ", ".join(items[:limit]) + (" …" if len(items) > limit else "")
     if not text:
@@ -3135,9 +2972,9 @@ def _prefix(es, html_out=True, limit=3):
 
 
 def horizontal_sentences(entries, view, verdict, target, portco, paras, html_out=True, rs=None, acts=None):
-    """The Commission's view of a horizontal row as bullets, in the Commission's own terms (20 Oct, Linda; checked
-    against M.5644, M.6872 and M.9798; 21 Oct: one bullet per group of products, a category divided into separate
-    markets named as such, and the level rule for shops and wholesalers)."""
+    """The Commission's view of a horizontal row as bullets, in the Commission's own terms (wording checked against
+    M.5644, M.6872 and M.9798): one bullet per group of products, a category divided into separate markets named as
+    such, and the level rule for shops and wholesalers."""
     T, P = (he(target), he(portco)) if html_out else (target, portco)
 
     def names(es, joiner=", "):
@@ -3155,7 +2992,7 @@ def horizontal_sentences(entries, view, verdict, target, portco, paras, html_out
             if la == lb:
                 text = (f"no decision in the database covers the {la} of these products: to be assessed under the "
                         "Market Definition Notice")
-            else:           # review fix: retail v wholesale are different levels of trade
+            else:           # retail v wholesale are different levels of trade
                 text = (f"different levels of trade ({T}: {la}; {P}: {lb}): a horizontal overlap only if both sell to "
                         f"the same customers; no decision in the database covers the {la} or {lb} of these products: "
                         "to be assessed under the Market Definition Notice")
@@ -3217,7 +3054,7 @@ def horizontal_sentences(entries, view, verdict, target, portco, paras, html_out
 
 def vertical_sentence(entries, view, up, target, portco, paras, html_out=True, rs=None, acts=None):
     """The Commission's view of a vertical relationship as two bullets, in the Commission's terms (M.6872 (51)–(52)):
-    the upstream and the downstream market. 21 Oct: a shop's or wholesaler's side is the retail or wholesale of the
+    the upstream and the downstream market. A shop's or wholesaler's side is the retail or wholesale of the
     products it sells (no precedent); the markets of those products are named as what it sells."""
     down = "b" if up == "a" else "a"
     who = {"a": he(target) if html_out else target, "b": he(portco) if html_out else portco}
@@ -3248,8 +3085,8 @@ def vertical_sentence(entries, view, up, target, portco, paras, html_out=True, r
 
 def commission_parts(r, target, portco):
     """Everything the Commission line of a row needs: (record, view, entries, horizontal shown, upstream sides, verdict)
-    or None. A horizontal overlap the lawyer added uses the same stored search (no new search, option C).
-    21 Oct: an entry without a conclusion that cites the paragraph in which the same decision defines other markets of
+    or None. A horizontal overlap the lawyer added uses the same stored search (no new search).
+    An entry without a conclusion that cites the paragraph in which the same decision defines other markets of
     this search is a category the Commission divided into those markets (e["category"]: their names), not a market."""
     if not ss.get("precedents"):
         return None
@@ -3285,7 +3122,7 @@ def reseller_flags(r):
 
 
 def commission_sentences(r, target, portco, html_out=True):
-    """[(label, bullets, outcome)], one per relationship shown in the row (21 Oct: bullets)."""
+    """[(label, bullets, outcome)], one per relationship shown in the row."""
     parts = commission_parts(r, target, portco)
     if not parts or parts[1] is None or parts[1].get("error"):
         return []
@@ -3323,43 +3160,10 @@ def commission_plain(r, target, portco):
                      for label, bullets, outcome in sentences)
 
 
-def commission_short(r, target, portco):
-    """A few words for the summary: where the Commission puts the two sides' products (step ④ only)."""
-    parts = commission_parts(r, target, portco)
-    if not parts or parts[1] is None or parts[1].get("error"):
-        return "", ""
-    rec, view, entries, h_on, ups, verdict = parts
-    rs = reseller_flags(r)
-    outcome = horizontal_outcome(entries, verdict, rs)
-    if rs["a"] or rs["b"]:
-        both = rs["a"] and rs["b"] and level_word(r["a"]) == level_word(r["b"])
-        return outcome, (f"{level_word(r['a'])} market not covered" if both else
-                         "retail or wholesale market not covered")
-    if verdict and verdict.get("different"):
-        return "Not supported", "separate markets"
-    shared = [e for e in entries if e["a"] and e["b"]]
-    conc = lambda e: e["market"].get("conclusion")   # noqa: E731
-    name = lambda es: ", ".join(mname(e["market"]["name"]) for e in es)   # noqa: E731
-    bits = []
-    same = [e for e in shared if not e.get("category") and _rank(e) == "specific" and conc(e) in SETTLED]
-    left = [e for e in shared if not e.get("category") and _rank(e) == "specific" and conc(e) == "left open"]
-    maybe = [e for e in shared if not e.get("category") and _rank(e) != "specific"]
-    cat = [e for e in shared if e.get("category")]
-    if same:
-        bits.append(f"same market: {name(same)}")
-    if left:
-        bits.append(f"definition left open: {name(left)}")
-    if maybe:
-        bits.append(f"possibly: {name(maybe)}")
-    if cat and not (same or maybe):
-        bits.append(f"within {name(cat)} (divided into separate markets)")
-    return outcome, "; ".join(bits)
-
-
 def grouped_markets(view, entries, h_on, ups, target, portco, paras, rs=None, acts=None):
-    """The Commission's markets for one row, grouped (20 Oct, Linda: option 4): for a horizontal row “Same market”,
-    “Possibly the same market”, “Only one company”, “No precedent”; for a vertical row the upstream and the downstream
-    market. 21 Oct: one market per line with one line per company below; a category divided into separate markets is
+    """The Commission's markets for one row, grouped: for a horizontal row “Same market”, “Possibly the same market”,
+    “Only one company”, “No precedent”; for a vertical row the upstream and the downstream market. One market per
+    line with one line per company below; a category divided into separate markets is
     its own group; a shop's or wholesaler's side is labelled as what it sells; names escaped once (no "&amp;")."""
     rs, acts = rs or {}, acts or {}
 
@@ -3429,9 +3233,9 @@ def grouped_markets(view, entries, h_on, ups, target, portco, paras, rs=None, ac
 
 
 def commission_cell(r, target, portco):
-    """Step ④, the Commission column of a row (21 Oct, Linda: option 2, the Commission as its own column, after the
-    preliminary assessment): per relationship the result chip and the bullets, in the colour of the result. Code
-    only, no AI call. Returns the market list for under the row (or "")."""
+    """Step ④, the Commission column of a row (after the preliminary assessment): per relationship the result chip and
+    the bullets, in the colour of the result. Code only, no AI call. Returns the market list for under the row (or
+    "")."""
     if not ss.get("precedents") or ss.get("step") != 4:
         return ""
     rec, view = row_view(r)
@@ -3470,7 +3274,7 @@ def commission_cell(r, target, portco):
 
 
 def precedent_warnings(units):
-    """Only what needs action (20 Oct, Linda: the search summary is gone from the page; it is in the progress file)."""
+    """Only what needs action (the search summary is in the saved progress file, not on the page)."""
     records = [ss.precedents[u["target_aid"]] for u in units if u["target_aid"] in ss.precedents]
     s = prec.summary(records)
     if s["errors"]:
@@ -3491,7 +3295,7 @@ def precedent_button(units, todo):
         label = (f"Update the market definitions ({plural(len(todo), 'search', 'searches')} for new or changed rows, "
                  f"{len(units) - len(todo)} kept)")
     else:
-        return                      # 20 Oct (Linda): no "up to date" line; a changed row shows its own note
+        return                      # no "up to date" line; a changed row shows its own note
     if st.button(label, type="primary"):
         if failed:          # a failed search is never "reusable": drop it so that it runs again
             for u in failed:
@@ -3529,10 +3333,9 @@ def precedent_rows():
     return out
 
 
-# =============================================================== continue a saved screen (F1, 20 Oct)
-# Linda, 19 Oct: "might even be a good feature to leave, as you might only be interested in step 4". Restores steps
-# ①–③ (and ④, if the file has it) from an audit log downloaded from this app, without any AI call. The file stays
-# with the lawyer; the app stores nothing.
+# =============================================================== continue a saved screen
+# Useful e.g. for a lawyer who is only interested in step ④. Restores steps ①–③ (and ④, if the file has it) from an
+# audit log downloaded from this app, without any AI call. The file stays with the lawyer; the app stores nothing.
 AUDIT_REQUIRED = ("companies", "stage_1_2_activity_mapping", "stage_2_confirmed_activities",
                   "stage_3_factual_comparison")
 
@@ -3569,13 +3372,13 @@ def load_audit(data):
     ss.mapped = {c["name"]: mapped.get(c["name"]) or {"extraction": {"activities": confirmed[c["name"]]}}
                  for c in companies}
     ss.map_keys = {c["name"]: company_key(c) for c in companies}
-    # 21 Oct: found again from the saved research, with the rule of 21 Oct (a saved file may hold false matches)
+    # found again from the saved research, with the current rule (a saved file may hold false matches)
     ss.relationships = am.find_relationships(ss.mapped, companies,
                                              (data.get("anonymisation") or {}).get("kept_as_ordinary_words") or ())
     cmp.ensure_ids(confirmed)
     ss.acts = copy.deepcopy(confirmed)
     ss.profiles_text = data.get("stage_2_company_profiles") or {}
-    # 20 Oct: the saved profiles count as the lawyer's version (they may have been edited); mapping a company again
+    # the saved profiles count as the lawyer's version (they may have been edited); mapping a company again
     # replaces its profile, as in a live screen
     ss.profiles_edit = {n: t for n, t in ss.profiles_text.items() if isinstance(t, str)}
     anon = data.get("anonymisation") or {}
@@ -3612,7 +3415,7 @@ def load_audit(data):
 
 
 def loader_box():
-    """'Open saved progress' in the sidebar (20 Oct; before: 'Continue a saved screen' in step ①)."""
+    """'Open saved progress' in the sidebar."""
     st.caption("Continues a screen from a progress file saved with this app (.json): companies, activities, the "
                "assessment and step ④, with your dismissals, notes and edits, without any AI call. The current "
                "screen is replaced. The file stays with you; the app stores nothing.")
@@ -3640,7 +3443,7 @@ def loader_box():
 # =============================================================== audit log
 def audit_calls():
     """Every call of the current screen (since the screen started): the research of each company, including companies
-    mapped again, and every comparison run. Since 16 Oct a comparison only sends new or changed pairs, so no call
+    mapped again, and every comparison run. A comparison only sends new or changed pairs, so no call
     is repeated, and the results shown can come from any of these runs."""
     return ss.log.calls[ss.get("run_first", 0):]
 
@@ -3648,21 +3451,21 @@ def audit_calls():
 def audit_snapshot(ai):
     """References to everything the audit log contains, taken in the script thread. The JSON itself is built
     only when the user clicks the download button (on another thread, which cannot read session state).
-    20 Oct: the overrides are refreshed first; "Save progress" sits in the sidebar, which is drawn before the table,
-    so without this a box ticked just before saving was missing from the file."""
+    The overrides are refreshed first: "Save progress" sits in the sidebar, which is drawn before the table, so
+    without this a box ticked just before saving would be missing from the file."""
     if ss.get("results") is not None:
         current_overrides()
     return {"created": datetime.now().isoformat(timespec="seconds"), "profile": PROFILE, "dev_mode": DEV_MODE,
-            "cache": USE_CACHE, "saved_searches": USE_SAVED, "models": dict(ai.models),
+            "cache": USE_CACHE, "models": dict(ai.models),
             "companies": ss.get("companies"), "mapped": ss.get("mapped"), "relationships": ss.get("relationships"),
             "confirmed": ss.get("confirmed"),
-            # 20 Oct: the profiles as shown now (an edit after the comparison was missing from the audit log)
+            # the profiles as shown now (including an edit after the comparison)
             "profiles": {c["name"]: profile_of(c["name"]) for c in ss.get("companies") or []},
             "names": list(ss.get("names") or []), "keep_words": list(ss.get("keep_words") or []),
             "keep_proposed": list(ss.get("keep_proposed") or []), "drop_words": list(ss.get("drop_words") or []),
             "abstracts": ss.get("profiles_meta"), "results": list(ss.get("results") or []),
             "overrides": dict(ss.get("overrides") or {}), "calls": audit_calls(),
-            # 20 Oct: stage ④ (one search per target activity) and, for a continued screen, where it came from
+            # step ④ (one search per target activity) and, for a continued screen, where it came from
             "precedents": dict(ss.get("precedents") or {}), "precedent_rows": precedent_rows(),
             "loaded_from": ss.get("loaded_from"), "loaded_calls": list(ss.get("loaded_calls") or [])}
 
@@ -3676,7 +3479,7 @@ def audit_json(snap):
             for r in snap["results"]]
     log = {
         "created": snap["created"], "profile": snap["profile"], "dev_mode": snap["dev_mode"],
-        "development_cache": snap["cache"], "saved_searches": snap["saved_searches"], "models": snap["models"],
+        "development_cache": snap["cache"], "models": snap["models"],
         "prices": {"checked": ai_client.PRICES_CHECKED, "usd_per_1m_tokens": ai_client.PRICES},
         "thresholds": {"input_match": rules.INPUT_MATCH, "resale_match": rules.RESALE_MATCH},
         "companies": snap["companies"],
@@ -3711,7 +3514,7 @@ def audit_json(snap):
 
 # =============================================================== development sidebar
 def deployment_check(ai):
-    """One AI call, ChromaDB on this machine, and one hybrid search (spec section 16: deployment test)."""
+    """Deployment test: one AI call, ChromaDB on this machine, and one hybrid search."""
     rows = []
     try:
         t = time.time()
@@ -3732,7 +3535,7 @@ def deployment_check(ai):
                                                        for h in res["hits"])))
     except Exception as e:  # noqa: BLE001
         rows.append(("ChromaDB / retrieval", "✖", f"{type(e).__name__}: {e}"))
-    try:                                      # option B: can the server open public pages and read PDFs? (18 Oct)
+    try:                                      # can the server open public pages and read PDFs?
         import pypdf
         t = time.time()
         page = am.source_check.fetch("https://example.com/")
@@ -3747,8 +3550,7 @@ def deployment_check(ai):
 
 
 def legend_html(step):
-    """The legend (20 Oct evening, Linda: "way too long"): only what the current step needs, one short line each; the
-    full explanation on hover."""
+    """The legend: only what the current step needs, one short line each; the full explanation on hover."""
     def line(mark, text, tip):
         return f"<div class='lg' title='{h(tip)}'>{mark} <span class='sub2'>{text}</span></div>"
     src = (line("<span class='src'>[4]</span>✔", "checked: the quotation is on the page",
@@ -3799,11 +3601,11 @@ def legend_html(step):
 
 
 def sidebar_panel(ai, step):
-    """The sidebar for everyone (20 Oct, Linda): the key, the actions for this screen, the legend and the run summary;
+    """The sidebar for everyone: the key, the actions for this screen, the legend and the run summary;
     the development tools collapsed at the end, in development only."""
     with st.sidebar:
         st.markdown("**This screen**")
-        if ss.get("companies") and step > 1:      # 21 Oct (Linda): moved here from under the step tabs
+        if ss.get("companies") and step > 1:
             n = len(ss.companies) - 1
             st.caption(f"{esc(ss.companies[0]['name'])} and {plural(n, 'portfolio company', 'portfolio companies')}")
         if st.button("Start over", width="stretch", help="Discard this screen and start again"):
@@ -3826,7 +3628,7 @@ def sidebar_panel(ai, step):
         with st.expander("Open saved progress"):
             loader_box()
         if step >= 2:
-            with st.expander("Legend", expanded=True):       # 21 Oct (Linda): open in every step
+            with st.expander("Legend", expanded=True):       # open in every step
                 st.markdown(legend_html(step), unsafe_allow_html=True)
         if step >= 4 and ss.get("precedents"):
             decisions = decisions_html()
@@ -3843,9 +3645,7 @@ def sidebar_panel(ai, step):
 
 def dev_sidebar(ai):
     with st.expander("Developer"):
-        st.caption(f"**DEV_MODE** · profile **{PROFILE}** · cache {'on' if USE_CACHE else 'off'} · "
-                   f"saved searches {'on' if USE_SAVED else 'off'}")
-        st.checkbox("Show the benchmark under step ③/④", key="show_benchmark")
+        st.caption(f"**DEV_MODE** · profile **{PROFILE}** · cache {'on' if USE_CACHE else 'off'}")
         for name, label in (("mapping", "Step ②"), ("confirm", "Step ③"), ("precedents", "Step ④")):
             if name in ss.stage_logs:
                 st.caption(f"{label}: {stage_cost(name)}")
@@ -3871,8 +3671,8 @@ def dev_sidebar(ai):
 
 
 # =============================================================== page
-# The landing page (20 Oct evening, Linda: "should be explained in steps", with a visual break between them: option
-# B, a vertical timeline). The same block is shown under "How this tool works" on the later steps.
+# The landing page explains the tool in steps, as a vertical timeline. The same block is shown under "How this tool
+# works" on the later steps.
 INTRO_STEPS = [
     ("Companies", "Enter the company to be bought (the target) and the companies the buyer already owns (the portfolio "
                   "companies)."),
@@ -3916,8 +3716,8 @@ window.parent.scrollTo(0, 0);
 
 def scroll_to_top_on_new_step(step):
     """Streamlit keeps the scroll position when the screen changes, so a new step would open in the middle of the
-    page (16 Oct). A small script jumps to the top once per change of step."""
-    slot = st.empty()          # always one element here, so that everything below keeps its position (17 Oct)
+    page. A small script jumps to the top once per change of step."""
+    slot = st.empty()          # always one element here, so that everything below keeps its position
     if ss.get("_shown_step") != step:
         ss._shown_step = step
         if ss.get("guide_open") != step:      # a guide opened on its first visit stays open for that visit only
@@ -3927,8 +3727,8 @@ def scroll_to_top_on_new_step(step):
 
 
 def progress_nav(step):
-    """The steps as tabs (20 Oct, Linda: plain words, the current step underlined in ink, steps not reached yet pale;
-    no ticks). Every step already reached can be opened again; nothing is deleted by going back."""
+    """The steps as tabs (plain words, the current step underlined in ink, steps not reached yet pale). Every step
+    already reached can be opened again; nothing is deleted by going back."""
     reachable = {1: True, 2: bool(ss.get("acts")), 3: ss.get("results") is not None,
                  4: ss.get("results") is not None and bool(ss.get("precedents")),
                  5: ss.get("results") is not None and bool(ss.get("precedents"))}
@@ -3939,10 +3739,10 @@ def progress_nav(step):
 
 
 st.title("EU Overlap Screen")
-api_key = credentials()        # 21 Oct: the first screen until the password (or key) is entered
+api_key = credentials()        # the first screen until the password (or key) is entered
 step = ss.get("step", 1)
-# The start page (20 Oct evening, Linda: the explanation in steps on a page of its own; step ① shows only the
-# companies). Shown once per session, before anything is entered; a saved screen that is opened skips it, and
+# The start page: the explanation in steps on a page of its own (step ① shows only the companies). Shown once per
+# session, before anything is entered; a saved screen that is opened skips it, and
 # "Start over" leads straight to step ①.
 if not ss.get("started") and step == 1 and not ss.get("companies"):
     st.markdown(intro_html(), unsafe_allow_html=True)
@@ -3965,7 +3765,7 @@ if step in (4, 5) and not ss.get("precedents"):
 scroll_to_top_on_new_step(step)
 progress_nav(step)
 sidebar_panel(ai, step)
-# Two slots (17 Oct): the working screen and the page. During long work the page slot is set to empty, which removes
+# Two slots: the working screen and the page. During long work the page slot is set to empty, which removes
 # the previous screen at once (writing a new container into the same slot would keep its old children, faded, until
 # the work ends), and the progress is shown in the slot above it.
 work = st.empty()

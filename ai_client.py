@@ -1,20 +1,20 @@
 """
-ai_client.py - the one wrapper every AI call goes through (spec sections 7 and 8).
+ai_client.py - the one wrapper every AI call goes through.
 
     ai = AI(profile="dev", api_key=..., use_cache=True, log=CallLog())   one per run
     ai.respond(step, input, ...)     Responses API call: the model for this step comes from the profile,
                                      timeout, one retry, every call logged (tokens, reasoning tokens,
                                      web searches, time, cost, names contained)
     ai.embed(texts, note)            embeddings (text-embedding-3-large), logged the same way
-    ai.cache_get / ai.cache_put      response cache, DEVELOPMENT ONLY. Same folder (cache/) and same keys as
-                                     test_compare.py, so the app reuses every call already paid for in the tests.
+    ai.cache_get / ai.cache_put      response cache in cache/, DEVELOPMENT ONLY (re-running a test case costs
+                                     nothing); never active in the submitted version.
 
 The confidentiality guard (rules.find_names) is applied by the step modules before every request, because only
 they know which company a call is allowed to contain. This file has no Streamlit code, so it runs in the terminal.
 
 Settings are read from .env (Codespace) or from Secrets (Streamlit Cloud), never from the code:
     DEV_MODE=1              password gate, cost counter, development tools (switch OFF before submission)
-    MODEL_PROFILE=dev       dev = GPT-6 Luna everywhere; final = the mix of spec section 8
+    MODEL_PROFILE=dev       dev = GPT-6 Luna everywhere; final = the models chosen per step (PROFILES below)
     USE_CACHE=1             response cache on (only has an effect when DEV_MODE=1)
     MODEL_<STEP>=...        optional override for one step, e.g. MODEL_COMPARE=gpt-6.1-sol (evaluation runs)
 """
@@ -47,37 +47,34 @@ def flag(name, default=False):
     return setting(name, "1" if default else "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
-# =============================================================== models (spec section 8)
+# =============================================================== models per step
 EMBED_MODEL = "text-embedding-3-large"
 STEPS = ("search", "extract", "compare", "query", "reflect", "assess", "summary", "check")
 
 PROFILES = {
-    # Default during the build: GPT-6 Luna for every step (plus the saved Sol searches, see activity_mapping.py)
-    # 20 Oct (Linda): the reflection of stage 4 at medium effort, in both profiles, so that every test runs the setting
-    # that is submitted (at low effort the same input gave different placements from run to run)
+    # Development: GPT-6 Luna for every step. The step ④ reflection runs at medium effort, as in the submitted
+    # version, because at low effort the same input gave different results from run to run.
     "dev": {step: ("gpt-6-luna", "medium" if step == "reflect" else "low") for step in STEPS},
-    # Sol checkpoints and the submitted version
+    # The submitted version
     "final": {
-        # 17 Oct (Linda): Luna with two complementary searches per company instead of one Sol search. Live test of
-        # 17 Oct: Sol closed the gaps of a single Luna search but cost about USD 2.50 per case (Luna about 0.10 plus
-        # search fees) and took 5 minutes; the marker pays with their own key. Was Sol (decided 14 Oct).
+        # Luna with two complementary searches per company: in testing, a single search by the larger model found
+        # little more but cost many times as much and took several minutes per test case.
         "search": ("gpt-6-luna", "low"),
-        "extract": ("gpt-6-luna", "low"),      # Luna missed nothing when extracting from the Sol notes on 15 Oct
-        "compare": ("gpt-6-luna", "low"),      # decided by test, 15 Oct
+        "extract": ("gpt-6-luna", "low"),
+        "compare": ("gpt-6-luna", "low"),
         "query": ("gpt-6-luna", "low"),
-        # 20 Oct (Linda): Luna at medium effort, as tested on TC1-TC3 and OS (was Sol at low effort, never tested in
-        # stage 4 and about 20 times the cost: USD 0.4-1.2 per screen instead of 0.03-0.09)
+        # Luna at medium effort, as tested on all test cases (the larger model would cost about 20 times as much)
         "reflect": ("gpt-6-luna", "medium"),
         "assess": ("gpt-6.1-sol", "medium"),
         "summary": ("gpt-6-luna", "low"),
         "check": ("gpt-6-luna", "low"),        # the one-word connection test of the deployment check
     },
 }
-# Invalid structured output: one retry with the same model, then this model (spec section 7, fallbacks)
-FALLBACK = {"dev": "gpt-6.1-sol", "final": "gpt-6.1-sol"}   # a different model; final was Luna while Sol extracted
+# Invalid structured output: one retry with the same model, then this (different) model
+FALLBACK = {"dev": "gpt-6.1-sol", "final": "gpt-6.1-sol"}
 
-# USD per 1M tokens (input, output). Third-party listings, October 2026: TO VERIFY on OpenAI's pricing page
-# before A3 (spec section 10). The pages a search reads count as input tokens of the search call.
+# USD per 1M tokens (input, output), from third-party listings (to verify on OpenAI's pricing page). The pages a
+# search reads count as input tokens of the search call.
 PRICES_CHECKED = "third-party listings, Oct 2026 (to verify)"
 PRICES = {
     "gpt-6-luna": (0.10, 0.50),
@@ -85,15 +82,15 @@ PRICES = {
     "text-embedding-3-large": (0.13, 0.0),
 }
 
-# 19 Oct: the web search tool is billed per call on top of the tokens: USD 10 per 1,000 calls (third-party listing,
-# checked 13 Oct 2026; TO VERIFY). A TC1 run with two searches per company makes about 50-70 such calls, so the fee
-# is several times the token cost. WEB_SEARCH_FEE in .env / Secrets overrides it.
+# The web search tool is billed per call on top of the tokens: USD 10 per 1,000 calls (third-party listing, to
+# verify). A run with two searches per company makes dozens of such calls, so the fee is several times the token
+# cost. WEB_SEARCH_FEE in .env / Secrets overrides it.
 WEB_SEARCH_FEE = float(setting("WEB_SEARCH_FEE", "0.01") or 0)    # USD per web search call
 
-TIMEOUT = 300           # seconds; the slowest Sol search took 211 s on 14 Oct
-# Requests at once per run (19 Oct: enforced in AI.respond / AI.embed, see _slots); each one is a separate, stateless
-# call. 20 Oct (Linda): 16 instead of 8, because step 4 at medium effort took several minutes; a rate limit of the key
-# is waited out (_with_retry) instead of failing the call. MAX_PARALLEL in .env / Secrets overrides it.
+TIMEOUT = 300           # seconds; a long web search can take several minutes
+# Requests at once per run (enforced in AI.respond / AI.embed, see _slots); each one is a separate, stateless call.
+# A rate limit of the key is waited out (_with_retry) instead of failing the call. MAX_PARALLEL in .env / Secrets
+# overrides it.
 MAX_PARALLEL = max(1, int(setting("MAX_PARALLEL", "16") or 16))
 RATE_LIMIT_WAITS = (5, 10, 20, 40)      # seconds between the attempts after HTTP 429 (at most 75 s in all)
 CACHE_DIR = Path("cache")
@@ -113,11 +110,11 @@ def _retry_after(e):
 
 
 def reasoning(model, effort):
-    """Reasoning effort only for the reasoning models (same rule as test_compare.py)."""
+    """Reasoning effort only for the reasoning models."""
     return {"reasoning": {"effort": effort}} if model.startswith(("gpt-5", "gpt-6", "o")) else {}
 
 
-# Tests replace this with a fake client; the app never touches it.
+# A separate function, so that a test can replace it with a fake client.
 def client_factory(api_key, timeout):
     from openai import OpenAI
     return OpenAI(api_key=api_key or None, timeout=timeout)
@@ -172,9 +169,8 @@ class AI:
         self.cache_dir = Path(cache_dir)
         self._client = None
         self._lock = threading.Lock()
-        # 19 Oct: at most MAX_PARALLEL requests at once, however the steps nest their thread pools (the two searches
-        # per company run inside the pool of companies, which allowed up to 12 searches at once). Matters for the
-        # rate limits of a marker's own key.
+        # At most MAX_PARALLEL requests at once, however the steps nest their thread pools (the two searches per
+        # company run inside the pool of companies). Matters for the rate limits of the user's own key.
         self._slots = threading.BoundedSemaphore(MAX_PARALLEL)
         # Resolved once, here, so that worker threads never read settings: an override in .env / Secrets
         # (MODEL_COMPARE=gpt-6.1-sol, EFFORT_ASSESS=high) wins over the profile.
@@ -238,7 +234,7 @@ class AI:
 
     def _with_retry(self, fn, **kwargs):
         """Returns (response, number of rate-limit waits). Any API error: one retry after 3 s, then the caller decides.
-        20 Oct: a rate limit (HTTP 429, e.g. requests or tokens per minute of a new key) is waited out instead, up to
+        A rate limit (HTTP 429, e.g. requests or tokens per minute of a new key) is waited out instead, up to
         four times (RATE_LIMIT_WAITS, or the time the API asks for, at most 60 s), so that 16 requests at once never
         turn into failed calls; the waits are recorded in the call log."""
         errors, waits = 0, 0
@@ -270,7 +266,7 @@ class AI:
     def _add(self, step, model, tokens_in, tokens_out, seconds, cached=False, **extra):
         price = PRICES.get(model)
         cost = 0.0 if cached or price is None else tokens_in / 1e6 * price[0] + tokens_out / 1e6 * price[1]
-        search_fee = 0.0 if cached else extra.get("web_searches", 0) * WEB_SEARCH_FEE      # 19 Oct
+        search_fee = 0.0 if cached else extra.get("web_searches", 0) * WEB_SEARCH_FEE
         self.log.add(step=step, model=model, **{"in": tokens_in, "out": tokens_out}, seconds=round(seconds, 1),
                      cost=round(cost + search_fee, 6), search_fee=round(search_fee, 6), cached=cached,
                      priced=price is not None or cached, **extra)
@@ -280,7 +276,7 @@ class AI:
 
     # ------------------------------------------------------------------ response cache (development only)
     def cache_get(self, kind, key_parts):
-        """Same key as test_compare.cache_lookup: sha256 of the JSON of the key parts, first 20 characters."""
+        """Cache key: sha256 of the JSON of the key parts, first 20 characters."""
         if not self.use_cache:
             return None, None
         key = hashlib.sha256(json.dumps(key_parts, sort_keys=True, ensure_ascii=False, default=str)

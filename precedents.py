@@ -1,19 +1,18 @@
 """
-precedents.py - stage 4: the Commission's market definitions for the rows kept after stage 3 (spec sections 8 and 9,
-step 4, slimmed down: stage 4 finds and cites, the lawyer decides).
+precedents.py - step ④: the Commission's market definitions for the rows kept after step ③ (the app finds and
+cites, the lawyer decides).
 
     search_units(target, results, overrides, confirmed_target)   which searches are needed: ONE per target activity,
                                                                  covering the items of all its kept rows, both sides
     unit_input(unit, names)                                      the anonymised item list (ids such as [2.3])
     run_unit(ai, unit, names, retriever)                         query plan -> hybrid retrieval -> reflection, in a
-                                                                 loop with three STOP conditions (Lab 2), then the
+                                                                 loop with three STOP conditions, then the
                                                                  citation check and the item check in code
     row_view(r, record, overrides)                               what one row of the table shows, assembled in code
     reusable(record, unit)                                       whether an earlier search still covers the unit
 
-Decided by Linda on 20 Oct: one search per target activity (so one market keeps one name in all its rows and code can
-say where the precedent puts each company's items); at most one rewrite of the queries (two attempts); the loader for a
-saved screen first, so that this stage can be tested on the frozen step 3.
+One search per target activity, so that one market keeps one name in all its rows and code can say where the
+precedent puts each company's items; at most one rewrite of the queries (two attempts).
 
 What the AI does here: write the queries; read the retrieved paragraphs and place every item in a market the
 paragraphs define (or "none"). What code does: the retrieval, the loop and its STOP conditions, the check that every
@@ -22,7 +21,7 @@ cited paragraph was actually retrieved, the check that every item id exists, and
 
 Confidentiality: the query and reflection calls contain anonymised items only (names removed in code and checked
 again before the call), grouped by activity number, with no company label; a remaining name blocks the call. The
-retrieved decision paragraphs are public and are sent unchanged (Linda, 20 Oct), even where a decision names a company
+retrieved decision paragraphs are public and are sent unchanged, even where a decision names a company
 of the screen; such names are recorded in the audit log.
 """
 import hashlib
@@ -33,26 +32,23 @@ import threading
 import rules
 import schemas
 
-MAX_ATTEMPTS = 2          # one rewrite of the queries (Linda, 20 Oct); version 8 planned three attempts
-MAX_TYPES = 16            # types of product per search: one small reflection each (Linda, 20 Oct: option B). Was 8:
-                          # with 30-40 items the query step used all 8 and left whole activities out (Lindt run 0654:
-                          # 25 items, among them the portfolio company's coatings and fillings, never searched)
+MAX_ATTEMPTS = 2          # one rewrite of the queries
+MAX_TYPES = 16            # types of product per search: one small reflection each. A lower limit left whole
+                          # activities unsearched when a row had many items
 MAX_EXTRA = 4             # items the query step left unassigned: searched on their own up to this many; the rest is
                           # searched per activity (its product line as the type), so that EVERY item is searched
 MAX_REWRITE = 2           # types of product in the rewrite of one type
-# 20 Oct: every type of product is searched with two questions, built in code. The test on the corpus (keyword search,
-# 11 markets of the test cases): product words alone found a DEFINING paragraph in the top 5 in 9 of 11 cases, the
-# Commission's question in 11 of 11, but it also pulls in definitions of other products; the top 3 of each: 11 of 11,
-# with the product-specific paragraphs kept. The wording is legal, not sector knowledge.
+# Every type of product is searched with two questions, built in code. In the retrieval check (retrieval_check.py
+# --forms), the Commission's question found a DEFINING paragraph more reliably than product words alone, but it also
+# pulls in definitions of other products; the top 3 of each keeps both. The wording is legal, not sector knowledge.
 QUERY_FORMS = ("relevant product market for {p}", "whether {p} constitutes a separate relevant product market")
 HITS_PER_FORM = 3         # decision paragraphs kept per question (the Notice states principles and is not searched here)
 POOL_PER_QUERY = 10       # hits asked from the retriever per question, before the Notice is left out
 MAX_PARAGRAPHS = 14       # paragraphs per reflection of one type (its hits first, then their neighbours); +8 in the
-                          # second attempt. 20 Oct (Linda, option B): one focused call per type of product with a few
-                          # paragraphs, as in the class code and the chatbot, instead of 30-40 products against up to
-                          # 40 paragraphs in one call (the compound paragraph was in that call, but ChoViva was missed)
+                          # second attempt. One focused call per type of product with a few paragraphs: one large call
+                          # with all products and paragraphs missed products although the right paragraph was in it
 TYPE_PARALLEL = 16        # types of one search run at the same time; the AI gate allows MAX_PARALLEL requests at
-                          # once in all (20 Oct: was 6, so a target with one activity, as in TC3, used only 6)
+                          # once in all
 FALLBACK_ITEMS = 8        # items of an "Other activities" line used when a row names no items
 SOURCE_DECISION = "Commission decision"
 
@@ -64,42 +60,12 @@ STOP_WORDS = {
     "blocked": "blocked: a company name was still in the text (no call was made)",
     "failed": "the call failed",
 }
-BASIS_LABEL = {"precedent": "Precedent", "analogy": "Analogy", "none": "No precedent"}
-# 20 Oct (fix A): the reflection may only report a conclusion that a paragraph it was sent states
+# The reflection may only report a conclusion that a paragraph it was sent states
 NOT_STATED = "not stated in these paragraphs"
-PARTLY = "defined, a further question left open"      # 20 Oct (Linda): decided on one boundary, another left open
+PARTLY = "defined, a further question left open"      # decided on one boundary, another left open
 STATED = ("defined", "left open", PARTLY)
 FIT_ONE, FIT_RANGE, FIT_UNCLEAR = "one market", "range across these markets", "one of these, unclear which"
-FIT_SAME = "the same market in different decisions"     # 20 Oct: e.g. "cocoa powder" (M.6872) = "cocoa cake/powder"
-CONCLUSION_LABEL = {"defined": "defined", "left open": "definition left open", PARTLY: PARTLY,
-                    NOT_STATED: "conclusion not in the retrieved paragraphs"}
-
-# The product-market checklist of the Market Definition Notice (2024), shown as questions for the lawyer where the
-# corpus has no precedent (spec section 9; the paragraph numbers were checked against the Notice on 14-15 Oct).
-# Public sources: "✔" answerable from public sources, "◐" partly, "✖" not at all (only the company or a market
-# investigation can answer it). The tool does not answer them (slimmed-down stage 4, Linda 16 Oct).
-CHECKLIST = [
-    ("P1", "Starting point: take the target's product as the candidate market and add the substitutes until the market "
-           "is closed.", "(28)", "✔"),
-    ("P2", "Product characteristics, price, intended use and functions (alone often not enough, (49)).",
-     "(12)(a), (26), (48)–(49)", "✔ mostly"),
-    ("P3", "Why customers would or would not switch: quality, innovation, sustainability, distribution channels "
-           "(online / offline), regulatory framework (e.g. labelling).", "(15), (50)", "◐"),
-    ("P4", "Barriers to switching: contracts, brand recognition, adapting production processes, regulatory barriers.",
-     "(57)", "◐"),
-    ("P5", "Sales channels that customers cannot switch between can form separate markets.", "(58)", "◐"),
-    ("P6", "Evidence of past substitution (e.g. reactions to an exogenous cost shock), diversion ratios, elasticities.",
-     "(51)–(53)", "✖"),
-    ("P7", "Hypothetical substitution: surveys, customer and competitor views.", "(54)", "✖"),
-    ("P8", "Industry views: who regards whom as a competitor.", "(56)", "◐"),
-    ("P9", "Distinct customer groups: a separate market only if the three conditions are met.", "(24), (88)–(89)", "◐"),
-    ("P10", "Supply-side substitution: only exceptionally.", "(23)(b), (32)–(37), (60)–(61)", "◐"),
-    ("P11", "Products in development (pipeline): part of an existing market, or a new one.", "(90)–(93)", "◐"),
-    ("P12", "Potential competition is not part of market definition.", "(23)(c)", "✔ as a label"),
-]
-APPLICABLE_TODAY = ("Applicable today? The Commission may start from a past decision but is not bound by it and checks "
-                    "whether the definition still fits, e.g. after shifts in value chains or digitalisation (Market "
-                    "Definition Notice (14)).")
+FIT_SAME = "the same market in different decisions"     # one market, named differently in two decisions
 
 
 # =============================================================== which searches are needed
@@ -108,7 +74,7 @@ def _kept(status):
 
 
 def row_items(r, overrides, effective_status, dismissed_parts):
-    """The items of one kept row that stage 4 looks up, per side: the items that meet (horizontal, option C) and the
+    """The items of one kept row that step ④ looks up, per side: the items that meet (horizontal) and the
     items of every vertical link the lawyer did not dismiss. A row that names no items (unclear, added back, or a link
     without items) uses each side's product line; an "Other activities" line uses its includes instead."""
     status = effective_status(r, overrides)
@@ -126,9 +92,8 @@ def row_items(r, overrides, effective_status, dismissed_parts):
         for link in d.get("vertical_links", []):
             if link in off:
                 continue
-            # 20 Oct (bug fix): a link without items (found by a code rule, or the AI named none for one side) uses
-            # that side's product line, as the docstring says. Before, the product line was used only when the whole
-            # side had no items, so in a row with a horizontal overlap AND such a link the link was never searched.
+            # a link without items (found by a code rule, or the AI named none for one side) uses that side's
+            # product line, also in a row that has a horizontal overlap as well, so that the link is searched too
             v = named.get(link) or {}
             a += v.get("a") or _fallback_items(r["a"])
             b += v.get("b") or _fallback_items(r["b"])
@@ -184,18 +149,18 @@ def _content_hash(act):
 def reusable(record, unit, retry_failed=True):
     """An earlier search can be kept if it covered every (activity, item) the unit needs now (e.g. after a row was
     dismissed, it covers more than needed; after a row was added back, it may not).
-    retry_failed=False (20 Oct): only whether the rows changed since the search, ignoring whether it failed."""
+    retry_failed=False: only whether the rows changed since the search, ignoring whether it failed."""
     if not record:
         return False
-    if retry_failed and (record.get("error") or failed_ids(record)):    # 20 Oct: a partly failed search runs again
+    if retry_failed and (record.get("error") or failed_ids(record)):    # a partly failed search runs again
         return False
     have = {tuple(x) for x in record.get("covered") or []}
     return set(needed(unit)) <= have
 
 
 def failed_ids(record):
-    """The item ids whose type of product could not be searched (20 Oct). Also read from the types of a record saved
-    before 'failed_items' existed, so that a loaded audit log shows such items as failed, not as 'no precedent'."""
+    """The item ids whose type of product could not be searched. Also read from the types of an older record without
+    'failed_items', so that a loaded audit log shows such items as failed, not as 'no precedent'."""
     out = set(record.get("failed_items") or [])
     return out | {iid for t in record.get("types") or [] if t.get("error") for iid in t.get("item_ids") or []}
 
@@ -235,10 +200,8 @@ DESCRIPTION_CHARS = 600      # the merged "Other activities" line joins several 
 
 def activity_head(k, a, status=False):
     """The lines that introduce activity k in the query and reflection calls (names are removed by the caller).
-    20 Oct (fix): also what the activity IS, its description and main inputs, as in the abstract of step 3. Before,
-    only its name, level and customers were sent, so items naming only a use ("ingredients for beverages") were judged
-    by the activity's name alone; in TC3 "cocoa-fruit food ingredients", made from fruit pulp, was placed in the
-    markets for cocoa liquor, butter and powder in both runs of 20 Oct (medium effort)."""
+    Includes what the activity IS, its description and main inputs, as in the abstract of step ③, so that items
+    naming only a use ("ingredients for beverages") are not judged by the activity's name alone."""
     customers = rules._join(a.get("direct_customers"))
     details = a.get("customer_details") or "not stated"
     if details != "not stated":
@@ -260,9 +223,8 @@ def headings_of(p):
 def paragraphs_text(paragraphs):
     """The retrieved paragraphs as the reflection sees them: id, decision, year, section, the decision's headings,
     text and footnotes.
-    20 Oct (fix): the headings are sent too. Before, only the section ("Relevant product market") was, so a general
-    sentence such as M.5644 (31) "it can be left open how the product markets should be exactly defined", which sits
-    under "C. Sweet biscuits", was attached to tablets and pralines as "a further question left open" (TC1)."""
+    The headings matter: a general sentence such as "it can be left open how the product markets should be exactly
+    defined" only makes sense together with the heading of the product it sits under."""
     out = []
     for p in paragraphs:
         notes = " ".join(f"[fn {f['n']}] {f['text']}" for f in p.get("footnotes") or [])
@@ -273,17 +235,17 @@ def paragraphs_text(paragraphs):
     return "\n\n".join(out)
 
 
-# =============================================================== the AI calls (development cache as in stage 3)
+# =============================================================== the AI calls (development cache as in step ③)
 def _call(ai, step, schema, instructions, prompt, names, guard_text=None):
     """One structured call; invalid output: one retry with the fallback model. Returns (data or None, error).
     guard_text: the part of the prompt the guard checks (default: all of it); the retrieved public paragraphs are
-    left out of the check (Linda, 20 Oct)."""
+    left out of the check."""
     leftover = rules.find_names(prompt if guard_text is None else guard_text, names)
     if leftover:
         return None, f"blocked: names found {leftover}"
     model = ai.model(step)
-    # 20 Oct: the reasoning effort is part of the key, so a test with EFFORT_REFLECT=medium never replays low-effort
-    # answers from the development cache
+    # the reasoning effort is part of the key, so a test with another EFFORT_REFLECT never replays answers of a
+    # different effort from the development cache
     path, hit = ai.cache_get(step, [model, ai.effort(step), instructions, schema.model_json_schema(), prompt])
     if hit:
         ai.log_cached(step, model)
@@ -321,16 +283,16 @@ def ai_embed_model():
 
 # =============================================================== retrieval
 def query_text(q):
-    """The type of product of a query (older records, before 20 Oct, kept a full query under 'query')."""
+    """The type of product of a query (older records kept a full query under 'query')."""
     return (q.get("products") or q.get("query") or "").strip()
 
 
 def retrieve(retriever, queries, use_level):
-    """Runs every type of product through the hybrid search (spec section 14), with both questions of QUERY_FORMS,
+    """Runs every type of product through the hybrid search (retrieval.py), with both questions of QUERY_FORMS,
     and returns (paragraph ids in order, the paragraphs, the trail per question). Only decision paragraphs are kept;
     each hit brings its neighbours (+/-1)."""
     order, paras, trail = [], {}, []
-    # 20 Oct: all questions of this step embedded in ONE request (before: one request per question)
+    # all questions of this step embedded in ONE request
     questions = [form.format(p=query_text(q)) for q in queries for form in QUERY_FORMS]
     vectors = dict(zip(questions, retriever.embed(questions))) if questions else {}
     for q in queries:
@@ -363,7 +325,7 @@ def _pool_order(order, trail):
     return (first + rest)[:MAX_PARAGRAPHS]
 
 
-# =============================================================== the loop (Lab 2: hard STOP, AI STOP, code STOP)
+# =============================================================== the loop (hard STOP, AI STOP, code STOP)
 PARA_ID = re.compile(r"(M\.\s?\d+|Notice)\D{0,10}?(\d+)", re.IGNORECASE)
 
 
@@ -385,9 +347,9 @@ def empty_record(unit, text="", index=None, error=""):
 
 
 class Progress:
-    """How many types of product are planned and done in one run of stage 4, for the progress bar (20 Oct: with medium
-    effort step 4 takes several minutes, and before, nothing moved until a whole search was finished). Thread-safe;
-    the worker threads count, the script thread only reads."""
+    """How many types of product are planned and done in one run of step ④, for the progress bar (step ④ takes
+    several minutes, so the bar moves per type, not per search). Thread-safe; the worker threads count, the script
+    thread only reads."""
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -403,7 +365,7 @@ class Progress:
 
 
 def run_unit(ai, unit, names, retriever, corpus=None, progress=None):
-    """The search for one target activity (option B, Linda 20 Oct): one AI call sorts the products into types of
+    """The search for one target activity: one AI call sorts the products into types of
     product; then each type is searched and placed on its own (run_type), in parallel; code merges the results.
     Returns the record that the table, 'Details' and the audit log read."""
     import concurrent.futures as cf
@@ -450,10 +412,8 @@ def run_unit(ai, unit, names, retriever, corpus=None, progress=None):
     for iid in record["not_searched"]:
         record["placements"][iid] = {"market_ids": [], "basis": "none",
                                      "reason": "not searched: the query step assigned it to no type of product"}
-    # 20 Oct (bug fix): the products of a type whose search failed (call error, or blocked by the guard) had no
-    # placement at all, so the row showed them as "No precedent in the corpus", the summary counted no error and the
-    # search counted as reusable, i.e. it was never run again. They are now marked "failed": shown as a failed search,
-    # never as "no precedent", and the search runs again with "Update the market definitions".
+    # the products of a type whose search failed (call error, or blocked by the guard) are marked "failed": shown as
+    # a failed search, never as "no precedent", and the search runs again with "Update the market definitions"
     record["failed_items"] = []
     for t in record["types"]:
         if t.get("error"):
@@ -461,7 +421,7 @@ def run_unit(ai, unit, names, retriever, corpus=None, progress=None):
                 record["placements"][iid] = {"market_ids": [], "basis": "none", "fit": FIT_ONE, "failed": True,
                                              "reason": f"the search failed: {t['error']}"}
                 record["failed_items"].append(iid)
-    stops = [re.split(r"[:(]", t["stop"])[0].strip() for t in record["types"]]   # 20 Oct: "the call failed", not "...(call failed"
+    stops = [re.split(r"[:(]", t["stop"])[0].strip() for t in record["types"]]   # the reason without its details
     record["stop"] = f"{len(types)} types of product: " + ", ".join(f"{s} ×{stops.count(s)}" for s in dict.fromkeys(stops))
     errors = [t["error"] for t in record["types"] if t.get("error")]
     if errors and not record["markets"] and len(errors) == len(types):
@@ -473,7 +433,7 @@ def run_unit(ai, unit, names, retriever, corpus=None, progress=None):
 
 
 def upgrade_market(m):
-    """Records from before the decided / left-open split (20 Oct) had one 'conclusion' quotation: it becomes the decided
+    """Older records without the decided / left-open split had one 'conclusion' quotation: it becomes the decided
     or the left-open passage, according to the label. Then separate_other_decision, so that a loaded audit log shows
     the same as a new search. Changes the market in place; idempotent."""
     if "decided_quote" not in m and "conclusion_quote" in m:
@@ -491,12 +451,11 @@ def case_of(pid):
 
 
 def separate_other_decision(m):
-    """20 Oct (fix, Linda): the decided and the left-open passage of one market must come from the same decision. In the
-    runs of 20 Oct the reflection combined them 26 times, e.g. M.6872 (22) "cocoa liquor, cocoa butter and cocoa powder
-    each constitutes a separate relevant product market" with M.7408 (45), a later decision, which left open whether
-    standard and non-standard products are separate. The market was then labelled "defined, a further question left
-    open" under M.6872, although M.6872 itself left nothing open. Now the label follows the decision of the decided
-    passage, and the other decision's passage is kept apart ('other_open_*') and shown as left open in THAT decision.
+    """The decided and the left-open passage of one market must come from the same decision. The reflection sometimes
+    combines a passage in which one decision defines a market with a passage in which a later decision leaves a
+    further question open; the market would then be labelled "defined, a further question left open" under the first
+    decision, although that decision left nothing open. The label follows the decision of the decided passage, and the
+    other decision's passage is kept apart ('other_open_*') and shown as left open in THAT decision.
     Code, no AI call; changes the market in place; idempotent."""
     d, o = m.get("decided_paragraph"), m.get("open_paragraph")
     if m.get("decided_quote_found") and m.get("open_quote_found") and d and o and case_of(d) != case_of(o):
@@ -508,7 +467,7 @@ def separate_other_decision(m):
 
 
 def complete_conclusions(markets):
-    """Fix A (20 Oct): a market whose conclusion is not in the paragraphs of its own call takes the conclusion of the
+    """A market whose conclusion is not in the paragraphs of its own call takes the conclusion of the
     SAME market found by another call of the same search (same name, or one name ending with the other and both citing
     the same decision), with that call's paragraphs, so the citation shows where the conclusion is stated. Only if the
     other calls agree; a conclusion an AI call did state is never changed. Code, no AI call. Returns what was taken."""
@@ -577,7 +536,7 @@ def assign_types(plan, index, unit, names):
 
 def run_type(ai, t, unit, index, names, retriever):
     """One type of product: retrieval (both questions), one small reflection on its items only, the loop with its three
-    STOP conditions (Lab 2), the citation and item checks. Never raises: an error is returned with the type."""
+    STOP conditions, the citation and item checks. Never raises: an error is returned with the type."""
     sub = {i: index[i] for i in t["item_ids"]}
     text = items_text(unit, names, only=set(sub))
     out = {"items_text": text, "attempts": [], "stop": "", "error": "", "kept_attempt": 0, "markets": {},
@@ -600,8 +559,8 @@ def run_type(ai, t, unit, index, names, retriever):
                 break
             paras.update(found)
             pool = list(dict.fromkeys(pool + _pool_order(order, trail)))[:MAX_PARAGRAPHS + 8 * (attempt - 1)]
-            # 20 Oct (Linda): the decisions are public text and pass unchanged, even where they name a company of the
-            # screen; the guard checks what the app and the AI write; such names are recorded for the audit log.
+            # the decisions are public text and pass unchanged, even where they name a company of the screen; the
+            # guard checks what the app and the AI write; such names are recorded for the audit log
             raw = paragraphs_text([paras[p] for p in pool])
             step["screen_names_in_paragraphs"] = rules.find_names(raw, names)
             prompt = "ITEMS\n" + text + "\n\nPARAGRAPHS\n" + raw
@@ -617,7 +576,7 @@ def run_type(ai, t, unit, index, names, retriever):
             result = check(data, sub, set(pool), paras)
             placed = sum(1 for p in result["placements"].values() if ids_of(p))
             step["checked"] = {"placed": placed, "items": len(sub), "rejected": result["rejected"]}
-            # keep the better attempt (20 Oct): a second attempt can place FEWER items; on a tie the later one
+            # keep the better attempt: a second attempt can place FEWER items; on a tie the later one
             if best is None or placed >= sum(1 for p in best["placements"].values() if ids_of(p)):
                 best, out["kept_attempt"] = result, attempt
             if placed == len(sub):
@@ -642,7 +601,7 @@ def run_type(ai, t, unit, index, names, retriever):
 
 
 def ids_of(p):
-    """The markets a placement names: 'market_ids' since 20 Oct (several per item), 'market_id' in older records."""
+    """The markets a placement names: 'market_ids' (several per item), or 'market_id' in older records."""
     if not p:
         return []
     if "market_ids" in p:
@@ -682,7 +641,7 @@ def check_quote(quote, pid, pool, paras):
 
 
 def check(data, index, pool, paras):
-    """The citation check and the item check, in code (spec section 9, step 6): a paragraph may be cited only if the
+    """The citation check and the item check, in code: a paragraph may be cited only if the
     retrieval returned it in this search; a market left without any valid paragraph is dropped and its items count as
     'none'; an item id must exist; an item the reflection did not place counts as 'none'. Every correction is listed in
     'rejected' (shown in Details and the audit log)."""
@@ -704,8 +663,8 @@ def check(data, index, pool, paras):
             continue
         markets[mid] = {"market_id": mid, "name": m.get("name") or "not stated", "conclusion": m.get("conclusion"),
                         "product_paragraphs": _sorted_ids(prod), "summary": m.get("summary") or ""}
-        # 20 Oct (Linda): what the Commission defined, in its own words, checked in code like the source quotations of
-        # step 2: a quotation counts only if it is in a paragraph that was sent (if it is in another paragraph than
+        # what the Commission defined, in its own words, checked in code like the source quotations of
+        # step ②: a quotation counts only if it is in a paragraph that was sent (if it is in another paragraph than
         # the one given, that one is used and the correction is listed)
         for part in ("decided", "open", "scope"):
             quote, found, where = check_quote(m.get(f"{part}_quote"), m.get(f"{part}_paragraph"), pool, paras)
@@ -730,7 +689,7 @@ def check(data, index, pool, paras):
         d, o = markets[mid]["decided_quote_found"], markets[mid]["open_quote_found"]
         if d or o:
             markets[mid]["conclusion"] = PARTLY if d and o else "defined" if d else "left open"
-        separate_other_decision(markets[mid])      # 20 Oct: one decision per label
+        separate_other_decision(markets[mid])      # one decision per label
         if markets[mid].get("other_open_paragraph"):
             rejected.append(f"{mid}: the left-open passage is from {case_of(markets[mid]['other_open_paragraph'])}, "
                             f"not from {case_of(markets[mid]['decided_paragraph'])}: shown as left open in that "
@@ -762,7 +721,7 @@ def check(data, index, pool, paras):
             basis = "none"
         elif basis == "none":
             basis = "analogy"           # placed but not called a precedent: the weaker label, for the lawyer to check
-        # 20 Oct (Linda): an item in several markets is either a range spanning them or one of them, unclear which;
+        # an item in several markets is either a range spanning them or one of them, unclear which;
         # if the reflection names several markets but calls it "one market", the cautious reading is "unclear which"
         fit = p.get("fit") or FIT_ONE
         if len(mids) <= 1:
@@ -786,41 +745,17 @@ def _para_view(p, paras, corpus):
         q = paras.get(nid) or (corpus or {}).get(nid)
         return {"id": nid, "text": q["text"]} if q else None
     return {"id": p["id"], "case": p["case"], "title": p["title"], "date": p["date"], "para": p["para"],
-            "section": p.get("section"), "headings": p.get("headings") or [],      # 20 Oct: shown in the hover
+            "section": p.get("section"), "headings": p.get("headings") or [],      # shown in the hover
             "decision": p.get("decision"), "url": p.get("url"), "text": p["text"],
             "footnotes": p.get("footnotes") or [],
             "neighbours": [x for x in (neighbour(p["para"] - 1), neighbour(p["para"] + 1)) if x]}
 
 
 # =============================================================== what one row shows (code)
-def cite_range(ids, paras, short=False):
-    """'M.5644 Kraft Foods / Cadbury (2010) (21)–(24), (42)' from paragraph ids, one group per decision; short:
-    'M.5644 (2010) (21)–(24), (42)' (the table cell; the title is under "Paragraphs")."""
-    by_case = {}
-    for pid in ids:
-        case, n = pid.split("-")
-        by_case.setdefault(case, []).append(int(n))
-    out = []
-    for case, ns in by_case.items():
-        ns = sorted(set(ns))
-        runs, start, prev = [], ns[0], ns[0]
-        for n in ns[1:] + [None]:
-            if n is not None and n == prev + 1:
-                prev = n
-                continue
-            runs.append(f"({start})" if start == prev else f"({start})–({prev})")
-            if n is not None:
-                start = prev = n
-        p = next((paras[x] for x in ids if x.startswith(case + "-") and x in paras), None)
-        label = (f"{case} ({p['date'][:4]})" if short else f"{case} {p['title']} ({p['date'][:4]})") if p else case
-        out.append(f"{label} {', '.join(runs)}")
-    return "; ".join(out)
-
-
 def side_markets(record, aid, items, product_line=""):
     """For one side of a row: [{market_id, market, basis, items, notes, status}], items grouped by the market(s) they
     were placed in (an item placed in several markets appears in each).
-    20 Oct (Linda): each product belongs to ONE market, so an item in several markets only shows that the side is
+    Each product belongs to ONE market, so an item in several markets only shows that the side is
     somewhere in them. status per market: "specific" if an item was placed in this market alone; "possibly" if only
     items that could be in one of several markets (unclear which) lead here; "general" if only a general term leads
     here: an item that is a range spanning several markets, or the activity's own name placed in several markets.
@@ -835,7 +770,7 @@ def side_markets(record, aid, items, product_line=""):
         p = (record.get("placements") or {}).get(iid) if iid else None
         if iid in failed and not ids_of(p):
             p = dict(p or {}, failed=True)
-        if p and p.get("failed"):        # 20 Oct: a failed search, never shown as "no precedent"
+        if p and p.get("failed"):        # a failed search, never shown as "no precedent"
             g = groups.setdefault("failed", {"market": None, "basis": set(), "items": [], "notes": {}, "kinds": set()})
             g["basis"].add("none")
             g["items"].append(item)
@@ -844,8 +779,8 @@ def side_markets(record, aid, items, product_line=""):
             continue
         mids = [m for m in ids_of(p) if m in markets] or ["none"]
         basis = p["basis"] if p and mids != ["none"] else "none"
-        # records from before 20 Oct have no "fit": their prompt allowed several markets only "where the item spans
-        # several markets", i.e. a range
+        # older records have no "fit": their prompt allowed several markets only "where the item spans several
+        # markets", i.e. a range
         fit = (p or {}).get("fit") or (FIT_RANGE if len(mids) > 1 else FIT_ONE)
         others = " or ".join((markets.get(m) or {}).get("name", m) for m in mids)
         if len(mids) > 1 and fit == FIT_SAME:
@@ -897,9 +832,9 @@ def row_view(r, record, overrides, effective_status, dismissed_parts):
 
 
 def horizontal_verdict(record, r, items, a, b):
-    """Where the precedent puts the two sides of a horizontal row (moved out of row_view on 20 Oct, unchanged, so
-    that the display can also apply it to a horizontal overlap the lawyer added to a row, without a new search)."""
-    # 20 Oct (option B): each type of product is placed in its own call, which names its own markets. Markets of
+    """Where the precedent puts the two sides of a horizontal row (separate from row_view, so that the display can
+    also apply it to a horizontal overlap the lawyer added to a row, without a new search)."""
+    # each type of product is placed in its own call, which names its own markets. Markets of
     # different calls count as one market only if they have the same name; "different markets under the
     # precedent" is claimed only if products of both sides were placed in the SAME call (never across calls)
     key = {mid: _market_key(m["name"]) for mid, m in (record.get("markets") or {}).items()}
@@ -922,8 +857,8 @@ def horizontal_verdict(record, r, items, a, b):
     shared = [k for k in ma if k in mb]
 
     def line(k):
-        # a shared market counts as "precedent" only if it is a precedent for both sides (TC1: Ritter's bars were
-        # placed in "tablets" only by analogy); the status is the weaker of the two sides
+        # a shared market counts as "precedent" only if it is a precedent for both sides (one side may be placed
+        # there only by analogy); the status is the weaker of the two sides
         g = ma[k]["group"]
         basis = "precedent" if ma[k]["basis"] == mb[k]["basis"] == "precedent" else "analogy"
         st = {ma[k]["status"], mb[k]["status"]}
@@ -931,13 +866,13 @@ def horizontal_verdict(record, r, items, a, b):
         return dict(g, basis=basis, status=status)
     rows = [line(k) for k in shared]
     return {
-        # 20 Oct (Linda): "both in" only where an item of EACH side was placed in that market alone
+        # "both in" only where an item of EACH side was placed in that market alone
         "both": [g for g in rows if g["status"] == "specific"],
         "possibly": [g for g in rows if g["status"] == "possibly"],
         "general": [g for g in rows if g["status"] == "general"],
         "only_a": [o["group"] for k, o in ma.items() if k not in mb],
         "only_b": [o["group"] for k, o in mb.items() if k not in ma],
-        # the precedent puts the two companies' items into different markets: shown, never deleted (spec section 8)
+        # the precedent puts the two companies' items into different markets: shown, never deleted
         "different": bool(ma and mb and not shared and _same_call(record, r, items)),
         "left_open": any((g["market"] or {}).get("conclusion") in ("left open", PARTLY) for g in a + b
                          if g["market"]),
@@ -949,15 +884,15 @@ MARKET_PREFIX = re.compile(r"^(the\s+)?(relevant\s+)?(product\s+)?markets?\s+(fo
 
 
 def _market_key(name):
-    """'Market for tablets', 'the market for tablets' and 'tablets' are one market (20 Oct)."""
+    """'Market for tablets', 'the market for tablets' and 'tablets' are one market."""
     name = MARKET_PREFIX.sub("", (name or "").lower().strip())
     name = re.sub(r"\s+markets?$", "", name)
     return re.sub(r"[^a-z0-9]", "", name)
 
 
 def _same_call(record, r, items):
-    """Whether at least one product of each side of the row was placed in the same reflection call. Records from before
-    option B had one call for all products."""
+    """Whether at least one product of each side of the row was placed in the same reflection call. Older records had
+    one call for all products."""
     types = record.get("types")
     if not types:
         return True
@@ -966,19 +901,6 @@ def _same_call(record, r, items):
     ca = {call_of.get(by_item.get((r["a"]["aid"], i))) for i in items["a"]} - {None}
     cb = {call_of.get(by_item.get((r["b"]["aid"], i))) for i in items["b"]} - {None}
     return bool(ca & cb)
-
-
-def decisions_cited(view, record):
-    """The decisions a row cites, with their year (for 'Applicable today?')."""
-    paras = record.get("paragraphs") or {}
-    out = {}
-    for g in (view or {}).get("a", []) + (view or {}).get("b", []):
-        m = g.get("market") or {}
-        for pid in m.get("product_paragraphs", []):
-            p = paras.get(pid)
-            if p:
-                out[p["case"]] = f"{p['case']} ({p['date'][:4]})"
-    return list(out.values())
 
 
 def summary(records):

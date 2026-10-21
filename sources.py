@@ -1,19 +1,19 @@
 """
-sources.py - checks the sources the web search cites, and the quotations taken from them (option B, 18 Oct, Linda).
+sources.py - checks the sources the web search cites, and the quotations taken from them.
 
-Why: the search notes cite pages, but what the extraction wrote was the AI's summary, not a passage the lawyer could
-find on the page (probe of 18 Oct: 0 of 40 summaries word for word on their pages). Since 18 Oct the search quotes the
-page word for word, and this module checks every quotation in code against the page itself:
+Why: the search notes cite pages, but an AI summary is not a passage the lawyer can find on the page (in testing,
+almost none of the summaries appeared word for word on their pages). The search therefore quotes the page word for
+word, and this module checks every quotation in code against the page itself:
 
     ✔ found        the quotation is on the page (for a PDF: on page N); the link jumps to the passage / the PDF page
-    ≈ close        (21 Oct) not word for word, but its substance is on the page: its figures and names, most of its words
+    ≈ close        not word for word, but its substance is on the page: its figures and names, most of its words
                    (reworded by the search), or it is the search's translation of a page in another language; or, for a
                    source cited without a quotation, the page names the activity's products or brands
     ⚠ not found    the page was read, but neither the quotation's wording nor its figures or names are on it
     ○ not checked  the page could not be read automatically (access refused, page built by JavaScript, file too
                    large, time-out) or the search gave no quotation for it: check by opening the link
     ✖ dead         the page no longer exists (HTTP 404/410, or the domain does not exist). It may hold outdated or
-                   false information, so it is REMOVED as a source (Linda, 18 Oct): no longer a marker next to an
+                   false information, so it is REMOVED as a source: no longer a marker next to an
                    activity, no longer counted as support, only listed as "no longer available (cited by the search,
                    not used)". An activity left without any source is kept and marked for verification.
 
@@ -50,7 +50,7 @@ PARALLEL = 8
 MIN_HTML_CHARS = 800        # less text: the page is probably built by JavaScript only
 
 STATUS_MARK = {"found": "✔", "close": "≈", "not found": "⚠", "no quote": "○", "not checked": "○", "dead": "✖"}
-# 21 Oct (Linda): the marks as levels of trust. "close" (≈ "probably right, worth a quick look"): the quotation is not
+# The marks are levels of trust. "close" (≈ "probably right, worth a quick look"): the quotation is not
 # on the page word for word, but its substance is (its figures and names, most of its words, or it is the search's
 # translation of a page in another language); or, for a source cited without a quotation, the page names the
 # activity's products or brands. "not found" (⚠) is kept for a passage of which neither the wording nor its figures
@@ -60,7 +60,7 @@ WORDING_SHARE = 0.8         # share of a quotation's words on the page (in anoth
 
 CACHE_SIZE = 60
 _cache, _lock = {}, threading.Lock()        # url -> fetched page, for this server process (pages change rarely)
-# 19 Oct: memory on Streamlit Cloud is limited and this cache is shared by every session of the server process.
+# Memory on Streamlit Cloud is limited and this cache is shared by every session of the server process.
 # Readable PDFs (raw file up to 40 MB plus the PDF reader) are therefore never cached; they live only while one
 # company's check runs. A refusal with HTTP 429 ("too many requests") is temporary and is not cached either.
 # At most FETCH_SLOTS downloads run at once in the whole process, whatever the number of companies or sessions.
@@ -154,8 +154,8 @@ def words_only(text):
 
 
 def share_on_page(quote, page):
-    """Which share of the quotation's words occurs anywhere on the page (language-neutral, 18 Oct, Linda: no list of
-    languages). A quotation the search reworded in the page's own language still shares most of its words with the
+    """Which share of the quotation's words occurs anywhere on the page (language-neutral: no list of languages).
+    A quotation the search reworded in the page's own language still shares most of its words with the
     page; a quotation translated from a page in another language shares few (names and numbers at most)."""
     words = set(words_only(quote).split())
     if len(words) < 4:
@@ -179,7 +179,7 @@ def _page_text(page):
 
 def _figures(text):
     """{digit string: the figure as written}: separators removed, so that "5.92", "5,92" and "15,351" / "15 351"
-    compare alike (language-neutral); the figure as written is what the hover shows (21 Oct review)."""
+    compare alike (language-neutral); the figure as written is what the hover shows."""
     out = {}
     for m in re.findall(r"\d[\d.,'\u00a0\u2009\u202f ]*\d|\d", text or ""):
         d = re.sub(r"\D", "", m)
@@ -194,7 +194,7 @@ def _digits(text):
 
 
 def key_terms(quote):
-    """The figures and the names of a quotation (21 Oct): figures as digit strings, names as the capitalised words that
+    """The figures and the names of a quotation: figures as digit strings, names as the capitalised words that
     do not open a sentence. Language- and sector-neutral; used to tell a reworded quotation (its facts are on the page)
     from one whose facts are not."""
     names = set()
@@ -219,7 +219,7 @@ def substance_on_page(quote, page):
 
 
 def terms_on_page(terms, page):
-    """The activity's products or brands that the page names (21 Oct: a source cited without a quotation)."""
+    """The activity's products or brands that the page names (for a source cited without a quotation)."""
     text = f" {words_only(_page_text(page))} "
     out = []
     for t in terms:
@@ -350,12 +350,12 @@ def _frag(tokens):
 
 def link_to(url, quote, pdf_page):
     """A link that jumps to the passage.
-    Web page: a text fragment ('#:~:text=start,end'), which most browsers highlight. 19 Oct: the start and the end are
-    at least six words each (before, the start was cut at the first '&' or dash, so "Lindt & Sprungli ..." started at
-    the single word "Lindt", and the browser highlighted from the first "Lindt" on the page to the end of the quotation).
+    Web page: a text fragment ('#:~:text=start,end'), which most browsers highlight. The start and the end are at
+    least six words each, so that a short start (e.g. a single name) does not make the browser highlight from the
+    first occurrence of that word on the page.
     A quotation of at most 12 words is matched whole; with an ellipsis, the start comes from the first part and the end
     from the last part.
-    PDF: '#page=N' (every browser); 19 Oct also '&search=...&phrase=true', which the PDF viewer of Firefox uses to
+    PDF: '#page=N' (every browser), plus '&search=...&phrase=true', which the PDF viewer of Firefox uses to
     highlight the passage (other browsers ignore it and open the page)."""
     base = url.split("#")[0]
     parts = [p.split() for p in ELLIPSIS.split(quote or "") if p.strip()]
@@ -374,7 +374,7 @@ def link_to(url, quote, pdf_page):
 
 def _find_read(quote, page):
     """Like find(), but only on what has already been read (for a PDF: the pages already turned into text), so that
-    looking at the company's other sources (19 Oct) never starts reading another long PDF."""
+    looking at the company's other sources never starts reading another long PDF."""
     parts = _parts(quote)
     if not parts:
         return False, None
@@ -398,8 +398,8 @@ def _pattern(words):
 
 
 def context_of(quote, page, pdf_page=None):
-    """The found passage in its surroundings, taken from the text the check has read (19 Oct, Linda: the lawyer can
-    verify by hovering, in every browser, without opening a long report; browsers cannot highlight inside PDFs).
+    """The found passage in its surroundings, taken from the text the check has read (so the lawyer can verify by
+    hovering, in every browser, without opening a long report; browsers cannot highlight inside PDFs).
     Returns {"before", "passage", "after"} or None if the passage cannot be located in the original text (e.g. a word
     a PDF split at a line end). The words must follow each other as in find(); only punctuation, spaces and line
     breaks may differ."""
@@ -439,7 +439,7 @@ def context_of(quote, page, pdf_page=None):
 
 
 def activity_terms(act):
-    """What a page cited for an activity should name (21 Oct): its brands and its products (the items it includes)."""
+    """What a page cited for an activity should name: its brands and its products (the items it includes)."""
     out = [b for b in act.get("brands") or [] if b and b != "not stated"]
     out += [re.sub(r"\s*\(.*?\)", "", i).strip() for i in act.get("includes") or [] if i]
     return [t for t in dict.fromkeys(out) if t]
@@ -492,7 +492,7 @@ def check(found, data, pasted=""):
                 continue
             if not given.get(n):
                 named = terms_on_page(terms, page) if terms and s["check"]["state"] == "readable" else []
-                if named:          # 21 Oct: the page names the activity's products or brands
+                if named:          # the page names the activity's products or brands
                     out.append({"n": n, "result": "close", "quote": "", "basis": "activity terms",
                                 "terms_found": named[:4],
                                 "reason": "the search cited this page without quoting it; the page names "
@@ -512,10 +512,9 @@ def check(found, data, pasted=""):
                                 "link": link_to(s["url"], q, pdf_page) if s.get("url") else ""})
                     break
             else:
-                # 19 Oct: the extraction sometimes attaches a quotation to the wrong source number (TC1 on Cloud: a
-                # sentence of the "at a glance" page under the annual report page). The other sources of the company
-                # were opened anyway: if the passage is on one of them, it is credited to that source, and this source
-                # is marked as having no quotation of its own.
+                # The extraction sometimes attaches a quotation to the wrong source number. The other sources of the
+                # company were opened anyway: if the passage is on one of them, it is credited to that source, and
+                # this source is marked as having no quotation of its own.
                 moved = None
                 for m, (s2, page2) in by_n.items():
                     if m == n or s2.get("dead") or s2["check"]["state"] != "readable" or s2.get("type") == "provided by user":
@@ -543,7 +542,7 @@ def check(found, data, pasted=""):
                 entry = {"n": n, "result": "not found", "quote": given[n][0], "translated": translated,
                          "words_on_page": None if share is None else round(share, 2),
                          "substance_on_page": None if sub is None else round(sub, 2), "keys_found": keys}
-                # 21 Oct (Linda): ≈ when the substance is on the page, ⚠ only when neither wording nor facts are
+                # ≈ when the substance is on the page, ⚠ only when neither wording nor facts are
                 if sub is not None and sub >= SUBSTANCE_SHARE:
                     entry.update(result="close", basis="figures and names",
                                  reason="the wording is not on the page, but its figures and names are ("
@@ -566,7 +565,7 @@ def check(found, data, pasted=""):
     def apply(holder, num_key, quote_key, checks_key, dead_key, terms=()):
         numbers = [n for n in holder.get(num_key) or [] if n in by_n]
         results = checks(numbers, holder.get(quote_key), terms)
-        # a source credited with a quotation found on it (19 Oct) joins the activity's sources; if it already was one,
+        # a source credited with a quotation found on it joins the activity's sources; if it already was one,
         # its own check is replaced by the one that found the passage
         moved_to = {c["n"] for c in results if c.get("moved_from")}
         kept, seen = [], set()
