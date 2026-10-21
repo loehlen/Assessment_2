@@ -449,28 +449,56 @@ def _url_words(urls):
     return " ".join(re.sub(r"[-_/.?=&]+", " ", u) for u in urls)
 
 
-def passages(text, names, limit=3, width=400):
+def _strict_hits(text, words):
+    """21 Oct: group names that are single words count only where written like a name, with their capital letter
+    ("Foodservice", not "foodservice"; "Classic", not "classic varieties")."""
+    return [w for w in words if re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", text or "")]
+
+
+def passages(text, names, limit=3, width=400, strict=()):
     """The sentences that mention one of the names, with their sources (shown to the user only, never sent to an AI).
-    A name found only in a source's web address is shown with the sentence it belongs to, and marked as such."""
+    A name found only in a source's web address is shown with the sentence it belongs to, and marked as such.
+    strict: names matched only as written (with their capital letter) and never in a web address (21 Oct)."""
     in_text, in_url = [], []
     for seg in segments(text):
-        named = bool(rules.find_names(seg["plain"], names))
+        named = bool(rules.find_names(seg["plain"], names)) or bool(_strict_hits(seg["plain"], strict))
         if not named and not rules.find_names(_url_words(seg["urls"]), names):
             continue
         s = seg["text"] if len(seg["text"]) <= width else seg["text"][:width - 1] + "…"
         sites = list(dict.fromkeys(site_of(u) for u in seg["urls"]))
-        if sites:
-            s += f" (source: {', '.join(sites)})"
+        if sites and not all(site in s for site in sites):      # 21 Oct: the source not named twice
+            s += f" (source: {', '.join(x for x in sites if x not in s)})"
         if not named:
             s += " [the name appears only in the source's web address]"
         (in_text if named else in_url).append(s)
     return (in_text + in_url)[:limit]
 
 
-def find_relationships(mapped, companies):
+def relationship_names(other, mapped, ordinary=()):
+    """(names matched as usual, names matched only as written) for one company of the run (21 Oct, Linda: a group name
+    that is also an ordinary word must not create an "existing relationship"). The entered name, the other names and
+    their parts are matched as before; a group company or brand of one word only where written like a name; a word the
+    lawyer kept as an ordinary word in step ② never."""
+    group = ((mapped.get(other["name"]) or {}).get("extraction") or {}).get("group_companies", []) or []
+    loose = names_of(other)
+    ordinary = {w.lower() for w in ordinary or ()}
+    strict = []
+    for g in group:
+        g = (g or "").strip()
+        if not g or g in loose or g.lower() in ordinary:
+            continue
+        if len(g.split()) == 1:
+            strict.append(g)
+        else:
+            loose.append(g)
+    return loose, strict
+
+
+def find_relationships(mapped, companies, ordinary=()):
     """For every company: the other companies of the run (names, aliases, group companies) that its public
     sources mention, with the passages. Also sets mapped[name]["mentions"] (the format benchmark.py reads).
-    Pure code on each company's own research notes: no AI call, nothing leaves the app."""
+    Pure code on each company's own research notes: no AI call, nothing leaves the app.
+    21 Oct: group names of one word count only where written like a name (see relationship_names)."""
     found = {}
     for c in companies:
         m = mapped.get(c["name"])
@@ -480,12 +508,12 @@ def find_relationships(mapped, companies):
         for other in companies:
             if other["name"] == c["name"]:
                 continue
-            group = ((mapped.get(other["name"]) or {}).get("extraction") or {}).get("group_companies", [])
-            names = names_of(other) + [g for g in group if g]
-            ps = passages(notes, names)
+            names, strict = relationship_names(other, mapped, ordinary)
+            ps = passages(notes, names, strict=strict)
             if ps:
                 urls = [u for _, u in LINK.findall(notes)]
-                hits = rules.find_names(_clean(LINK.sub("", notes)) + " " + _url_words(urls), names)
+                plain = _clean(LINK.sub("", notes))
+                hits = rules.find_names(plain + " " + _url_words(urls), names) + _strict_hits(plain, strict)
                 found[c["name"]].append({"other": other["name"], "names": hits, "passages": ps})
         if m is not None:
             m["mentions"] = [r["other"] for r in found[c["name"]]]

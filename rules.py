@@ -446,6 +446,10 @@ def possible_duplicates(activities, threshold=0.4):
             a, b = activities[i], activities[j]
             if a.get("value_chain_level") != b.get("value_chain_level") or category(a) != category(b):
                 continue
+            # 21 Oct (Linda): the same name is always flagged (19 Oct: "frozen foods" twice scored 0.35 and was missed)
+            if (a.get("product") or "").strip().lower() == (b.get("product") or "").strip().lower():
+                out.append((i, j))
+                continue
             wa, wb = _words(a), _words(b)
             if wa and wb and len(wa & wb) / len(wa | wb) >= threshold:
                 out.append((i, j))
