@@ -19,7 +19,7 @@ baseFontSize = 15
 font = "IBM Plex Sans, sans-serif"
 headingFont = "Times New Roman, Tinos, serif"
 headingFontWeights = [700, 700, 700, 700, 700, 700]
-headingFontSizes = ["2.3rem", "1.75rem", "1.5rem", "1.25rem", "1.1rem", "1rem"]
+headingFontSizes = ["2.3rem", "2rem", "1.5rem", "1.3rem", "1.1rem", "1rem"]
 
 [[theme.fontFaces]]
 family = "IBM Plex Sans"

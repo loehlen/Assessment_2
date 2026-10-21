@@ -92,6 +92,17 @@ details.mkts[open]>summary:before{content:"▾ "}
 .st-key-stepnav button:hover:not(:disabled){color:#22313F !important}
 .workcard h4{margin-bottom:.2rem}
 .lg{margin:.15rem 0;cursor:help;line-height:1.5;font-size:.88rem}
+.lgg{font-size:.88rem;line-height:1.5}
+.lgl{display:grid;grid-template-columns:fit-content(11rem) 1fr;column-gap:.5rem;align-items:first baseline;margin:.25rem 0;
+ cursor:help}
+.lgm .lab{margin:0;white-space:nowrap}
+.bg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem 2rem;margin:.4rem 0 1.5rem 0;max-width:58rem}
+@media (max-width:700px){.bg{grid-template-columns:1fr}}
+.bg-t{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:1.08rem;margin-bottom:.15rem}
+.bg-x{line-height:1.55}
+.tl-h{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:1.3rem;margin:.2rem 0 .6rem 0}
+.lead2{margin:-.4rem 0 .3rem 0;color:#3D3A35}
+[data-testid="stColumn"] [data-testid="stMarkdownContainer"]{hyphens:auto}
 .tl-lead{font-size:1.05rem;margin:.1rem 0 1rem 0;max-width:52rem}
 .tl{margin:.2rem 0 .2rem 0}
 .tl-step{display:flex;gap:.8rem;position:relative;padding-bottom:1rem}
@@ -104,13 +115,19 @@ details.mkts[open]>summary:before{content:"▾ "}
 .chip{display:inline-block;font-size:.76rem;padding:.02rem .5rem;border-radius:10px;background:#ECEAE5;color:#4A463F;
  margin:0 .2rem;white-space:nowrap}
 .k{display:inline-block;min-width:6.8rem;color:#55514A;font-size:.85rem}
+.act>div{margin:.1rem 0;line-height:1.6}
+.fld{display:flex;align-items:baseline}
+.fld .k{flex:none;width:6.8rem;min-width:6.8rem;padding-right:.4rem}
+.fld .v{flex:1;min-width:0}
 .prof{background:#F2EFE8;border-radius:6px;padding:.55rem .8rem;margin:.2rem 0 .7rem 0;line-height:1.6}
-.sec{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:1.45rem;color:#22313F;margin:.6rem 0 0 0}
-.secsub{color:#55514A;font-size:.9rem;margin:0 0 .5rem 0}
-.cut{height:0;border-top:2px solid #22313F;margin:1.8rem 0 1rem 0}
-.st-key-tbox{border-left:4px solid #22313F !important}
-.st-key-tband{background:#F2EFE8;border-radius:6px;padding:.7rem .9rem .3rem .9rem}
-.st-key-tband .prof{background:#FBFAF7}
+.sec{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:1.65rem;line-height:1.25;color:#22313F;
+ margin:.8rem 0 .1rem 0}
+.sec.next{margin-top:2.2rem}
+.secsub{color:#55514A;font-size:.9rem;margin:0 0 .6rem 0}
+.gate-space{height:16vh}
+.gate-title{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:2.3rem;line-height:1.2;color:#1F1D1A;
+ text-align:center;margin-bottom:.3rem}
+.gate-lead{font-size:1.05rem;text-align:center;color:#3D3A35;margin-bottom:1.4rem}
 .basis{color:#6E6A63}
 .sumt{border-collapse:collapse;width:100%;margin:.4rem 0 .3rem 0}
 .sumt th{background:#22313F;color:#fff;text-align:left;padding:.45rem .7rem;font-weight:600}
@@ -119,7 +136,7 @@ details.mkts[open]>summary:before{content:"▾ "}
 .sumul{margin:0;padding-left:1.1rem}.sumul li{margin:.15rem 0}
 [class*="st-key-thead"]{background:#22313F;border-radius:4px;padding:.5rem .7rem .05rem .7rem;margin-top:.3rem}
 [class*="st-key-thead"] p{color:#FFFFFF !important;font-weight:600}
-.wr{display:block;padding-left:.9rem}
+.wr{display:block;padding-left:2.1rem;text-indent:-1.2rem}
 .br{color:#6E6A63}
 </style>"""
 st.html(APP_CSS)            # style only: takes no space on the page
@@ -152,19 +169,22 @@ def credentials():
         if not server_key:
             st.error("OPENAI_API_KEY is not set in .env or Secrets.")
             st.stop()
-    left, _ = st.columns([2, 3])
-    with left:
-        st.markdown("<div class='tl-lead'>A preliminary overlap screen for EU merger control.</div>",
+    # the gate in the middle of the page: a narrow centred column, pushed down from the top
+    st.markdown("<div class='gate-space'></div>", unsafe_allow_html=True)
+    _, mid, _ = st.columns([1, 1.3, 1])
+    with mid:
+        st.markdown("<div class='gate-title'>EU Overlap Screen</div>"
+                    "<div class='gate-lead'>A preliminary overlap screen for EU merger control.</div>",
                     unsafe_allow_html=True)
         if DEV_MODE:
             value = st.text_input("App password", type="password", key="gate_input")
         else:
             value = st.text_input("OpenAI API key", type="password", key="gate_input",
                                   help="Your own key. It is used only for the calls of this session and not stored.")
-        st.button("Continue", type="primary")       # Enter in the field does the same
+        st.button("Continue", type="primary", width="stretch")       # Enter in the field does the same
     if value:
         if DEV_MODE and value != expected:
-            left.error("This password is not correct.")
+            mid.error("This password is not correct.")
             st.stop()
         ss.auth_key = server_key if DEV_MODE else value.strip()
         st.rerun()
@@ -670,7 +690,7 @@ def read_companies(edited):
 
 
 def stage_companies(ai):
-    st.subheader("① Companies")
+    st.header("① Companies")
     st.markdown("Enter the company to be bought (the *target*) and the companies the buyer already owns (the "
                 "*portfolio companies*). Each portfolio company is looked at together with its subsidiaries and brands. "
                 "For the target, enter only the business being sold, for example a division rather than the seller's "
@@ -713,7 +733,7 @@ def run_mapping(ai, companies):
     todo = [c for c in companies if c["name"] not in kept]
     mapped = {n: old[n] for n in kept}
     searching = any(am.source_mode(c) != "my description" for c in todo)
-    title = "Researching the companies" if searching else "Reading your descriptions"
+    title = "Researching the Companies" if searching else "Reading Your Descriptions"
     note = ("Each company is researched on its own, on public websites. This usually takes one to four minutes."
             if searching else "Each company is read on its own.")
     n = len(todo)
@@ -805,10 +825,13 @@ def activity_line(a, company):
     stage = f"<span class='chip'>{h(stage_of(a))}</span>"
 
     def field(label, value):
-        return f"<span class='k'>{label}</span>{value}"
+        return f"<div class='fld'><span class='k'>{label}</span><span class='v'>{value}</span></div>"
+
+    def block(lines):              # one block per line: a long value wraps under itself, not under its label
+        return "<div class='act'>" + "".join(x if x.startswith("<div") else f"<div>{x}</div>" for x in lines) + "</div>"
     if a.get("excluded"):
-        return (f"<s><b>{he(capital(a['product']))}</b></s> {stage} {markers}  \n"
-                + field("Not relevant", f"<i>{he(a.get('exclusion_reason', ''))}</i> (excluded by you)"))
+        return block([f"<s><b>{he(capital(a['product']))}</b></s> {stage} {markers}",
+                      field("Not relevant", f"<i>{he(a.get('exclusion_reason', ''))}</i> (excluded by you)")])
     brands = [b for b in a.get("brands") or [] if b and b != "not stated"]
     if rules.is_gap(a):        # the bold part names the activity, as on every other line
         level = a.get("value_chain_level")
@@ -824,12 +847,12 @@ def activity_line(a, company):
             lines.append(field("Company", he(entity)))
         lines.append(field("Open", "named in the sources, but what it offers is not stated: a question for the company; "
                                    "use “Edit” to add the product if you know it (until then it is not compared)"))
-        return "  \n".join(lines)
+        return block(lines)
     includes = [i for i in a.get("includes") or [] if i]
     if rules.category(a) == "other":
         # every item in full, the text in brackets in the secondary colour (it often says what the item is)
-        return (f"<b>{OTHER_NAME}</b> {stage} {markers}  \n"
-                + field("Includes", "; ".join(item_html(i) for i in includes[:6]) + more_items(includes, 6)))
+        return block([f"<b>{OTHER_NAME}</b> {stage} {markers}",
+                      field("Includes", "; ".join(item_html(i) for i in includes[:6]) + more_items(includes, 6))])
     first = f"<b>{he(capital(a['product']))}</b> {stage}"
     if a.get("status") == "in development":
         first += " <span class='tag'>in development</span>"
@@ -845,7 +868,7 @@ def activity_line(a, company):
         lines.append(field("Examples", ", ".join(he(i) for i in raw[:4]) + more_items(raw, 4)))
     if brands:                 # step ② is where names may be shown, so the brands are visible here
         lines.append(field("Brands", he(", ".join(brands[:4])) + more_items(brands, 4)))
-    return "  \n".join(lines)
+    return block(lines)
 
 
 def own_names(company):
@@ -1054,18 +1077,18 @@ def _store_profile(name, key):
 
 
 def stage_activities(ai):
-    st.subheader("② Activities")
+    st.header("② Activities")
     st.write("Check what each company does: everything after this step builds on these activities. Use “Edit” to "
              "correct an activity, mark it as not relevant to this deal or delete it.")
     cmp.ensure_ids(ss.acts)
     guide_box(2)
     for i, c in enumerate(ss.companies):
-        # a visual cut between the target and the portfolio companies
+        # the break between the target and the portfolio companies: a section heading above each group
         if i == 0:
-            st.markdown("<div class='sec'>The target</div><div class='secsub'>The business to be acquired</div>",
+            st.markdown("<div class='sec'>The Target</div><div class='secsub'>The business to be acquired</div>",
                         unsafe_allow_html=True)
         elif i == 1:
-            st.markdown("<div class='cut'></div><div class='sec'>The portfolio companies</div><div class='secsub'>The "
+            st.markdown("<div class='sec next'>The Portfolio Companies</div><div class='secsub'>The "
                         "companies the buyer already owns, each with its subsidiaries and brands</div>",
                         unsafe_allow_html=True)
         company_block(ai, c, i)
@@ -1136,28 +1159,32 @@ def company_block(ai, c, index):
     acts = ss.acts[name]
     v = ss.acts_version
     is_target = c["role"] == "target"
-    with st.container(border=True, key="tbox" if is_target else None):
-        # the target's name and profile on a sand band; its activities stay ivory
-        with st.container(key="tband" if is_target else None):
-            st.markdown(f"#### {name if is_target else f'Portfolio company {index}: {name}'}")
-            facts = [c["website"]] if c.get("website") else []
-            if am.source_mode(c) != "web search":
-                facts.append(f"activities from: {am.source_mode(c)}")
-            if facts:
-                st.caption(" · ".join(facts))
-            if m["error"]:
-                st.error(m["error"])
-            profile = profile_of(name)
-            if profile.strip():
-                psrc = {"source_numbers": ext.get("profile_source_numbers") or [],
-                        "quote_checks": ext.get("profile_quote_checks") or []}
-                st.markdown("<div class='prof'>" + he(profile) + (" " + source_markers(psrc, name)
-                                                                  if psrc["source_numbers"] else "") + "</div>",
-                            unsafe_allow_html=True)
-            elif not m["error"]:
-                st.caption("No profile found in the sources.")
+    with st.container(border=True):           # the same box for the target and each portfolio company
+        st.markdown(f"#### {name if is_target else f'Portfolio Company {index}: {name}'}")
+        facts = [c["website"]] if c.get("website") else []
+        if am.source_mode(c) != "web search":
+            facts.append(f"activities from: {am.source_mode(c)}")
+        if facts:
+            st.caption(" · ".join(facts))
+        if m["error"]:
+            st.error(m["error"])
+        profile = profile_of(name)
+        if profile.strip():
+            psrc = {"source_numbers": ext.get("profile_source_numbers") or [],
+                    "quote_checks": ext.get("profile_quote_checks") or []}
+            st.markdown("<div class='prof'>" + he(profile) + (" " + source_markers(psrc, name)
+                                                              if psrc["source_numbers"] else "") + "</div>",
+                        unsafe_allow_html=True)
+        elif not m["error"]:
+            st.caption("No profile found in the sources.")
         for w in ext.get("warnings") or []:
             st.warning(w)
+        if acts:
+            basis = {"my description": "According to your description",
+                     "both": "According to your description and the sources"}.get(am.source_mode(c),
+                                                                               "According to the sources")
+            st.markdown(f"<div class='lead2'>{basis}, {he(name)} carries out the following activities:</div>",
+                        unsafe_allow_html=True)
         for k, i in enumerate(display_order(acts)):
             if k:
                 st.markdown(ROW_RULE_SOLID, unsafe_allow_html=True)
@@ -1221,7 +1248,7 @@ def remap_company(ai, name, website, mode, pasted, confirmed=()):
                       typed_names_confirmed=list(confirmed or [])) if c["name"] == name else c for c in ss.companies]
     company = next(c for c in companies if c["name"] == name)
     first, t0 = ss.log.mark(), time.time()
-    card = WorkCard(f"Researching {name} again", "Researching …",
+    card = WorkCard(f"Researching {name} Again", "Researching …",
                     "Only this company is researched again; the others are kept. This usually takes one to two minutes.")
     with cf.ThreadPoolExecutor(1) as ex:
         fut = ex.submit(am.map_company, ai, company, companies)
@@ -1260,6 +1287,12 @@ def _store_keep(word, key):
     ss.keep_words, ss.drop_words = sorted(keep), sorted(dropped)
 
 
+# The review box below is not shown: its defaults apply (a word the descriptions also use in lower case is kept as an
+# ordinary word, a word used only as a name is removed) and are recorded in the saved progress file. True shows the
+# box in step ②, where the lawyer can change each choice.
+SHOW_NAME_WORDS = False
+
+
 def name_word_review():
     """Before the comparison: the brands and group company names that also appear as words in the descriptions.
     They are removed by default (confidentiality first); the lawyer can keep an ordinary product
@@ -1287,6 +1320,8 @@ def name_word_review():
             proposed.add(w)
             keep.add(w)
     ss.keep_words, ss.keep_proposed = sorted(keep), sorted(proposed)
+    if not SHOW_NAME_WORDS:
+        return
     ordinary = [f for f in found if f.get("lower_case")]
     names = [f for f in found if not f.get("lower_case")]
     with st.container(border=True):
@@ -1384,7 +1419,7 @@ def confirm_activities(ai, activities, problems, profiles_text):
     ss.setdefault("vec_cache", {})
     ss.setdefault("pair_cache", {})
     first, t0 = ss.log.mark(), time.time()
-    card = WorkCard("Comparing the activities", "Preparing the anonymised descriptions …",
+    card = WorkCard("Comparing the Activities", "Preparing the anonymised descriptions …",
                     "Every activity of the target is compared with every activity of each portfolio company. The AI "
                     "sees descriptions only, never company names. This usually takes one to two minutes.")
     card.log(f"✔ Anonymised: {len(rules.name_variants(names))} name variants removed"
@@ -1449,7 +1484,7 @@ def confirm_activities(ai, activities, problems, profiles_text):
 WIDTHS = [1.5, 1.5, 4.5, 1.4, 0.95]           # step ③
 # In step ④ the Commission is its own column, after the preliminary assessment, so that the row reads in the order
 # of the work: facts → the AI's assessment → the Commission → the lawyer's view
-WIDTHS4 = [1.1, 1.1, 3.75, 3.1, 1.05, 0.8]
+WIDTHS4 = [1.35, 1.35, 3.55, 2.75, 0.9, 0.95]
 _THEAD = [0]                                    # a fresh key for every table header of this run
 
 
@@ -2357,7 +2392,7 @@ def guide_box(step):
 
 
 def stage_overview(ai, step=3):
-    st.subheader("④ Commission market definitions" if step == 4 else "③ Preliminary assessment")
+    st.header("④ Commission Market Definitions" if step == 4 else "③ Preliminary Assessment")
     st.write(STEP4_TEXT if step == 4 else STEP3_TEXT)
     st.html(PREF_CSS)                  # the hover boxes (sources, paragraphs, markets); style only, no space
     guide_box(4 if step == 4 else 3)
@@ -2442,7 +2477,7 @@ def word_name():
 
 
 def stage_summary(ai):
-    st.subheader("⑤ Summary")
+    st.header("⑤ Summary")
     st.write("The result for each portfolio company, from your review in steps ③ and ④. The Word document holds the "
              "same summary, the full tables and the sources.")
     model = report_model()
@@ -2450,7 +2485,7 @@ def stage_summary(ai):
     st.caption("Target activity first; the arrow points to the customer. In brackets: the Commission's result and your "
                "view.")
     if model["open_points"]:
-        st.markdown("##### Open points")
+        st.markdown("##### Open Points")
         st.markdown("\n".join(f"- {esc(o['text'])} :gray[({esc(o['pair'])}, {esc(o['portco'])})]"
                                for o in model["open_points"]))
     st.download_button("Download the Word document", data=lambda: export.docx_bytes(model), type="primary",
@@ -2495,7 +2530,7 @@ def run_precedents(ai):
     units, todo = prec_plan()
     first, t0 = ss.log.mark(), time.time()
     store = dict(ss.get("precedents") or {})
-    card = WorkCard("Looking up the Commission's market definitions", "Sorting the products into types of product …",
+    card = WorkCard("Looking Up the Commission's Market Definitions", "Sorting the products into types of product …",
                     "Each type of product is searched in the Commission's decisions and read on its own; the AI sees "
                     "the products only, never company names. This usually takes one to three minutes.")
     kept = [u for u in units if u not in todo]
@@ -2585,7 +2620,7 @@ PREF_CSS = """<style>
 .ccell.o-open{background:#ECEAE5;border-left-color:#8A857C}
 .ccell.o-nosup{background:#E3EDE4;border-left-color:#5E8A66}
 .ccell.o-nopre{background:#FBFAF7;border:1px dashed #C9C2B4;border-left:3px solid #C9C2B4}
-.ccell .chd{font-weight:600;font-size:.82rem;color:#3D3A35}
+.ccell .chd{display:block;margin-top:.25rem;font-weight:600;font-size:.82rem;color:#3D3A35}
 .ccell .ed{color:#55514A;font-style:italic;font-size:.8rem}
 .ccell ul{margin:.2rem 0 0 0;padding-left:1.05rem}
 .ccell li{margin:.12rem 0}
@@ -3551,8 +3586,9 @@ def deployment_check(ai):
 
 def legend_html(step):
     """The legend: only what the current step needs, one short line each; the full explanation on hover."""
-    def line(mark, text, tip):
-        return f"<div class='lg' title='{h(tip)}'>{mark} <span class='sub2'>{text}</span></div>"
+    def line(mark, text, tip):       # the mark and its explanation in two columns (see .lgg)
+        return (f"<div class='lgl' title='{h(tip)}'><span class='lgm'>{mark}</span>"
+                f"<span class='sub2'>{text}</span></div>")
     src = (line("<span class='src'>[4]</span>✔", "checked: the quotation is on the page",
                 "Hover over a number for the quotation and where it comes from (company website or other public "
                 "source); click to open the page, a PDF at the right page. ✔ the app found the quotation on the page "
@@ -3572,10 +3608,7 @@ def legend_html(step):
                    "competitors). “Potential” until checked against the Commission's market definitions in step ④.")
               + line("<span class='lab lab-v'>Vertical</span>", "one could supply the other",
                      "Potential vertical relationship: one company's products could be an input for the other, or could "
-                     "be resold by it. The arrow points from supplier to customer.")
-              + line("<span class='lab lab-off'>Struck</span>", "dismissed · <i>added</i> · <i>edited</i> by you",
-                     "A label you dismissed is struck through; a label you added and a wording you changed are marked. "
-                     "“Your view” next to each label: to check, likely, unlikely, ask the company, or dismiss."))
+                     "be resold by it. The arrow points from supplier to customer."))
     dots = line("●●○", "direct customers (hover over the dots)",
                 "●●● the same, ●●○ partly the same, ●○○ different direct customers. Compares only who each company sells "
                 "to directly (e.g. shops, other manufacturers, consumers), not the products. Different customers alone "
@@ -3604,7 +3637,7 @@ def sidebar_panel(ai, step):
     """The sidebar for everyone: the key, the actions for this screen, the legend and the run summary;
     the development tools collapsed at the end, in development only."""
     with st.sidebar:
-        st.markdown("**This screen**")
+        st.markdown("**This Screen**")
         if ss.get("companies") and step > 1:
             n = len(ss.companies) - 1
             st.caption(f"{esc(ss.companies[0]['name'])} and {plural(n, 'portfolio company', 'portfolio companies')}")
@@ -3629,7 +3662,7 @@ def sidebar_panel(ai, step):
             loader_box()
         if step >= 2:
             with st.expander("Legend", expanded=True):       # open in every step
-                st.markdown(legend_html(step), unsafe_allow_html=True)
+                st.markdown(f"<div class='lgg'>{legend_html(step)}</div>", unsafe_allow_html=True)
         if step >= 4 and ss.get("precedents"):
             decisions = decisions_html()
             if decisions:
@@ -3678,16 +3711,39 @@ INTRO_STEPS = [
                   "companies)."),
     ("Activities", "The tool researches each company on public websites, or reads a description you provide. You check "
                    "and correct what it found."),
-    ("Preliminary assessment", "It compares every activity of the target with every activity of each portfolio "
+    ("Preliminary Assessment", "It compares every activity of the target with every activity of each portfolio "
                                "company. The AI sees descriptions only, never company names; relationships between "
                                "the companies are found by the code, never by asking the AI about two companies "
                                "together."),
-    ("Market definitions", "It checks how the European Commission defined the markets of these products in its past "
+    ("Market Definitions", "It checks how the European Commission defined the markets of these products in its past "
                            "decisions, and what follows for each row."),
 ]
 
 
+# The background for a reader without competition law: what merger control is, why overlaps matter, what the
+# Commission does and what this screen is for. Short on purpose; the steps follow below.
+INTRO_BACKGROUND = [
+    ("Merger Control", "Larger acquisitions, above turnover thresholds set in the EU Merger Regulation, must be "
+                       "notified to the European Commission and may not be completed before it has cleared them. The "
+                       "Commission examines whether the deal would significantly impede effective competition, for "
+                       "example by leading to higher prices or less choice."),
+    ("Overlaps", "The first question in every case is where the two sides meet. A <i>horizontal overlap</i>: both sell "
+                 "the same or similar products, so the deal removes a competitor. A <i>vertical relationship</i>: one "
+                 "could supply the other, so the merged group could cut its rivals off from inputs or customers. The "
+                 "buyer's side includes every company it controls, so each portfolio company is checked."),
+    ("The Commission's Role", "Whether an overlap matters depends on the <i>relevant market</i>: the products customers "
+                              "see as substitutes. The Commission defines markets case by case, following its Market "
+                              "Definition Notice. Its earlier decisions are not binding, but they are where a lawyer "
+                              "starts: step 4 looks them up."),
+    ("This Screen", "At the start of a deal, lawyers map these overlaps, usually by hand from websites and annual "
+                    "reports, to see which markets need closer analysis (market shares, the notification form). This "
+                    "tool prepares that map. It flags candidates and shows its sources; the lawyer checks and decides."),
+]
+
+
 def intro_html():
+    background = "".join(f"<div><div class='bg-t'>{title}</div><div class='bg-x sub2'>{text}</div></div>"
+                         for title, text in INTRO_BACKGROUND)          # our own constant text, with <i> only
     steps = "".join(
         f"<div class='tl-step'>{'<div class=tl-line></div>' if k < len(INTRO_STEPS) else ''}"
         f"<span class='tl-num'>{k}</span><div><div class='tl-title'>{h(title)}</div>"
@@ -3696,6 +3752,8 @@ def intro_html():
     return (f"<div class='tl-lead'>A preliminary overlap screen for EU merger control: is the company to be bought "
             f"(the <i>target</i>) active in the same or related markets as the companies the buyer already owns (the "
             f"<i>portfolio companies</i>)?</div>"
+            f"<div class='bg'>{background}</div>"
+            f"<div class='tl-h'>How It Works</div>"
             f"<div class='tl'>{steps}</div>"
             "<div style='margin-top:.8rem'><span class='lab lab-h'>Horizontal</span> <span class='sub2'>both offer the "
             "same or similar products</span> &nbsp;&nbsp; <span class='lab lab-v'>Vertical</span> <span class='sub2'>"
@@ -3704,7 +3762,7 @@ def intro_html():
             "markets only: geography and market shares are not assessed.</div>")
 
 
-STEPS = {1: "Companies", 2: "Activities", 3: "Preliminary assessment", 4: "Market definitions", 5: "Summary"}
+STEPS = {1: "Companies", 2: "Activities", 3: "Preliminary Assessment", 4: "Market Definitions", 5: "Summary"}
 SCROLL_TOP = """<script>
 const d = window.parent.document;
 for (const s of ['[data-testid="stMain"]', 'section.stMain', 'section.main', '[data-testid="stAppViewContainer"]']) {
@@ -3738,8 +3796,8 @@ def progress_nav(step):
                       disabled=not reachable[k], on_click=go_to, args=(k,))
 
 
+api_key = credentials()        # the first screen until the password (or key) is entered (it draws its own title)
 st.title("EU Overlap Screen")
-api_key = credentials()        # the first screen until the password (or key) is entered
 step = ss.get("step", 1)
 # The start page: the explanation in steps on a page of its own (step ① shows only the companies). Shown once per
 # session, before anything is entered; a saved screen that is opened skips it, and
