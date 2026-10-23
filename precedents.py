@@ -135,14 +135,16 @@ def search_units(results, overrides, effective_status, dismissed_parts, pair_id,
     return out
 
 
-def needed(unit):
+def needed(unit, legacy=False):
     """What a search must cover: every (activity, item), with a hash of the activity's content, so that an edited
-    activity is searched again."""
-    return sorted({(e["aid"], item, _content_hash(e["activity"])) for e in unit["activities"] for item in e["items"]})
+    activity is searched again. legacy: the hash as written before 23 October (it also hashed the fields that only
+    record the lawyer's handling), so that a search saved then is still recognised."""
+    return sorted({(e["aid"], item, _content_hash(e["activity"], legacy)) for e in unit["activities"]
+                   for item in e["items"]})
 
 
-def _content_hash(act):
-    content = {k: v for k, v in act.items() if k != "aid"}
+def _content_hash(act, legacy=False):
+    content = {k: v for k, v in act.items() if k != "aid" and (legacy or k not in rules.STATE_FIELDS)}
     return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()[:12]
 
 
@@ -155,7 +157,7 @@ def reusable(record, unit, retry_failed=True):
     if retry_failed and (record.get("error") or failed_ids(record)):    # a partly failed search runs again
         return False
     have = {tuple(x) for x in record.get("covered") or []}
-    return set(needed(unit)) <= have
+    return set(needed(unit)) <= have or set(needed(unit, legacy=True)) <= have
 
 
 def failed_ids(record):

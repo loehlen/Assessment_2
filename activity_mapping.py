@@ -192,6 +192,9 @@ def merge_searches(name, model, runs):
                           "error": r.get("error")} for r in runs]}
 
 
+USER_DESCRIPTION = "DESCRIPTION PROVIDED BY THE USER"
+
+
 def add_pasted(found, pasted):
     """A description pasted by the user becomes one more numbered source, 'provided by the user'."""
     if not (pasted or "").strip():
@@ -199,7 +202,7 @@ def add_pasted(found, pasted):
     n = max([s["n"] for s in found["sources"]], default=0) + 1
     return {**found,
             "notes": (found["notes"] + "\n\n" if found["notes"] else "")
-            + f"DESCRIPTION PROVIDED BY THE USER (source [{n}])\n{pasted.strip()}",
+            + f"{USER_DESCRIPTION} (source [{n}])\n{pasted.strip()}",
             "sources": found["sources"] + [{"n": n, "url": "", "title": "Description provided by the user",
                                             "type": "provided by user"}]}
 
@@ -429,7 +432,8 @@ def passages(text, names, limit=3, width=400, strict=()):
         if not named:
             s += " [the name appears only in the source's web address]"
         (in_text if named else in_url).append(s)
-    return (in_text + in_url)[:limit]
+    # both searches often report the same sentence: each passage once
+    return list(dict.fromkeys(in_text + in_url))[:limit]
 
 
 def relationship_names(other, mapped, ordinary=()):
@@ -438,8 +442,12 @@ def relationship_names(other, mapped, ordinary=()):
     parts are matched as usual; a group company or brand of one word only where written like a name; a word the
     lawyer kept as an ordinary word in step ② never."""
     group = ((mapped.get(other["name"]) or {}).get("extraction") or {}).get("group_companies", []) or []
-    loose = names_of(other)
     ordinary = {w.lower() for w in ordinary or ()}
+    # a part of a name kept as an ordinary word ("Black" of "Black & Decker") is no name either, unless it is itself an
+    # entered name or other name (the same rule as comparison.collect_names)
+    entered = [other["name"]] + [a for a in other.get("aliases", []) if a]
+    fixed = {v.lower() for v in rules.name_variants(entered)}
+    loose = [n for n in names_of(other) if n in entered or n.lower() in fixed or n.lower() not in ordinary]
     strict = []
     for g in group:
         g = (g or "").strip()
@@ -466,7 +474,12 @@ def find_relationships(mapped, companies, ordinary=()):
             if other["name"] == c["name"]:
                 continue
             names, strict = relationship_names(other, mapped, ordinary)
-            ps = passages(notes, names, strict=strict)
+            # the lawyer's own description (step ①) is not a public source: its passages are marked as such
+            public, _, described = notes.partition(USER_DESCRIPTION)
+            described = described.split("\n", 1)[1] if "\n" in described else ""
+            ps = list(dict.fromkeys(passages(public, names, strict=strict)
+                                    + [p + " [your description in step ①]"
+                                       for p in passages(described, names, strict=strict)]))[:3]
             if ps:
                 urls = [u for _, u in LINK.findall(notes)]
                 plain = _clean(LINK.sub("", notes))

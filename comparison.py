@@ -37,8 +37,14 @@ def ensure_ids(activities_by_company):
                 a["aid"] = new_aid()
 
 
+def content_of(activity):
+    """What the activity is, without its ID and without the fields that only record the lawyer's handling of it
+    (rules.STATE_FIELDS: saving it unchanged in the edit form must not count as a change)."""
+    return {k: v for k, v in activity.items() if k != "aid" and k not in rules.STATE_FIELDS}
+
+
 def activity_key(activity, abstract):
-    content = {k: v for k, v in activity.items() if k != "aid"}
+    content = content_of(activity)
     raw = json.dumps(content, sort_keys=True, ensure_ascii=False, default=str) + "\n" + abstract
     return hashlib.sha256(raw.encode()).hexdigest()[:20]
 

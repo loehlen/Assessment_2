@@ -37,9 +37,9 @@ KEY = [("Confirmed", "both products fall in a market the Commission defined"),
        ("Markets defined / One side defined", "vertical rows: the Commission defined both markets / one of them")]
 HOW = [
     ("Research", "Each company was researched on its own, in two searches of public websites (its main business, and "
-                 "its side lines and own-use activities). Each search saw only that company, never another company "
-                 "of this overview or the planned transaction. The app checked every quotation the search relied on "
-                 "against the page."),
+                 "what such a search easily misses: smaller brands, sales to other businesses, own shops and cafés, "
+                 "side lines). Each search saw only that company, never another company of this overview or the "
+                 "planned transaction. The app checked every quotation the search relied on against the page."),
     ("Preliminary assessment", "Every activity of the target was compared with every activity of each portfolio "
                                "company, one pair at a time, by an AI model that saw only two anonymised "
                                "descriptions. The model judged whether the products are the same or similar for the "
@@ -174,7 +174,10 @@ def _heading(doc, text, level):
 
 def _head(table, names):
     for c, t in zip(table.rows[0].cells, names):
-        _font(_Cell(c).p().add_run(t), 10, True, False, "FFFFFF")
+        p = _Cell(c).p()
+        for k, part in enumerate(t.split("*")):        # *word*: in italics (the defined terms target, portfolio)
+            if part:
+                _font(p.add_run(part), 10, True, k % 2 == 1, "FFFFFF")
         _shd(c._element.get_or_add_tcPr(), INK)
     _row_props(table.rows[0], header=True)
 
@@ -256,8 +259,8 @@ def _activity(cell, act, company=None):
 
 def _company_table(doc, model, company, blocks):
     step4 = model["step4"]
-    cols = [f"{model['target']} activity", f"{company} activity", "Preliminary assessment"]
-    cols += (["Commission market definition"] if step4 else []) + ["Notes"]
+    cols = [f"{model['target']} Activity", f"{company} Activity", "Preliminary Assessment"]
+    cols += (["Commission Market Definition"] if step4 else []) + ["Notes"]
     t = doc.add_table(rows=1, cols=len(cols))
     _borders(t)
     _margins(t)
@@ -324,7 +327,7 @@ def docx_bytes(model):
     _page(doc, model["target"])
     target = model["target"]
 
-    _para(doc, "Preliminary overlap overview", 20, True, after=6)
+    _para(doc, "Preliminary Overlap Overview", 20, True, after=6)
     for k, v in (("Target: ", f"{target} (the business to be acquired)"),
                  ("Portfolio companies: ", ", ".join(model["portcos"])), ("Date: ", model["date"])):
         p = _para(doc, after=1)
@@ -342,7 +345,7 @@ def docx_bytes(model):
     t = doc.add_table(rows=1, cols=3)
     _borders(t)
     _margins(t)
-    _head(t, ["Portfolio company", "Potential horizontal overlaps", "Potential vertical relationships"])
+    _head(t, ["Portfolio Company", "Potential Horizontal Overlaps", "Potential Vertical Relationships"])
     for s in model["summary"]:
         row = t.add_row()
         _row_props(row)
@@ -361,7 +364,7 @@ def docx_bytes(model):
     _para(doc, "Target activity first; the arrow points to the customer.", 9.5, italic=True, color=GREY, before=3,
           after=6)
     if model["step4"]:
-        _para(doc, "Commission results used in this overview", 10, True, before=4, after=1, keep=True)
+        _para(doc, "Commission Results Used in This Overview", 10, True, before=4, after=1, keep=True)
         for res, text in KEY:
             p = _para(doc, after=0)
             p.paragraph_format.left_indent = Cm(0.4)
@@ -370,23 +373,27 @@ def docx_bytes(model):
 
     # 2 the portfolio companies
     doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
-    _heading(doc, "2. The portfolio companies", 1)
+    _heading(doc, "2. The Portfolio Companies", 1)
     for i, sec in enumerate(model["sections"], start=1):
         _heading(doc, f"2.{i} {sec['portco']}", 2)
         _para(doc, sec["sentence"], 11, after=4, keep=True)
+        if sec.get("relationship"):
+            p = _para(doc, after=4)
+            _font(p.add_run("Existing relationship: "), 10.5, True)
+            _font(p.add_run(f"the public sources of {target} and {sec['portco']} mention each other (Annex C)."), 10.5)
         if sec["blocks"]:
             _company_table(doc, model, sec["portco"], sec["blocks"])
         elif not sec["own"]:
             _para(doc, "The pairs compared are listed in Annex B.", 10.5, color=GREY, after=6)
         if sec["own"]:
-            _para(doc, "Own use (production for the group itself, which can only be the customer side)", 10.5, True,
+            _para(doc, "Own Use (production for the group itself, which can only be the customer side)", 10.5, True,
                   before=8, after=2, keep=True)
             _company_table(doc, model, sec["portco"], sec["own"])
 
     # 3 open points
     n = 3
     if model["open_points"]:
-        _heading(doc, "3. Open points", 1)
+        _heading(doc, "3. Open Points", 1)
         groups = {}
         for o in model["open_points"]:
             groups.setdefault(o["portco"], []).append(o)
@@ -409,7 +416,7 @@ def docx_bytes(model):
             _font(p.add_run(title), 10.5, False, True)
             _font(p.add_run(f", {url}" + (f", accessed {src['date']}" if src["date"] else "")), 10.5)
     if model["decisions"]:
-        _para(doc, "Commission decisions and notice cited", 11, True, before=6, after=1, keep=True)
+        _para(doc, "Commission Decisions and Notice Cited", 11, True, before=6, after=1, keep=True)
         for d in model["decisions"]:
             p = _para(doc, after=0)
             p.paragraph_format.left_indent = Cm(0.8)
@@ -421,10 +428,10 @@ def docx_bytes(model):
 
     # Annex
     doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
-    _heading(doc, "Annex: how this overview was prepared", 1)
+    _heading(doc, "Annex: How This Overview Was Prepared", 1)
     _para(doc, "This annex records how the screening tool prepared the overview. It is not part of the assessment and "
                "can be removed.", 10.5, italic=True, color=GREY, after=6)
-    _heading(doc, "A. How the tool works and its limits", 2)
+    _heading(doc, "A. How the Tool Works and Its Limits", 2)
     for title, text in HOW:
         p = _para(doc, after=3)
         _font(p.add_run(title + ". "), 10.5, True)
@@ -433,7 +440,7 @@ def docx_bytes(model):
     _font(p.add_run("Run summary. "), 10.5, True)
     _font(p.add_run(model["annex"]["run_summary"]), 10.5)
 
-    _heading(doc, "B. Pairs compared without an overlap", 2)
+    _heading(doc, "B. Pairs Compared Without an Overlap", 2)
     pairs = model["annex"]["pairs"]
     if pairs:
         _para(doc, "Every pair not shown in section 2, with the reason. In the tool's reasons, “A” is the target's "
@@ -442,7 +449,7 @@ def docx_bytes(model):
         t = doc.add_table(rows=1, cols=3)
         _borders(t)
         _margins(t)
-        _head(t, ["Portfolio company", "Pair (target activity × portfolio activity)", "Reason"])
+        _head(t, ["Portfolio Company", "Pair (*target* activity × *portfolio* activity)", "Reason"])
         for x in pairs:
             row = t.add_row()
             _row_props(row)
@@ -452,7 +459,7 @@ def docx_bytes(model):
     else:
         _para(doc, "None.", 10.5)
 
-    _heading(doc, "C. Existing relationships", 2)
+    _heading(doc, "C. Existing Relationships", 2)
     rels = model["annex"]["relationships"]
     if not rels:
         _para(doc, "None found.", 10.5)
@@ -463,7 +470,7 @@ def docx_bytes(model):
             quoted = t_ if t_[:1] in "“\"„«" else f"“{t_}”"
             _para(doc, f"{who}'s sources: {quoted}", 10.5, after=2)
 
-    _heading(doc, "D. Activities not compared", 2)
+    _heading(doc, "D. Activities Not Compared", 2)
     for line in model["annex"]["not_compared"] or ["None."]:
         _para(doc, line, 10.5, after=1)
 

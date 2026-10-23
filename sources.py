@@ -9,8 +9,9 @@ word, and this module checks every quotation in code against the page itself:
     ≈ close        not word for word, but its substance is on the page: its figures and names, most of its words
                    (reworded by the search), or it is the search's translation of a page in another language; or, for a
                    source cited without a quotation, the page names the activity's products or brands
-    ⚠ not found    the page was read, but neither the quotation's wording nor its figures or names are on it
-    ○ not checked  the page could not be read automatically (access refused, page built by JavaScript, file too
+    ⚠ not found    the page was read, but neither the quotation's wording nor (most of) its figures and names are on
+                   it; few of its words on a page in its own language is "not found", not a translation
+    ○ read by the search only (not checked by the app): the page could not be read automatically (access refused, page built by JavaScript, file too
                    large, time-out) or the search gave no quotation for it: check by opening the link
     ✖ dead         the page no longer exists (HTTP 404/410, or the domain does not exist). It may hold outdated or
                    false information, so it is REMOVED as a source: no longer a marker next to an
@@ -52,9 +53,9 @@ MIN_HTML_CHARS = 800        # less text: the page is probably built by JavaScrip
 STATUS_MARK = {"found": "✔", "close": "≈", "not found": "⚠", "no quote": "○", "not checked": "○", "dead": "✖"}
 # The marks are levels of trust. "close" (≈ "probably right, worth a quick look"): the quotation is not
 # on the page word for word, but its substance is (its figures and names, most of its words, or it is the search's
-# translation of a page in another language); or, for a source cited without a quotation, the page names the
-# activity's products or brands. "not found" (⚠) is kept for a passage of which neither the wording nor its figures
-# or names are on the page.
+# translation of a page in another language, judged by sources.same_language); or, for a source cited without a
+# quotation, the page names the activity's products or brands. "not found" (⚠) is kept for a passage of which neither
+# the wording nor (most of) its figures and names are on the page (see judge).
 SUBSTANCE_SHARE = 0.75      # share of a quotation's figures and names that must be on the page
 WORDING_SHARE = 0.8         # share of a quotation's words on the page (in another order): reworded by the search
 
@@ -168,7 +169,8 @@ def share_on_page(quote, page):
     return len(words & vocabulary) / len(words)
 
 
-TRANSLATED_BELOW = 0.5      # under half of the quotation's words on the page: probably translated
+TRANSLATED_BELOW = 0.5      # under half of the quotation's words on the page: possibly translated (see same_language)
+SAME_LANGUAGE_SHARE = 0.6   # share of the quotation's short words on the page: the page is in the quotation's language
 
 
 def _page_text(page):
@@ -177,15 +179,44 @@ def _page_text(page):
     return page.get("text") or ""
 
 
+def same_language(quote, page):
+    """Whether the page is written in the quotation's language: True, False, or None if it cannot be told.
+    Judged by the quotation's short lower-case words (in most languages the articles, prepositions and conjunctions:
+    "the", "and", "of" / "der", "und", "von"), which any page in that language contains. Language-neutral: no word
+    lists. A quotation with few of its words on a page in its own language is not a translation: it is not on the page.
+    With fewer than three such words it cannot be told (None), and the quotation is not treated as a translation."""
+    short = {w.lower() for w in re.findall(r"(?<!\w)[^\W\d_]{1,3}(?!\w)", quote or "") if w.islower()}
+    if len(short) < 3:
+        return None
+    vocabulary = set(words_only(_page_text(page)).split())
+    return len(short & vocabulary) / len(short) >= SAME_LANGUAGE_SHARE
+
+
+# A figure: digits joined by a decimal or thousands separator ("5.92", "5,92", "15,351", "15'351"), or by a space
+# only before a group of exactly three digits ("15 351"), so that "2023 2024" stays two figures.
+FIGURE = re.compile(r"\d+(?:(?:[.,'\u2019]|[ \u00a0\u2009\u202f](?=\d{3}(?!\d)))\d+)*")
+
+
 def _figures(text):
     """{digit string: the figure as written}: separators removed, so that "5.92", "5,92" and "15,351" / "15 351"
     compare alike (language-neutral); the figure as written is what the hover shows."""
     out = {}
-    for m in re.findall(r"\d[\d.,'\u00a0\u2009\u202f ]*\d|\d", text or ""):
+    for m in FIGURE.findall(text or ""):
         d = re.sub(r"\D", "", m)
         if len(d) >= 2:
             out.setdefault(d, m.strip(" .,'"))
     return out
+
+
+def figures_on_page(quote, page):
+    """(share of the quotation's figures on the page, the ones found), or (None, []) if it has none. Figures survive a
+    translation, so they are the check for a quotation translated from a page in another language."""
+    digits = _figures(quote)
+    if not digits:
+        return None, []
+    page_digits = _digits(_page_text(page))
+    found = sorted(shown for d, shown in digits.items() if d in page_digits)
+    return len(found) / len(digits), found
 
 
 def _digits(text):
@@ -201,8 +232,11 @@ def key_terms(quote):
     for sentence in re.split(r"(?<=[.!?:;])\s+", quote or ""):
         words = re.findall(r"[^\W\d_][\w'’&-]*", sentence)
         for w in words[1:]:
-            if w[:1].isupper() and len(w) >= 3:
-                names.add(w.lower())
+            # compared like the words of the page (words_only): "Lindt's" -> "Lindt", "Ritter-Sport" -> "Ritter",
+            # "Sport" (with the "'s" or the hyphen kept, such a name could never be found)
+            for part in re.split(r"[-&'’]+", re.sub(r"['’]s$", "", w)):
+                if part[:1].isupper() and len(part) >= 3:
+                    names.add(part.lower())
     return _figures(quote), names
 
 
@@ -445,6 +479,61 @@ def activity_terms(act):
     return [t for t in dict.fromkeys(out) if t]
 
 
+# =============================================================== a quotation not on its page word for word
+def judge(quote, page, n=None):
+    """The level of trust for a quotation that is not on its page word for word (the page was read).
+    ≈ "close" only where its substance is on the page:
+      - the page is in another language (same_language) and the quotation's figures, if it has any, are on it:
+        probably the search's translation;
+      - else its figures and names are on the page (at least SUBSTANCE_SHARE): probably reworded by the search;
+      - else, for a quotation without figures or names to check, most of its words are on the page (WORDING_SHARE).
+    Otherwise ⚠ "not found". A quotation with few of its words on a page in its OWN language is not a translation: it
+    is not on the page. Language- and sector-neutral."""
+    pdf = page.get("pdf")
+    short = pdf is not None and pdf.cut_short()
+    share = share_on_page(quote, page)
+    sub, keys = substance_on_page(quote, page)
+    lang = same_language(quote, page)
+    translated = (not short and lang is False and share is not None and share < TRANSLATED_BELOW)
+    entry = {"n": n, "result": "not found", "quote": quote, "translated": translated, "same_language": lang,
+             "words_on_page": None if share is None else round(share, 2),
+             "substance_on_page": None if sub is None else round(sub, 2), "keys_found": keys}
+    if translated:
+        figs, found = figures_on_page(quote, page)
+        if figs is None or figs >= SUBSTANCE_SHARE:
+            entry.update(result="close", basis="translation", keys_found=found,
+                         reason="the page seems to be in another language, and the quotation is probably the search's "
+                                "translation" + (f" (its figures are on the page: {', '.join(found[:4])})" if found
+                                                 else ""))
+        else:
+            entry.update(keys_found=found,
+                         reason="the page seems to be in another language, but the quotation's figures are not on it"
+                                + (f" (only {', '.join(found[:4])})" if found else ""))
+    elif sub is not None:
+        total = len(key_terms(quote)[0]) + len(key_terms(quote)[1])
+        if sub >= SUBSTANCE_SHARE:
+            entry.update(result="close", basis="figures and names",
+                         reason="the wording is not on the page, but its figures and names are ("
+                                + ", ".join(keys[:4]) + "): probably "
+                                + ("the search's translation" if lang is False else "reworded by the search"))
+        elif keys:
+            entry["reason"] = (f"the wording is not on the page, and only some of its figures and names are on it "
+                               f"({len(keys)} of {total}: {', '.join(keys[:4])})")
+        else:
+            entry["reason"] = "neither the wording nor its figures or names are on the page"
+    elif share is not None and share >= WORDING_SHARE:
+        entry.update(result="close", basis="wording",
+                     reason=f"{share:.0%} of the quotation's words occur on the page, not in this order: probably "
+                            "reworded by the search")
+    else:
+        entry["reason"] = ("the wording is not on the page" + (f" (only {share:.0%} of its words occur on it)"
+                                                               if share is not None else ""))
+    if entry["result"] == "not found" and short:
+        entry["reason"] = (f"only the first {len(pdf.texts)} of {pdf.total} PDF pages could be read in time, and this "
+                           "passage is not on them")
+    return entry
+
+
 # =============================================================== checking one company
 def check(found, data, pasted=""):
     """Opens every source of ONE company (in parallel), checks the quotations of its profile and activities, and
@@ -534,32 +623,7 @@ def check(found, data, pasted=""):
                                 "context": context_of(q, page2, pdf_page),
                                 "link": link_to(s2["url"], q, pdf_page) if s2.get("url") else ""})
                     continue
-                pdf = page.get("pdf")
-                short = pdf is not None and pdf.cut_short()
-                share = share_on_page(given[n][0], page)
-                translated = not short and share is not None and share < TRANSLATED_BELOW
-                sub, keys = substance_on_page(given[n][0], page)
-                entry = {"n": n, "result": "not found", "quote": given[n][0], "translated": translated,
-                         "words_on_page": None if share is None else round(share, 2),
-                         "substance_on_page": None if sub is None else round(sub, 2), "keys_found": keys}
-                # ≈ when the substance is on the page, ⚠ only when neither wording nor facts are
-                if sub is not None and sub >= SUBSTANCE_SHARE:
-                    entry.update(result="close", basis="figures and names",
-                                 reason="the wording is not on the page, but its figures and names are ("
-                                        + ", ".join(keys[:4]) + "): probably reworded by the search")
-                elif translated:
-                    entry.update(result="close", basis="translation",
-                                 reason=f"only {share:.0%} of the quotation's words occur on the page, so the page is "
-                                        "probably in another language and the quotation the search's translation")
-                elif share is not None and share >= WORDING_SHARE:
-                    entry.update(result="close", basis="wording",
-                                 reason=f"{share:.0%} of the quotation's words occur on the page, not in this order: "
-                                        "probably reworded by the search")
-                else:
-                    entry["reason"] = ((f"only the first {len(pdf.texts)} of {pdf.total} PDF pages could be read in "
-                                        "time, and this passage is not on them") if short else
-                                       "neither the wording nor its figures or names are on the page")
-                out.append(entry)
+                out.append(judge(given[n][0], page, n))
         return out
 
     def apply(holder, num_key, quote_key, checks_key, dead_key, terms=()):

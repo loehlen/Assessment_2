@@ -58,6 +58,10 @@ END_USERS = ["consumers", "businesses", "consumers and businesses", "not stated"
 # code into ONE line, "Other activities", which is compared once, like any activity.
 CATEGORIES = ["main", "other"]
 MAX_MAIN = 5
+# Fields of an activity that record what the lawyer did with it (saved in the edit form, edited, names confirmed), not
+# what the activity is: they never make an activity count as changed, so they never send its pairs to the AI again or
+# make its step ④ search out of date (the content keys in comparison.py, app.py and precedents.py leave them out).
+STATE_FIELDS = ("level_checked", "edited_by_user", "typed_names_confirmed")
 STATUS = ["on the market", "in development", "not stated"]
 
 # Answer lists for the factual comparison (one anonymised pair per AI call)
