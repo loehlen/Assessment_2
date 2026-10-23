@@ -49,7 +49,7 @@ def flag(name, default=False):
 
 # =============================================================== models per step
 EMBED_MODEL = "text-embedding-3-large"
-STEPS = ("search", "extract", "compare", "query", "reflect", "assess", "summary", "check")
+STEPS = ("search", "extract", "compare", "query", "reflect", "check")
 
 PROFILES = {
     # Development: GPT-6 Luna for every step. The step ④ reflection runs at medium effort, as in the submitted
@@ -65,8 +65,6 @@ PROFILES = {
         "query": ("gpt-6-luna", "low"),
         # Luna at medium effort, as tested on all test cases (the larger model would cost about 20 times as much)
         "reflect": ("gpt-6-luna", "medium"),
-        "assess": ("gpt-6.1-sol", "medium"),
-        "summary": ("gpt-6-luna", "low"),
         "check": ("gpt-6-luna", "low"),        # the one-word connection test of the deployment check
     },
 }
@@ -173,7 +171,7 @@ class AI:
         # company run inside the pool of companies). Matters for the rate limits of the user's own key.
         self._slots = threading.BoundedSemaphore(MAX_PARALLEL)
         # Resolved once, here, so that worker threads never read settings: an override in .env / Secrets
-        # (MODEL_COMPARE=gpt-6.1-sol, EFFORT_ASSESS=high) wins over the profile.
+        # (MODEL_COMPARE=gpt-6.1-sol, EFFORT_REFLECT=high) wins over the profile.
         self.models = {s: setting(f"MODEL_{s.upper()}", "") or PROFILES[profile][s][0] for s in STEPS}
         self.efforts = {s: setting(f"EFFORT_{s.upper()}", "") or PROFILES[profile][s][1] for s in STEPS}
         self._fallback = setting("MODEL_FALLBACK", "") or FALLBACK[profile]

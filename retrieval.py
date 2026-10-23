@@ -124,8 +124,8 @@ def _tokens(text):
 
 
 class BM25:
-    """Okapi BM25 over the paragraph texts (with headers), for exact Commission terms such as 'countlines',
-    'pralines', 'cocoa liquor' or 'compound' that vector search can rank too low."""
+    """Okapi BM25 over the paragraph texts (with headers), for the exact terms of a decision (the names of segments
+    and technical product names, e.g. 'pedelecs' or 'speed pedelecs') that vector search can rank too low."""
 
     def __init__(self, docs, k1=1.5, b=0.75):
         self.docs = [Counter(_tokens(d)) for d in docs]
@@ -237,5 +237,5 @@ class Retriever:
 
 
 def cite(p):
-    """Pinpoint citation as shown in the app, e.g. 'M.7408 Cargill / ADM Chocolate Business (2015), para (74)'."""
+    """Pinpoint citation as shown in the app, e.g. 'M.1234 Alpha / Beta (2015), para (74)'."""
     return f"{p['case']} {p['title']} ({p['date'][:4]}), para ({p['para']})"

@@ -117,7 +117,7 @@ def names_used_as_words(companies, activities, group_companies):
 
 
 def used_in_lower_case(text, word):
-    """Whether the word appears at least once starting with a lower-case letter ("cacaofruit ingredients"). Brand
+    """Whether the word appears at least once starting with a lower-case letter ("pedelec batteries"). Brand
     names written into a description are almost always capitalised, while an ordinary product word usually appears in
     lower case somewhere. Scripts without upper and lower case never count as lower case, so such a word stays in the
     folded list (removed by default, the safe side)."""

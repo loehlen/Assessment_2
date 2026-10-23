@@ -232,8 +232,8 @@ def key_terms(quote):
     for sentence in re.split(r"(?<=[.!?:;])\s+", quote or ""):
         words = re.findall(r"[^\W\d_][\w'’&-]*", sentence)
         for w in words[1:]:
-            # compared like the words of the page (words_only): "Lindt's" -> "Lindt", "Ritter-Sport" -> "Ritter",
-            # "Sport" (with the "'s" or the hyphen kept, such a name could never be found)
+            # compared like the words of the page (words_only): "Spokewell's" -> "Spokewell", "Gear-Chain" -> "Gear",
+            # "Chain" (with the "'s" or the hyphen kept, such a name could never be found)
             for part in re.split(r"[-&'’]+", re.sub(r"['’]s$", "", w)):
                 if part[:1].isupper() and len(part) >= 3:
                     names.add(part.lower())
@@ -264,10 +264,24 @@ def terms_on_page(terms, page):
 
 
 # =============================================================== opening a page
+# The answers of the name service that mean "this domain does not exist". Any other failure of the lookup (e.g.
+# "Temporary failure in name resolution") is a problem on the app's side or a passing one, never a reason to remove a
+# source.
+NO_SUCH_DOMAIN = {getattr(socket, n) for n in ("EAI_NONAME", "EAI_NODATA") if hasattr(socket, n)}
+
+
 def _dns_failure(e):
+    """Whether the domain does not exist (a definite answer of the name service)."""
     reason = getattr(e, "reason", e)
-    return isinstance(reason, socket.gaierror) or "Name or service not known" in str(reason) \
-        or "nodename nor servname" in str(reason) or "No address associated" in str(reason)
+    if isinstance(reason, socket.gaierror):
+        return reason.errno in NO_SUCH_DOMAIN
+    text = str(reason)
+    return "Name or service not known" in text or "nodename nor servname" in text or "No address associated" in text
+
+
+def _lookup_failed(e):
+    """Whether the name lookup failed without a definite answer (a temporary failure)."""
+    return isinstance(getattr(e, "reason", e), socket.gaierror) and not _dns_failure(e)
 
 
 def fetch(url):
@@ -277,7 +291,8 @@ def fetch(url):
             return _cache[url]
     with _slots:
         out = _fetch(url)
-    cacheable = out["state"] in ("readable", "dead", "blocked", "no text", "dns") and out.get("pdf") is None \
+    # a missing domain is not kept either: whether it counts as dead is judged anew in each check (see check)
+    cacheable = out["state"] in ("readable", "dead", "blocked", "no text") and out.get("pdf") is None \
         and out.get("http") != 429
     if cacheable:
         with _lock:
@@ -330,6 +345,8 @@ def _fetch(url):
     except Exception as e:  # noqa: BLE001 - DNS, time-out, TLS, connection
         if _dns_failure(e):
             out["state"], out["reason"] = "dns", "the domain does not exist (any more)"
+        elif _lookup_failed(e):
+            out["reason"] = "the domain could not be looked up just now (temporary failure)"
         elif isinstance(e, (TimeoutError, socket.timeout)) or "timed out" in str(e):
             out["reason"] = "the site did not answer in time"
         else:

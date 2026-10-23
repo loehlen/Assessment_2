@@ -94,9 +94,36 @@ def cited_sources(resp):
     return [{"n": i + 1, "url": u, "title": t} for i, (u, t) in enumerate(seen.items())]
 
 
-def _domain_words(name):
-    return {w for w in re.findall(r"[a-z0-9]+", rules._german_spelling(rules._without_accents(name)).lower())
-            if len(w) >= 4}
+MIN_PREFIX = 5      # a name this long may also start a domain label ("acme" no, "spokewell" in spokewellusa.com yes)
+
+
+def _name_keys(name):
+    """A company, alias or group company name as a domain writes it: its letters and digits run together, without the
+    legal form, with accents dropped and with the German spelling ("Müller & Söhne AG" -> "mullersohne",
+    "muellersoehne")."""
+    short = rules.LEGAL_FORMS.sub("", rules.AND_CO.sub("", name or "")).strip(" ,&") or (name or "")
+    keys = set()
+    for spelling in (rules._without_accents(short), rules._without_accents(rules._german_spelling(short))):
+        key = re.sub(r"[^a-z0-9]", "", spelling.lower())
+        if key:
+            keys.add(key)
+    return keys
+
+
+def _domain_labels(domain):
+    """The labels of a domain without the top-level domain, each run together and in its hyphenated parts:
+    'shop.gear-and-chain.de' -> ({'shop', 'gearandchain'}, {'shop', 'gear', 'and', 'chain'})."""
+    labels = domain.split(".")[:-1] if "." in domain else [domain]
+    return {x.replace("-", "") for x in labels if x}, {p for x in labels for p in x.split("-") if p}
+
+
+def names_domain(domain, keys):
+    """Whether a domain carries one of the names: a whole label (or a hyphenated part of one) is the name, or a label
+    starts with a name of at least MIN_PREFIX characters. Not a word of a name somewhere inside a label: a company
+    called "Pedal Haus" is not behind fahrradhaus.com, nor "Spokewell Bikes" behind citybikes.com."""
+    joined, parts = _domain_labels(domain)
+    return any(k in joined or k in parts or (len(k) >= MIN_PREFIX and any(x.startswith(k) for x in joined))
+               for k in keys)
 
 
 def site_of(url):
@@ -112,18 +139,18 @@ def site_of(url):
 
 def label_sources(sources, company, group_companies):
     """Labels each source 'company' (own or group website) or 'third party', unless already labelled.
-    The website the user entered decides first (its domain and subdomains); otherwise a simple domain check: a word of
-    the company, alias or group company name appears in the domain."""
+    'company': the domain of the website the user entered or a subdomain of it, or a domain that carries the name of
+    the company, one of its other names or a group company (see names_domain); otherwise 'third party'."""
     site = site_of(company.get("website"))
-    words = set()
+    keys = set()
     for n in names_of(company) + list(group_companies or []):
-        words |= _domain_words(n)
+        keys |= _name_keys(n)
     for s in sources:
         if s.get("type"):
             continue
         domain = site_of(s.get("url", ""))
         own = bool(site) and (domain == site or domain.endswith("." + site))
-        s["type"] = "company" if own or (domain and any(w in domain for w in words)) else "third party"
+        s["type"] = "company" if own or (domain and names_domain(domain, keys)) else "third party"
     return sources
 
 
@@ -147,8 +174,12 @@ def search(ai, company, companies):
             except Exception as e:  # noqa: BLE001 - kept as a recorded gap; raised below only if every search failed
                 runs.append({"focus": focus, "error": f"{type(e).__name__}: {e}", "notes": "", "sources": []})
     if all(r.get("error") for r in runs):
-        raise RuntimeError(runs[0]["error"])
+        raise SearchFailed(runs[0]["error"])
     return merge_searches(name, ai.model("search"), runs)
+
+
+class SearchFailed(RuntimeError):
+    """Every search for one company failed; the message already names the error ("APITimeoutError: ...")."""
 
 
 def one_search(ai, name, focus, prompt, k):
@@ -371,7 +402,10 @@ def map_company(ai, company, companies):
     except Blocked as e:
         result["error"] = str(e)
     except Exception as e:  # noqa: BLE001 - API errors, timeouts, invalid output
-        result["error"] = f"{type(e).__name__}: {e}"
+        detail = str(e) if isinstance(e, SearchFailed) else f"{type(e).__name__}: {e}"
+        result["error"] = (f"The research of {name} failed ({detail}). Run it again with “Map {name} again” under "
+                           "“Company Profile, Sources and Map Again” below, where you can also enter a description of "
+                           "its activities instead.")
     return result
 
 

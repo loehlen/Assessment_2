@@ -299,7 +299,9 @@ def _company_table(doc, model, company, blocks):
             if step4:
                 w = _Cell(c[3])
                 for label, bullets, outcome in r["commission"]:
-                    head = outcome + (f" ({_label_name(label)})" if label and len(r["commission"]) > 1 else "")
+                    name = _label_name(label) if label and len(r["commission"]) > 1 else ""
+                    # "Possible (horizontal label)", or the label alone where there is no result (e.g. a failed search)
+                    head = f"{outcome} ({name})" if outcome and name else outcome or name[:1].upper() + name[1:]
                     if head:
                         _font(w.p().add_run(head + ":"), 10, True)
                     for b in bullets:
@@ -458,7 +460,8 @@ def docx_bytes(model):
             p.paragraph_format.left_indent, p.paragraph_format.first_line_indent = Cm(0.8), Cm(-0.8)
             _font(p.add_run(f"[{num}]\t"), 10.5)
             _font(p.add_run(title), 10.5, False, True)
-            _font(p.add_run(f", {url}" + (f", accessed {src['date']}" if src["date"] else "")), 10.5)
+            if url:                         # a description typed in by the user has no address and no access date
+                _font(p.add_run(f", {url}" + (f", accessed {src['date']}" if src["date"] else "")), 10.5)
     if model["decisions"]:
         _para(doc, "Commission Decisions and Notice Cited", 11, True, before=6, after=1, keep=True)
         for d in model["decisions"]:

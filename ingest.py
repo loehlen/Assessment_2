@@ -8,7 +8,7 @@ What it does:
   1. splits the text into pages and removes page numbers and running headers;
   2. separates the footnotes at the bottom of each page from the body text;
   3. splits the body at the numbered paragraphs. A number is accepted only if it follows on from the previous
-     paragraph (n + 1), so section headings such as "1. Cocoa" or "6.2." are never mistaken for paragraphs;
+     paragraph (n + 1), so section headings such as "1. Bicycles" or "6.2." are never mistaken for paragraphs;
   4. attaches to each paragraph the footnotes it refers to (the case references are often in the footnotes);
   5. records the nearest section headings, for the context header that is embedded with the text.
 

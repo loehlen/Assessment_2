@@ -137,8 +137,8 @@ def search_units(results, overrides, effective_status, dismissed_parts, pair_id,
 
 def needed(unit, legacy=False):
     """What a search must cover: every (activity, item), with a hash of the activity's content, so that an edited
-    activity is searched again. legacy: the hash as written before 23 October (it also hashed the fields that only
-    record the lawyer's handling), so that a search saved then is still recognised."""
+    activity is searched again. legacy: the hash as earlier versions wrote it (it also hashed the fields that only
+    record the lawyer's handling), so that a search saved by them is still recognised."""
     return sorted({(e["aid"], item, _content_hash(e["activity"], legacy)) for e in unit["activities"]
                    for item in e["items"]})
 
@@ -158,6 +158,28 @@ def reusable(record, unit, retry_failed=True):
         return False
     have = {tuple(x) for x in record.get("covered") or []}
     return set(needed(unit)) <= have or set(needed(unit, legacy=True)) <= have
+
+
+def row_covered(record, r, items):
+    """Whether a stored search still covers every product of ONE row (the row's two activities unchanged). A search
+    is made per target activity, so it goes out of date as soon as any of its rows changes (e.g. a pair added back);
+    the other rows, whose products it still covers, keep their result until the search is updated."""
+    if not record or items is None:
+        return False
+    have = {tuple(x) for x in record.get("covered") or []}
+    for legacy in (False, True):
+        need = {(act["aid"], item, _content_hash(act, legacy)) for act, side in ((r["a"], "a"), (r["b"], "b"))
+                for item in items[side]}
+        if need <= have:
+            return True
+    return False
+
+
+def searched_before(record, r):
+    """Whether both activities of a row were part of the stored search (then the row changed since; otherwise it is
+    new to the search, e.g. a pair added back)."""
+    seen = {x[0] for x in (record or {}).get("covered") or []}
+    return bool(record) and {r["a"].get("aid"), r["b"].get("aid")} <= seen
 
 
 def failed_ids(record):
@@ -332,7 +354,7 @@ PARA_ID = re.compile(r"(M\.\s?\d+|Notice)\D{0,10}?(\d+)", re.IGNORECASE)
 
 
 def norm_id(text):
-    """'M.5644-21', 'M.5644 (21)', 'M.5644 para 21' -> 'M.5644-21'."""
+    """'M.1234-21', 'M.1234 (21)', 'M.1234 para 21' -> 'M.1234-21'."""
     m = PARA_ID.search(text or "")
     if not m:
         return (text or "").strip()
@@ -448,7 +470,7 @@ def upgrade_market(m):
 
 
 def case_of(pid):
-    """'M.6872-22' -> 'M.6872'."""
+    """'M.1234-22' -> 'M.1234'."""
     return (pid or "").rpartition("-")[0]
 
 
@@ -466,6 +488,32 @@ def separate_other_decision(m):
         if m.get("conclusion") == PARTLY:
             m["conclusion"] = "defined"
     return m
+
+
+def _unverified(m):
+    """A conclusion label that no passage verified word for word supports: kept for the audit log
+    ('label_not_verified'), shown as 'not stated in these paragraphs'."""
+    m["label_not_verified"] = m["conclusion"]
+    m["conclusion"] = NOT_STATED
+
+
+def verify_labels(record):
+    """The same rule for a stored search (e.g. one loaded from a progress file): every conclusion label must rest on a
+    decided or left-open passage verified word for word; a label without one becomes 'not stated in these
+    paragraphs', and the market may then take the verified conclusion of the same market found by another call
+    (complete_conclusions). Code, no AI call; changes the record in place; idempotent."""
+    markets = record.get("markets") or {}
+    changed = False
+    for m in markets.values():
+        upgrade_market(m)
+        # a market without quotation fields has nothing to check and is left as it is
+        if "decided_quote" in m and m.get("conclusion") in STATED and \
+                not (m.get("decided_quote_found") or m.get("open_quote_found")):
+            _unverified(m)
+            changed = True
+    if changed:
+        complete_conclusions(markets)
+    return record
 
 
 def complete_conclusions(markets):
@@ -674,8 +722,8 @@ def check(data, index, pool, paras):
             markets[mid][f"{part}_paragraph"] = where
             markets[mid][f"{part}_quote_found"] = found
             if quote and not found:
-                rejected.append(f"{mid}: the {part} quotation is not word for word in the paragraphs sent (shown as "
-                                "the AI's wording)")
+                rejected.append(f"{mid}: the {part} quotation is not word for word in the paragraphs sent (not used "
+                                "as a quotation)")
             elif found and where != norm_id(m.get(f"{part}_paragraph") or ""):
                 rejected.append(f"{mid}: the {part} quotation is in paragraph {where}, not "
                                 f"{m.get(f'{part}_paragraph') or 'the one given'} (corrected)")
@@ -687,10 +735,15 @@ def check(data, index, pool, paras):
                                 "paragraph": pid if pid in pool and paras.get(pid, {}).get("source_type")
                                 == SOURCE_DECISION else ""})
         markets[mid]["reasons"] = reasons
-        # the label follows the passages the code found word for word (the AI's own label only if it found none)
+        # the label follows the passages the code found word for word; a label of the AI that no such passage
+        # supports is not reported as the Commission's conclusion
         d, o = markets[mid]["decided_quote_found"], markets[mid]["open_quote_found"]
         if d or o:
             markets[mid]["conclusion"] = PARTLY if d and o else "defined" if d else "left open"
+        elif markets[mid]["conclusion"] in STATED:
+            rejected.append(f"{mid}: the AI's label '{markets[mid]['conclusion']}' rests on no passage found word for "
+                            f"word in the paragraphs sent: shown as '{NOT_STATED}'")
+            _unverified(markets[mid])
         separate_other_decision(markets[mid])      # one decision per label
         if markets[mid].get("other_open_paragraph"):
             rejected.append(f"{mid}: the left-open passage is from {case_of(markets[mid]['other_open_paragraph'])}, "
@@ -886,7 +939,7 @@ MARKET_PREFIX = re.compile(r"^(the\s+)?(relevant\s+)?(product\s+)?markets?\s+(fo
 
 
 def _market_key(name):
-    """'Market for tablets', 'the market for tablets' and 'tablets' are one market."""
+    """'Market for e-bikes', 'the market for e-bikes' and 'e-bikes' are one market."""
     name = MARKET_PREFIX.sub("", (name or "").lower().strip())
     name = re.sub(r"\s+markets?$", "", name)
     return re.sub(r"[^a-z0-9]", "", name)

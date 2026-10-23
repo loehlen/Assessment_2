@@ -427,7 +427,7 @@ _COMMON = set("with from that this their other products product sold sales sale 
 
 def _words(activity):
     text = " ".join([activity.get("product", "")] + list(activity.get("includes") or [])).lower()
-    text = re.sub(r"\bnon[- ]\w+", " ", text)          # "non-chocolate" must not count as "chocolate"
+    text = re.sub(r"\bnon[- ]\w+", " ", text)          # "non-alcoholic" must not count as "alcoholic"
     return {w for w in _WORD.findall(_without_accents(text)) if w not in _COMMON}
 
 
@@ -574,7 +574,8 @@ def decide(comparison, code_signals, similarity, a=None, b=None):
                 "(see the reason)")
     elif comparison.get("error"):
         status = "unclear"
-        rule = "Unclear, please check: the comparison call failed (see the reason); compare the two activities by hand"
+        rule = ("Unclear, please check: the comparison call failed (see the reason); “Update the comparison” in step ② "
+                "sends it again, or compare the two activities by hand")
     elif relation == "not enough information":
         status = "unclear"
         rule = "Unclear, please check: the descriptions do not allow a comparison"
