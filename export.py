@@ -34,7 +34,8 @@ KEY = [("Confirmed", "both products fall in a market the Commission defined"),
        ("Not supported", "the Commission puts the products in separate markets"),
        ("No precedent", "no decision in the database covers the products (or, for a shop or wholesaler, its retail or "
                         "wholesale market)"),
-       ("Markets defined / One side defined", "vertical rows: the Commission defined both markets / one of them")]
+       ("Markets defined / One side defined", "vertical rows: the decisions define the market of both sides' products "
+                                              "/ of one side's only; not the link between the two companies")]
 HOW = [
     ("Research", "Each company was researched on its own, in two searches of public websites (its main business, and "
                  "what such a search easily misses: smaller brands, sales to other businesses, own shops and cafés, "
@@ -298,7 +299,7 @@ def _company_table(doc, model, company, blocks):
             if step4:
                 w = _Cell(c[3])
                 for label, bullets, outcome in r["commission"]:
-                    head = outcome + (f" ({label})" if label and len(r["commission"]) > 1 else "")
+                    head = outcome + (f" ({_label_name(label)})" if label and len(r["commission"]) > 1 else "")
                     if head:
                         _font(w.p().add_run(head + ":"), 10, True)
                     for b in bullets:
@@ -321,6 +322,44 @@ def _company_table(doc, model, company, blocks):
 
 
 # =============================================================== the document
+def _label_name(label):
+    """The label of step ③ a part of the Commission cell belongs to (as on screen)."""
+    if label == "vertical, both directions":
+        return "vertical labels, both directions"
+    if label.startswith("vertical, "):
+        return "vertical label, " + label[len("vertical, "):]
+    return "horizontal label" if label.startswith("horizontal") else label
+
+
+def _markets_table(doc, model, n):
+    """Every market a product of the kept rows falls in, once, with the paragraph it rests on and each company's
+    products in it (as the table at the top of step ④)."""
+    _heading(doc, f"{n}. Markets in the Commission's Decisions", 1)
+    _para(doc, "Every market a product of the rows in section 2 falls in, once, with the paragraph it rests on. The "
+               "decisions define markets, not the relationship between the companies.", 10.5, after=4)
+    t = doc.add_table(rows=1, cols=4)
+    _borders(t)
+    _margins(t)
+    _head(t, ["Market", "Commission's Decision", model["target"], "Portfolio Companies"])
+    group = None
+    for x in model["markets"]:
+        if x["group"] != group:
+            group = x["group"]
+            row = t.add_row()
+            _row_props(row)
+            cell = row.cells[0].merge(row.cells[3])
+            _shd(cell._tc.get_or_add_tcPr(), "F2EFE8")
+            _font(cell.paragraphs[0].add_run(group), 10, True)
+        row = t.add_row()
+        _row_props(row)
+        _font(_Cell(row.cells[0]).p().add_run(x["market"]), 10, True)
+        for c, lines in ((row.cells[1], x["decisions"]), (row.cells[2], x["target"]), (row.cells[3], x["portcos"])):
+            w = _Cell(c)
+            for line in lines or ["–"]:
+                _font(w.p().add_run(line), 9.5)
+    _widths(t, [4.2, 5.4, 8.0, 8.1])
+
+
 def docx_bytes(model):
     doc = Document()
     _styles(doc)
@@ -390,10 +429,15 @@ def docx_bytes(model):
                   before=8, after=2, keep=True)
             _company_table(doc, model, sec["portco"], sec["own"])
 
-    # 3 open points
+    # 3 the markets in the Commission's decisions (step ④), each once; the rows above name them
     n = 3
+    if model.get("markets"):
+        _markets_table(doc, model, n)
+        n += 1
+
+    # open points
     if model["open_points"]:
-        _heading(doc, "3. Open Points", 1)
+        _heading(doc, f"{n}. Open Points", 1)
         groups = {}
         for o in model["open_points"]:
             groups.setdefault(o["portco"], []).append(o)
@@ -403,7 +447,7 @@ def docx_bytes(model):
                 p = _fmt(doc.add_paragraph(style="List Bullet"), after=1)
                 _font(p.add_run(o["text"] + " "), 11)
                 _font(p.add_run(f"({o['pair']})"), 10, False, True, GREY)
-        n = 4
+        n += 1
 
     # sources and decisions
     _heading(doc, f"{n}. Sources", 1)

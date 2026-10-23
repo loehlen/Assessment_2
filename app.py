@@ -20,7 +20,6 @@ With DEV_MODE off (the submitted version) the first screen asks for the user's o
 the session only.
 """
 import concurrent.futures as cf
-import contextlib
 import copy
 import hashlib
 import html
@@ -60,7 +59,12 @@ APP_CSS = """<style>
 .tag{font-size:.78rem;color:#55514A;font-style:italic;white-space:nowrap}
 .sub2{color:#55514A}
 .hov{cursor:help;border-bottom:1px dotted #8A857C}
-.dots{cursor:help;letter-spacing:.05em;border-bottom:1px dotted #8A857C}
+.dots{cursor:help;border-bottom:1px dotted #8A857C;padding-bottom:.1rem}
+.dts{display:inline-flex;gap:.13em;align-items:center;vertical-align:.1em}
+.dts + .dts{margin-left:.45em}
+.dts i{display:inline-block;width:.46em;height:.46em;border-radius:50%;border:1.2px solid currentColor;
+ box-sizing:border-box}
+.dts i.on{background:currentColor}
 .src{text-decoration:none;font-size:.85em;color:#3A5A80}
 .cline{background:#F2EFE8;color:#3D3A35;border-left:3px solid #C9C2B4;padding:.4rem .8rem;margin:.35rem 0 .2rem 0;
  line-height:1.55;border-radius:0}
@@ -68,11 +72,11 @@ APP_CSS = """<style>
 .cline.o-conf{background:#DCE6F2;border-left-color:#2E5A88;color:#1F3F66}
 .cline.o-open{background:#ECEAE5;border-left-color:#8A857C;color:#3D3A35}
 .cline.o-nosup{background:#E3EDE4;border-left-color:#5E8A66;color:#2F5D3A}
-.cline.o-nopre{background:#FBFAF7;border:1px dashed #C9C2B4;border-left:3px solid #C9C2B4;color:#55514A}
+.cline.o-nopre{background:#EAE7F0;border-left-color:#7F7898;color:#4A4361}
 .oc{display:inline-block;font-size:.75rem;font-weight:600;padding:.02rem .5rem;border-radius:10px;margin:0 .3rem;
  white-space:nowrap}
 .oc.o-conf{background:#DCE6F2;color:#1F3F66}.oc.o-open{background:#ECEAE5;color:#4A463F}
-.oc.o-nosup{background:#E3EDE4;color:#2F5D3A}.oc.o-nopre{background:#fff;color:#55514A;border:1px solid #C9C2B4}
+.oc.o-nosup{background:#E3EDE4;color:#2F5D3A}.oc.o-nopre{background:#EAE7F0;color:#4A4361}
 details.mkts{margin:.1rem 0 .4rem 0}
 details.mkts>summary{cursor:pointer;color:#5B7089;font-size:.85rem;list-style:none}
 details.mkts>summary::-webkit-details-marker{display:none}
@@ -100,8 +104,12 @@ details.mkts[open]>summary:before{content:"▾ "}
 .lgm .lab,.lgm .oc{margin:0;white-space:nowrap}
 .lgh{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:.92rem;margin:.7rem 0 .15rem 0}
 .lgh:first-child{margin-top:0}
-.lp-lead{font-size:1.2rem;line-height:1.5;color:#3D3A35;margin:.1rem 0 1.4rem 0;max-width:46rem}
-.lp-split{display:flex;flex-wrap:wrap;gap:2.4rem;align-items:flex-start;margin-bottom:2.4rem}
+.lp-title{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:2.3rem;line-height:1.2;color:#1F1D1A;
+ margin:0 0 .9rem 0}
+.lp-lead{font-size:1.2rem;line-height:1.5;color:#3D3A35;margin:0 0 1.6rem 0}
+.lp-lead,.lp-why p,.lp-item>div{text-align:justify;hyphens:auto;-webkit-hyphens:auto}
+.lp-lead{hyphens:manual;-webkit-hyphens:manual}
+.lp-split{display:flex;flex-wrap:wrap;gap:2.8rem;align-items:flex-start;margin:.4rem 0 2.4rem 0}
 .lp-main{flex:3 1 28rem;min-width:0}
 .lp-h2{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:1.35rem;margin:0 0 .7rem 0;color:#1F1D1A}
 .lp-why p{margin:0 0 .75rem 0;color:#3D3A35;line-height:1.6}
@@ -140,10 +148,6 @@ details.mkts[open]>summary:before{content:"▾ "}
 .sec{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:1.65rem;line-height:1.25;color:#22313F;
  margin:.8rem 0 .1rem 0}
 .sec.next{margin-top:2.2rem;border-top:2px solid #22313F;padding-top:.9rem}
-.st-key-tgtbox{border-left:4px solid #22313F !important}
-.st-key-tgtband{background:#F2EFE8;border-radius:4px;padding:.55rem .8rem .8rem .8rem;margin-bottom:.3rem}
-.st-key-tgtband .prof{background:#FBFAF7;margin-bottom:0}
-.st-key-tgtband div:has(> .prof){margin-bottom:0 !important}
 .secsub{color:#55514A;font-size:.9rem;margin:0 0 .6rem 0}
 .gate-space{height:16vh}
 .gate-title{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:2.3rem;line-height:1.2;color:#1F1D1A;
@@ -161,10 +165,16 @@ details.mkts[open]>summary:before{content:"▾ "}
  color:#FFFFFF !important;opacity:1 !important;filter:none !important}
 [class*="st-key-thead"] [data-testid="stTooltipIcon"] svg,[class*="st-key-thead"] [data-testid="stTooltipIcon"] svg *{
  stroke:#FFFFFF !important}
-[class*="st-key-pfrow"]{border-bottom:1px solid #E2DDD2;padding:.35rem .7rem .4rem .7rem;gap:.4rem}
-.st-key-thead_pf{margin-bottom:-.6rem;padding:.45rem .7rem .2rem .7rem}
-.st-key-thead_pf p{font-weight:400}
-.wr{display:block;margin:.05rem 0 0 .9rem}
+[class*="st-key-pfrow"]{border-bottom:1px solid #E2DDD2;padding:.4rem 0 .45rem 0;gap:.4rem}
+.st-key-thead_pf{margin-bottom:-.6rem;padding:.55rem 0 !important}
+.st-key-thead_pf p{font-size:.875rem;font-weight:400;margin:0 !important;line-height:1.4}
+.st-key-thead_pf [data-testid="stMarkdownContainer"],.st-key-thead_pf [data-testid="stMarkdown"]{margin:0 !important}
+.st-key-thead_pf [data-testid="stMarkdownContainer"]>div{margin:0 !important}
+.st-key-thead_pf strong{font-weight:600}
+.st-key-thead_pf [data-testid="stColumn"]{padding-left:.75rem}
+.st-key-thead_pf [data-testid="stColumn"]:nth-child(4){padding-left:.5rem}
+.wr{display:block;margin:.05rem 0 0 0}
+.aext{margin-top:.5rem}
 .guide{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin:.1rem 0 .2rem 0}
 .guide>div{padding:0 1.1rem;border-left:1px solid #E2DDD2}
 .guide>div:first-child{padding-left:0;border-left:none}
@@ -606,7 +616,8 @@ DESCRIPTION_HELP = ("Describe what the company does: its business areas, product
 # has its own id, so removing a row keeps what is typed in the others; its fields are ordinary widgets keyed by the id.
 PF_KEY = {"name": "pfn", "website": "pfw", "aliases": "pfa", "source": "pfs", "desc": "pfd"}
 PF_WIDTHS = [2.2, 2, 2.4, 1.6, 0.4]
-ALIAS_HELP = ("Short names or former names, comma-separated, e.g. “Lindt” for Lindt & Sprüngli. Like the name itself, "
+ALIAS_HELP = ("Short names or former names, comma-separated: for example the name without its legal form, or the name the "
+              "company had before. Like the name itself, "
               "they are removed from every anonymised description before a comparison. The confidentiality check only "
               "recognises names it knows; parts of a name joined by “&” or “and” are recognised automatically.")
 
@@ -1269,27 +1280,24 @@ def company_block(ai, c, index):
     acts = ss.acts[name]
     v = ss.acts_version
     is_target = c["role"] == "target"
-    # the target's box has an ink bar down its left side, and its name, website and profile sit on a sand band (the
-    # profile on ivory inside it); its activities stay on the same background as every other box (change C.6)
-    with st.container(border=True, key="tgtbox" if is_target else None):
-        with (st.container(key="tgtband") if is_target else contextlib.nullcontext()):
-            st.markdown(f"#### {name if is_target else f'Portfolio Company {index}: {name}'}")
-            facts = [c["website"]] if c.get("website") else []
-            if am.source_mode(c) != "web search":
-                facts.append(f"activities from: {am.source_mode(c)}")
-            if facts:
-                st.caption(" · ".join(facts))
-            if m.get("error"):
-                st.error(m["error"])
-            profile = profile_of(name)
-            if profile.strip():
-                psrc = {"source_numbers": ext.get("profile_source_numbers") or [],
-                        "quote_checks": ext.get("profile_quote_checks") or []}
-                st.markdown("<div class='prof'>" + he(profile) + (" " + source_markers(psrc, name)
-                                                                  if psrc["source_numbers"] else "") + "</div>",
-                            unsafe_allow_html=True)
-            elif not m.get("error"):
-                st.caption("No profile found in the sources.")
+    with st.container(border=True):           # the same box for the target and each portfolio company
+        st.markdown(f"#### {name if is_target else f'Portfolio Company {index}: {name}'}")
+        facts = [c["website"]] if c.get("website") else []
+        if am.source_mode(c) != "web search":
+            facts.append(f"activities from: {am.source_mode(c)}")
+        if facts:
+            st.caption(" · ".join(facts))
+        if m.get("error"):
+            st.error(m["error"])
+        profile = profile_of(name)
+        if profile.strip():
+            psrc = {"source_numbers": ext.get("profile_source_numbers") or [],
+                    "quote_checks": ext.get("profile_quote_checks") or []}
+            st.markdown("<div class='prof'>" + he(profile) + (" " + source_markers(psrc, name)
+                                                              if psrc["source_numbers"] else "") + "</div>",
+                        unsafe_allow_html=True)
+        elif not m.get("error"):
+            st.caption("No profile found in the sources.")
         for w in ext.get("warnings") or []:
             st.warning(w)
         if acts:
@@ -1632,6 +1640,12 @@ RULE_WORDS = {
 UPSTREAM_LINKS = ("A could be an input for B", "A could be resold by B")
 
 
+def he_lines(text):
+    """The lawyer's own wording (from "Edit") with its line breaks: each line escaped like he(), joined by <br> (he()
+    alone turns line breaks into spaces)."""
+    return "<br>".join(he(x) for x in str(text or "").splitlines() if x.strip())
+
+
 def he(text):
     """Text from the sources or the AI inside an HTML line that Streamlit also reads as markdown: HTML escaped and the
     markdown characters neutralised."""
@@ -1795,19 +1809,31 @@ def link_sentence(link, vitems, r, target, portco, html_out=True):
     }.get(link, link)
 
 
+def dots_html(score):
+    """The customer score as three drawn circles (filled = shared customers), so that they have the same size in every
+    font; the score itself stays "●●○" in the data and in the Word document."""
+    return ("<span class='dts'>" + "".join(f"<i class='{'on' if ch == '●' else ''}'></i>" for ch in score)
+            + "</span>")
+
+
 def customer_dots(r, target, portco):
     """The customer score (dots) with its explanation on hover."""
     score = r.get("customers")
-    if score not in ("●●●", "●●○", "●○○"):
+    if score not in ("●●●", "●●○", "●○○", "?"):
         return ""
     ca = words_list(_shown(r["a"].get("direct_customers"))) or "not stated"
     cb = words_list(_shown(r["b"].get("direct_customers"))) or "not stated"
+    if score == "?":                   # one side's sources do not say who it sells to: nothing to compare
+        tip = (f"Direct customers not stated: {target} sells to {ca}; {portco} to {cb}. The sources do not say who "
+               "one of the two sells to, so the customers cannot be compared. This does not affect the overlap, which "
+               "is about the products.")
+        return f"<span class='dots' title='{h(tip)}'>customers not stated</span>"
     tip = (f"{capital(CUSTOMER_TEXT[score])}: {target} sells to {ca}; {portco} to {cb}. This compares only who each "
            "company sells to directly, not the products. Different customers alone do not rule out an overlap: "
            "customers form a separate market only if the seller can tell which group a customer belongs to at the time "
            "of sale, customers cannot resell to each other, and the different treatment is lasting (Market Definition "
            "Notice (88)).")
-    return f"<span class='dots' title='{h(tip)}'>{score}</span>"
+    return f"<span class='dots' title='{h(tip)}'>{dots_html(score)}</span>"
 
 
 def own_use_flag(r):
@@ -1850,7 +1876,8 @@ def part_detail(p, r, target, portco, html_out=True):
         own = " · own use" if own_use_flag(r) else ""
         m = r.get("matches") or {}
         if not html_out:
-            lines = [f"{kind}, {level}{', ' + CUSTOMER_TEXT.get(r.get('customers') or '', '') if r.get('customers') in ('●●●', '●●○', '●○○') else ''}"]
+            cust = CUSTOMER_TEXT.get(r.get("customers") or "", "")
+            lines = [f"{kind}, {level}{', ' + cust if cust else ''}"]
             if m.get("a") or m.get("b"):
                 lines.append(f"With regard to: {target}: {', '.join(m.get('a') or []) or '–'}; "
                              f"{portco}: {', '.join(m.get('b') or []) or '–'}")
@@ -1916,22 +1943,31 @@ def assessment_cell(r, status, rv, target, portco):
                      help="Your view of this relationship: used in the summary and the Word document. “Ask the "
                           "company” puts it into the open points; “Dismiss” removes it.")
 
+    items = []                          # [text, part, kind, off], one line (with its own "Your view") each
     if status == "added back by user":
-        line("<span class='lab lab-q'>Added back by you</span> <span class='sub2'>the tool found no overlap; see "
-             "“Why?”</span>", "row", "row")
+        items.append(["<span class='lab lab-q'>Added back by you</span> <span class='sub2'>the tool found no overlap; "
+                      "see “Why?”</span>", "row", "row", False])
     elif r["decision"]["status"] == "unclear":
-        line("<span class='lab lab-q'>Unclear: please check</span> <span class='sub2'>see “Why?”</span>", "row", "row",
-             off=bool(o.get("dismiss")))
+        items.append(["<span class='lab lab-q'>Unclear: please check</span> <span class='sub2'>see “Why?”</span>",
+                      "row", "row", bool(o.get("dismiss"))])
     for p in parts:
         detail = [] if edited else part_detail(p, r, target, portco)
-        text = "  \n".join([label_html(p)] + detail)
-        line(text, p["part"], p["origin"], off=p["off"])
+        items.append(["  \n".join([label_html(p)] + detail), p["part"], p["origin"], p["off"]])
+    # the lawyer's wording and the existing relationship go under the last label, in the same narrow part of the
+    # column (not under "Your view" as well)
+    extra = []
     if edited:
-        st.markdown(he(edited).replace("\n", "<br>") + " <span class='tag'>edited by you</span>",
-                    unsafe_allow_html=True)
+        extra.append(he_lines(edited) + " <span class='tag'>edited by you</span>")
     rel = (ss.get("rel_rows") or {}).get(pid)
     if rel:
-        st.markdown(relationship_html(rel, target, portco), unsafe_allow_html=True)
+        extra.append(relationship_html(rel, target, portco))
+    if items and extra:
+        items[-1][0] += "\n\n" + "".join(f"<div class='aext'>{x}</div>" for x in extra)
+    for text, part, kind, off in items:
+        line(text, part, kind, off=off)
+    if not items:
+        for x in extra:
+            st.markdown(x, unsafe_allow_html=True)
 
 
 def relationship_html(rel, target, portco):
@@ -1982,13 +2018,52 @@ def set_aside_text(r, link, reason, target, portco, md=True):
     return f"{head('Link set aside by the tool')} {what}; {e(who)} {e(reason[2:])}."
 
 
+# The AI compares "ACTIVITY A" (always the target) and "ACTIVITY B" (the portfolio company) and never sees a name;
+# its reasons therefore say "A" and "B". On screen and in the Word document the app puts the names back. A capital "A"
+# that starts a sentence is only replaced where it is clearly the label ("A's", "A and B", "A sells ..."), not the
+# article ("A shared category ...").
+_AB_VERBS = ("is|are|was|has|have|makes|make|sells|sell|supplies|supply|produces|produce|offers|offer|provides|"
+             "provide|operates|could|can|may|might|would|will|does|uses|use|buys|buy|distributes|resells|resell|"
+             "manufactures|lists|includes|include|focuses|targets|also|only|mainly|appears|covers|consists|sources|"
+             "processes|serves|requires|needs|lacks|contains|relates|involves|concerns|belongs|falls|trades|delivers|"
+             "describes|lies|sits|acts|works|seems|appear|remains")
+
+
+_AB_NOT_LABEL = {"vitamin", "type", "grade", "class", "plan", "size", "option", "version", "category", "level",
+                 "phase", "series", "model", "format"}
+
+
+def name_ab(text, target, portco):
+    names = {"A": target, "B": portco}
+    t = str(text or "")
+
+    def label(m, group=1):
+        """The name, unless the letter follows a word like "vitamin" or "type" (then it is not the label)."""
+        before = t[:m.start()].split()
+        if before and before[-1].lower().strip("(") in _AB_NOT_LABEL:
+            return m[0]
+        return names[m[group]]
+
+    t = re.sub(r"\b(?:[Aa]ctivity|[Cc]ompany|[Ss]ide|[Pp]arty)\s+([AB])['’]s\b", lambda m: f"{names[m[1]]}'s", t)
+    t = re.sub(r"\b[Aa]ctivity\s+([AB])\b(?![-\w])", lambda m: f"{names[m[1]]}'s activity", t)
+    t = re.sub(r"\b(?:[Cc]ompany|[Ss]ide|[Pp]arty)\s+([AB])\b(?![-\w])", lambda m: names[m[1]], t)
+    t = re.sub(r"(?<![\w-])([AB])['’]s\b", lambda m: f"{names[m[1]]}'s", t)
+    t = re.sub(r"(?<![\w-])(B)(?![\w-])", label, t)
+    # "A" inside a sentence is the label; at the start of a sentence only before "and/or", a comma, a bracket or a verb
+    t = re.sub(r"(?<=[a-z,;(]\s)(A)(?![\w-])|(?<=[a-z,;(])(A)(?![\w-])",
+               lambda m: label(m, 1 if m[1] else 2), t)
+    t = re.sub(r"(?:(?<=^)|(?<=[.!?:]\s))(A)(?=\s+(?:and|or|" + _AB_VERBS + r")\b|[,);:.])", label, t)
+    return t
+
+
 def why_popover(r, target, portco):
     """'Why?': only the reasoning (the sources are in step ② and in the hover of each source, and what the AI saw is in
     the audit log)."""
     c, d = r["comparison"], r["decision"]
     why = []
     if d["horizontal"] or d["status"] in ("unclear", "screened out"):
-        why.append(f"**Product** ({esc(c['product_relation'])}): {esc(c.get('product_reason', ''))}")
+        why.append(f"**Product** ({esc(c['product_relation'])}): "
+                   f"{esc(name_ab(c.get('product_reason', ''), target, portco))}")
     ai_links = [link for link in d["vertical_links"] if d["found_by"][link] != "rule"]
     for link in d["vertical_links"]:
         up, _, down, _ = direction(link, r, target, portco)
@@ -1997,22 +2072,29 @@ def why_popover(r, target, portco):
             text += ": " + esc(RULE_WORDS[link].format(t=target, p=portco)) + "."
         why.append(text)
     if ai_links and c.get("vertical_reason"):
-        why.append(esc(c.get("vertical_reason", "")))
+        why.append(esc(name_ab(c.get("vertical_reason", ""), target, portco)))
     for link, reason in d.get("disregarded", []):
         why.append(set_aside_text(r, link, reason, target, portco))
     # say what "Why?" contains: the AI's reasoning and the app's own checks, for the lawyer to check
-    st.caption("The AI's reasoning on the anonymised descriptions, and the app's own checks: who each company sells to "
-               "directly, and whether supply or resale is possible in this row.")
+    st.caption("The AI's reasoning on the anonymised descriptions (it saw them as “A” and “B”; the app puts the names "
+               "back), and the app's own checks: who each company sells to directly, and whether supply or resale is "
+               "possible in this row.")
     st.markdown("\n\n".join(why) or "No reason given.")
+    if d["horizontal"] and r.get("customers") == "?":
+        ca = words_list(_shown(r["a"].get("direct_customers")))
+        cb = words_list(_shown(r["b"].get("direct_customers")))
+        st.markdown(f"**Direct customers** not stated: {esc(target)} sells to {esc(ca or 'not stated')}; "
+                    f"{esc(portco)} to {esc(cb or 'not stated')}. The customers cannot be compared; this does not "
+                    "affect the overlap, which is about the products.")
     if d["horizontal"] and r.get("customers") in ("●●●", "●●○", "●○○"):
         ca = words_list(_shown(r["a"].get("direct_customers")))
         cb = words_list(_shown(r["b"].get("direct_customers")))
-        st.markdown(f"**Direct customers** {r['customers']}: {esc(target)} sells to {esc(ca or 'not stated')}; "
+        st.markdown(f"**Direct customers** {dots_html(r['customers'])}: {esc(target)} sells to {esc(ca or 'not stated')}; "
                     f"{esc(portco)} to {esc(cb or 'not stated')}, so {CUSTOMER_TEXT[r['customers']]}. This compares "
                     "only who each company sells to directly, not the products. Different customers alone do not rule "
                     "out an overlap: customers form a separate market only if the seller can tell which group a "
                     "customer belongs to at the time of sale, customers cannot resell to each other, and the different "
-                    "treatment is lasting (Market Definition Notice (88)).")
+                    "treatment is lasting (Market Definition Notice (88)).", unsafe_allow_html=True)
     if own_use_flag(r) or is_own_use(r):
         st.markdown("**Own use:** produced for the group's own use, not sold on the market (draft Merger Guidelines "
                     "para 103(i)). It cannot supply the other company, so a link where it would be the supplier is set "
@@ -2077,8 +2159,7 @@ def edit_row(pid, target, portco):
 
 def pair_row(r, status, rv, target, portco, first):
     """One sub-row: target activity (first sub-row of a block only), portco activity, assessment, in step ④ the
-    Commission's view, the user's note, and Edit / Why?; in step ④ the Commission's markets for this pair on request,
-    full width under the row."""
+    Commission's view, the user's note, and Edit / Why?. The markets themselves are in the table above the rows."""
     pid = cmp.pair_id(r)
     o = ss.override_store.get(pid, {})
     s = status[pid]
@@ -2090,10 +2171,9 @@ def pair_row(r, status, rv, target, portco, first):
     cols[1].markdown(table_cell(r["b"], portco, r), unsafe_allow_html=True)
     with cols[2]:
         assessment_cell(r, s, rv, target, portco)
-    markets = ""
     if step4:
         with cols[3]:
-            markets = commission_cell(r, target, portco)
+            commission_cell(r, target, portco)
     with cols[4 if step4 else 3]:
         key = f"note_{rv}_{pid}"
         st.text_area("Note", value=o.get("note", ""), key=key, placeholder="Note (optional)",
@@ -2103,9 +2183,6 @@ def pair_row(r, status, rv, target, portco, first):
             edit_row(pid, target, portco)
         with st.popover("Why?", width="stretch"):
             why_popover(r, target, portco)
-    if markets:
-        st.markdown(f"<details class='mkts'><summary>Show the Commission's markets for this row</summary>{markets}"
-                    "</details>", unsafe_allow_html=True)
 
 
 def table_header(target, portco):
@@ -2146,7 +2223,8 @@ def no_overlap_row(ta, rows, rv, target, portco, n_portco, first):
         for r in rows:
             pid = cmp.pair_id(r)
             key = f"add_{rv}_{pid}"
-            reasons = [x for x in (r["comparison"].get("product_reason"), r["comparison"].get("vertical_reason")) if x]
+            reasons = [name_ab(x, target, portco) for x in (r["comparison"].get("product_reason"),
+                                                             r["comparison"].get("vertical_reason")) if x]
             text = f"**{esc(short_name(r['b']))}** {stage_text(r['b'])}  \n" + esc(" ".join(reasons) or "No reason given.")
             for link, why in r["decision"].get("disregarded") or []:
                 text += "  \n" + set_aside_text(r, link, why, target, portco)
@@ -2196,16 +2274,24 @@ def portco_sentence(target, portco, pairs, status):
 # same. Built in code from the rows; no AI call.
 def parse_commission(text):
     """The Commission's view as the lawyer edited it ("Edit"), back into [(label, bullets, outcome)]: the heading
-    lines written by commission_plain ("Confirmed · Commission (horizontal):") keep the result
+    lines written by commission_plain ("Confirmed · Horizontal Label:") keep the result
     and the relationship, so an edited row still shows its result in the summary and the Word document."""
     groups = []
     for line in (x.strip() for x in text.split("\n")):
         if not line:
             continue
-        m = re.fullmatch(r"(?:(.+?)\s*·\s*)?Commission(?:\s*\((.+)\))?\s*:", line)
+        # "One side defined · Vertical Label, A → B:"; as written before: "Confirmed · Commission (horizontal):" or
+        # "Confirmed · Both Products in the Commission's Decisions (for the label horizontal):"
+        m = re.fullmatch(r"(?:(.+?)\s*·\s*)?(?:Commission|[^·:()]*Commission's Decisions)(?:\s*\((?:for the label )?"
+                         r"(.+)\))?\s*:", line)
         if m:
             outcome = m.group(1) if m.group(1) in OUTCOME_CLASS else ""
             groups.append([m.group(2) or "", [], outcome])
+            continue
+        m = re.fullmatch(r"(?:(.+?)\s*·\s*)?(Horizontal Label|Vertical Labels?, .+|This Row)\s*:", line)
+        if m:
+            outcome = m.group(1) if m.group(1) in OUTCOME_CLASS else ""
+            groups.append([label_of_heading(m.group(2)), [], outcome])
             continue
         if not groups:
             groups.append(["", [], ""])
@@ -2237,8 +2323,7 @@ def row_record(r, target, portco, step4):
                 kind = "same product" if c.get("product_relation") == "same product" else "similar product"
                 sa, sb = stage_of(r["a"]).lower(), stage_of(r["b"]).lower()
                 level = f"same level ({sa})" if sa == sb else f"different levels ({sa} v {sb})"
-                cust = CUSTOMER_TEXT.get(r.get("customers") or "", "") if r.get("customers") in ("●●●", "●●○",
-                                                                                               "●○○") else ""
+                cust = CUSTOMER_TEXT.get(r.get("customers") or "", "")
                 lab["basis"] = " · ".join(x for x in (kind, level, cust) if x)
                 if sa != sb:
                     lab["lines"].append("Different levels: usually a vertical relationship; horizontal only if both "
@@ -2325,8 +2410,8 @@ def report_model():
                     rec = row_record(r, target, p, step4) if kept(s_) else None
                     if rec is None:
                         o = ss.override_store.get(cmp.pair_id(r), {})
-                        reasons = [x for x in (r["comparison"].get("product_reason"),
-                                               r["comparison"].get("vertical_reason")) if x]
+                        reasons = [name_ab(x, target, p) for x in (r["comparison"].get("product_reason"),
+                                                                   r["comparison"].get("vertical_reason")) if x]
                         if s_ == "dismissed by user":
                             reason = o.get("note") or "Dismissed in the review."
                         else:       # the AI's reasons and, as in "Why?", the links the app's own checks set aside
@@ -2351,6 +2436,8 @@ def report_model():
                         for lab_, _, o_ in rec["commission"]:
                             if lab_.startswith("horizontal"):
                                 keys = ["h"]
+                            elif lab_ == BOTH_DIRECTIONS:
+                                keys = ["va", "vb"]
                             elif lab_.startswith("vertical"):
                                 keys = ["va" if lab_.startswith(f"vertical, {target} →") else "vb"]
                             else:
@@ -2410,6 +2497,13 @@ def report_model():
             for n in ext.get("named_without_activity") or []:
                 label = re.sub(r"\s*\(([^()]*); products not stated\)$", r" (\1)", n)
                 not_compared.append(f"{c['name']}: {label}: named in the sources, but what it offers is not stated")
+        markets = []
+        if step4:                       # the market table of step ④; its paragraphs are the ones cited
+            ov = market_overview()
+            if ov:
+                markets = market_overview_plain(ov)
+                for case, nums in market_overview_cited(ov).items():
+                    cited.setdefault(case, set()).update(nums)
         cases = sorted(c for c in cited if c != "Notice")
         decisions = []
         for case in cases + (["Notice"] if "Notice" in cited else []):
@@ -2420,7 +2514,7 @@ def report_model():
         today = now_local()
         pending = sum(1 for sec in sections for b in sec["blocks"] + sec["own"] for x in b["rows"] if x["pending"])
         return {"target": target, "portcos": portcos, "date": f"{today.day} {today:%B %Y}", "pending": pending,
-                "step4": step4, "years": years, "summary": summary, "sections": sections,
+                "step4": step4, "years": years, "summary": summary, "sections": sections, "markets": markets,
                 "open_points": open_points, "sources": sources, "decisions": decisions,
                 "annex": {"run_summary": run_summary().replace("Run summary: ", ""), "pairs": annex_b,
                           "relationships": rels, "not_compared": not_compared}}
@@ -2528,7 +2622,7 @@ def current_overrides():
 STEP3_TEXT = ("Every activity of the target, compared with every activity of each portfolio company. Check each row: "
               "set your view on each label (or dismiss it), add what is missing with “Edit”, or adjust the wording.")
 STEP4_TEXT = ("How the European Commission defined the markets of the products in the rows you kept, quoted from its "
-              "decisions. Below each row: what follows for that row.")
+              "decisions: first each market once, then in each row what follows for its labels.")
 
 
 # A short guide at the start of steps ②–④, always open (the lawyer can fold it), in the same three columns on every
@@ -2577,7 +2671,8 @@ GUIDES = {
             "<span class='lab lab-h'>Horizontal</span> same or similar products: potential competitors.",
             "<span class='lab lab-v'>Vertical</span> one could supply the other; the arrow points from supplier to "
             "customer.",
-            "<b>●●● ●●○ ●○○</b> the same, partly the same or different direct customers.",
+            f"{dots_html('●●●')} {dots_html('●●○')} {dots_html('●○○')} the same, partly the same or different "
+            "direct customers; “customers not stated” if one side's sources do not say.",
             "<span class='lab lab-q'>Existing relationship</span> the companies' own sources name each other."]),
         ("Limits", [
             "<b>Deliberately generous:</b> unlikely links are shown too. A missed relationship is easily overlooked "
@@ -2589,7 +2684,9 @@ GUIDES = {
             "The products of each row are sorted into types; each type is searched in the database of Commission "
             "decisions.",
             "The AI places each product in a market. It sees products only, never company names.",
-            "The app checks every quotation from the Commission word for word against the decision."]),
+            "The app checks every quotation from the Commission word for word against the decision.",
+            "Each market is listed once, in the table above the rows, with the paragraph it rests on; the rows name "
+            "the markets (hover for the Commission's sentence)."]),
         ("How to Read a Row", [
             f"{_chips('Confirmed')} both products in a market the Commission defined.",
             f"{_chips('Not supported')} the Commission puts them in separate markets.",
@@ -2653,6 +2750,14 @@ def stage_overview(ai, step=3):
     ss.prec_stale = stale_units(todo)
     if ss.get("precedents"):
         precedent_warnings(units)
+    if step == 4 and ss.get("precedents"):
+        ov = market_overview()
+        if ov and (ov["lines"] or ov["none"] or ov["failed"]):
+            with st.expander("Markets in the Commission's Decisions", expanded=True):
+                st.caption("Every market a product of the rows below falls in, once, with the products of each company "
+                           "and the paragraph it rests on (hover for the paragraph, or the market name for the "
+                           "Commission's sentence). The rows below name the markets only.")
+                st.markdown(market_overview_html(ov), unsafe_allow_html=True)
 
     with st.expander(f"Target: {target} · Profile and Activities"):
         st.write(profile_of(target))
@@ -2666,7 +2771,7 @@ def stage_overview(ai, step=3):
     # no checklist of the Market Definition Notice on screen: "No precedent" already says the market is to be assessed
     # under the Notice
     st.divider()
-    precedent_button(units, todo)
+    precedent_button(units, todo, step)
 
 
 def run_summary():
@@ -2888,13 +2993,25 @@ PREF_CSS = """<style>
  box-shadow:0 4px 14px rgba(0,0,0,.18);font-size:.86rem;line-height:1.45;white-space:normal;text-align:left;
  font-weight:normal;font-style:normal}
 .pref:hover .pbox{display:block}
+.pref.mk{white-space:normal}
+.ccell{overflow-wrap:anywhere}
 .ccell{padding:.35rem .6rem .25rem .6rem;margin:0 0 .4rem 0;border-left:3px solid #C9C2B4;background:#F2EFE8;
  line-height:1.5;font-size:.92rem;border-radius:0}
 .ccell.o-conf{background:#DCE6F2;border-left-color:#2E5A88}
 .ccell.o-open{background:#ECEAE5;border-left-color:#8A857C}
 .ccell.o-nosup{background:#E3EDE4;border-left-color:#5E8A66}
-.ccell.o-nopre{background:#FBFAF7;border:1px dashed #C9C2B4;border-left:3px solid #C9C2B4}
+.ccell.o-nopre{background:#EAE7F0;border-left-color:#7F7898}
 .ccell .chd{display:block;margin-top:.25rem;font-weight:600;font-size:.82rem;color:#3D3A35}
+.mkt{font-size:.9rem;table-layout:fixed}
+.mkt td{border-bottom:1px solid #E2DDD2}
+.mkt .mgrp td{background:#F2EFE8;font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:.98rem;
+ padding:.35rem .7rem;border-bottom:none}
+.mkt .mrow{margin:.1rem 0 .3rem 0;line-height:1.45}
+.mkt .mact{font-weight:600}
+.mkt .mco{font-style:italic}
+.ccell .cph{font-weight:600;font-size:.82rem;color:#3D3A35;margin-left:.1rem}
+.ccell .cpart + .cpart{border-top:1px solid rgba(0,0,0,.09);margin-top:.35rem;padding-top:.4rem}
+.ccell .cpart .oc{margin:0 .35rem 0 0}
 .ccell .ed{color:#55514A;font-style:italic;font-size:.8rem}
 .ccell ul{margin:.2rem 0 0 0;padding-left:1.05rem}
 .ccell li{margin:.12rem 0}
@@ -3159,7 +3276,7 @@ def market_hover(m, paras, category=None):
     if not (m.get("decided_quote") or m.get("open_quote")) and m.get("summary"):
         box += f"<br><i>AI summary:</i> {h(m['summary'])}"
     box += "<br><span style='opacity:.7'>The decision is listed in the sidebar, under “Commission decisions”.</span>"
-    return f"<span class='pref'>{h(mname(m['name']))}<span class='pbox'>{box}</span></span>"
+    return f"<span class='pref mk'>{h(mname(m['name']))}<span class='pbox'>{box}</span></span>"
 
 
 def _items_html(g, market_name=""):
@@ -3230,8 +3347,10 @@ OUTCOME_TIP = {
                      "level; check for a vertical relationship.",
     "No precedent": "No decision in the database covers these products: to be assessed under the Market Definition "
                     "Notice.",
-    "Markets defined": "The Commission defined both the upstream and the downstream market.",
-    "One side defined": "The Commission defined the market of one side only; the other side has no precedent.",
+    "Markets defined": "The decisions define the market of each side's products. They do not show a link between "
+                       "the two companies: that comes from the preliminary assessment (step ③).",
+    "One side defined": "The decisions define the market of one side's products only; the other side has no "
+                        "precedent. They do not show a link between the two companies.",
 }
 
 
@@ -3283,17 +3402,18 @@ def _prefix(es, html_out=True, limit=3):
 def horizontal_sentences(entries, view, verdict, target, portco, paras, html_out=True, rs=None, acts=None):
     """The Commission's view of a horizontal row as bullets, in the Commission's own terms (wording checked against
     M.5644, M.6872 and M.9798): one bullet per group of products, a category divided into separate markets named as
-    such, and the level rule for shops and wholesalers."""
+    such, and the level rule for shops and wholesalers. Market names only (hover: the Commission's sentence); the
+    paragraphs are cited once, in the market table above the rows. The products a bullet concerns are named only
+    when a row has several bullets."""
     T, P = (he(target), he(portco)) if html_out else (target, portco)
 
     def names(es, joiner=", "):
         if html_out:
             return joiner.join(market_hover(e["market"], paras, e.get("category")) + (
                 " <span class='or'>by analogy</span>" if any(x and x["basis"] != "precedent" for x in (e["a"], e["b"]))
-                else "") + " " + _cites(e["market"], paras) for e in es)
+                else "") for e in es)
         return joiner.join(mname(e["market"]["name"]) + (" (by analogy)" if any(
-            x and x["basis"] != "precedent" for x in (e["a"], e["b"])) else "") + " " + _cites_plain(e["market"])
-            for e in es)
+            x and x["basis"] != "precedent" for x in (e["a"], e["b"])) else "") for e in es)
     if rs and (rs.get("a") or rs.get("b")):
         acts = acts or {}
         if rs.get("a") and rs.get("b"):
@@ -3328,27 +3448,29 @@ def horizontal_sentences(entries, view, verdict, target, portco, paras, html_out
     unknown = [e for e in shared if _rank(e) == "specific" and conc(e) not in SETTLED + ("left open",)]
     possibly = [e for e in shared if _rank(e) == "possibly"]
     general = [e for e in shared if _rank(e) == "general"]
-    out = []
+    out = []                          # (the products concerned, the sentence)
     if both:
         word = "market" if len(both) == 1 else "markets"
-        out.append(f"{_prefix(both, html_out)}both products fall in the {word} for {names(both)}: horizontal overlap "
-                   "at product-market level" + ("; a further question about this market was left open" if partly
-                                                else ""))
+        out.append((both, f"both products fall in the {word} for {names(both)}: horizontal overlap at product-market "
+                          "level" + ("; a further question about this market was left open" if partly else "")))
     if left:
-        out.append(f"{_prefix(left, html_out)}{names(left)}; the exact definition was left open: a horizontal overlap "
-                   "cannot be excluded")
+        out.append((left, f"{names(left)}; the exact definition was left open: a horizontal overlap cannot be "
+                          "excluded"))
     if possibly:
-        out.append(f"{_prefix(possibly, html_out)}{names(possibly, ' or ')}, depending on the product format: "
-                   "horizontal overlap at product-market level possible, to be checked")
+        out.append((possibly, f"{names(possibly, ' or ')}, depending on the product format: horizontal overlap at "
+                              "product-market level possible, to be checked"))
     for e in cat:
-        out.append(f"{_prefix([e], html_out)}within {names([e])}, which the Commission divided into separate markets "
-                   f"({', '.join(e['category'])}): which of them is to be checked")
+        out.append(([e], f"within {names([e])}, which the Commission divided into separate markets "
+                         f"({', '.join(e['category'])}): which of them is to be checked"))
     if unknown:
-        out.append(f"{_prefix(unknown, html_out)}{names(unknown)}: no market definition in the paragraphs found: "
-                   "check the decision")
+        out.append((unknown, f"{names(unknown)}: no market definition in the paragraphs found: check the decision"))
     if general:
-        out.append(f"{_prefix(general, html_out)}both companies' products fall in {names(general)} only through a "
-                   "general term: which products are in it is to be checked")
+        out.append((general, f"both companies' products fall in {names(general)} only through a general term: which "
+                             "products are in it is to be checked"))
+    if len(out) > 1:
+        out = [_prefix(es, html_out) + text for es, text in out]
+    else:
+        out = [text for _, text in out]
     if not out:
         if any(e["a"] or e["b"] for e in entries):
             out.append(f"no decision in the database places both companies' products in one market ({T}: "
@@ -3362,13 +3484,14 @@ def horizontal_sentences(entries, view, verdict, target, portco, paras, html_out
 
 
 def vertical_sentence(entries, view, up, target, portco, paras, html_out=True, rs=None, acts=None):
-    """The Commission's view of a vertical relationship as two bullets, in the Commission's terms (M.6872 (51)–(52)):
-    the upstream and the downstream market. A shop's or wholesaler's side is the retail or wholesale of the
-    products it sells (no precedent); the markets of those products are named as what it sells."""
+    """The market of each side's products as two bullets: the possible supplier first, then the possible customer
+    (the roles come from step ③; the decisions define the markets, not the link). A shop's or wholesaler's side is the
+    retail or wholesale of the products it sells (no precedent); the markets of those products are named as what it
+    sells."""
     down = "b" if up == "a" else "a"
     who = {"a": he(target) if html_out else target, "b": he(portco) if html_out else portco}
     acts = acts or {}
-    if not any(e[up] or e[down] for e in entries):
+    if not any(e["a"] or e["b"] for e in entries):
         return ["no decision in the database covers either side: the preliminary assessment of step ③ stands; to be "
                 "assessed under the Market Definition Notice"]
 
@@ -3376,19 +3499,20 @@ def vertical_sentence(entries, view, up, target, portco, paras, html_out=True, r
         segs = {mname(e["market"]["name"]) for e in found if not e.get("category")}
         found = [e for e in found if not (e.get("category") and set(e["category"]) & segs)] or found
         if html_out:
-            return ", ".join(market_hover(e["market"], paras, e.get("category")) + " " + _cites(e["market"], paras)
-                             for e in found)
-        return ", ".join(mname(e["market"]["name"]) + " " + _cites_plain(e["market"]) for e in found)
+            return ", ".join(market_hover(e["market"], paras, e.get("category")) for e in found)
+        return ", ".join(mname(e["market"]["name"]) for e in found)
 
     def side(s, level, role):
         found = [e for e in entries if e[s]]
-        head = f"{capital(level)} ({who[s]} as {role})"
+        head = f"{who[s]} (possible {role})" if role else who[s]
         if rs and rs.get(s):
-            text = f"{capital(level)}: {level_word(acts.get(s))} of these products ({who[s]}): no precedent"
+            text = f"{head}: no precedent for the {level_word(acts.get(s))} of these products"
             return text + (f"; the products {who[s]} sells fall in {ms(found)}" if found else "")
         if found:
             return f"{head}: {ms(found)}"
         return f"{head}: {_side_text(entries, view, s, paras, html_out)}"
+    if up == "both":                   # links in both directions: each side's market once, without a role
+        return [side("a", "", ""), side("b", "", "")]
     return [side(up, "upstream", "supplier"), side(down, "downstream", "customer")]
 
 
@@ -3426,8 +3550,246 @@ def commission_parts(r, target, portco):
     return rec, view, entries, h_on, ups, verdict
 
 
+# =============================================================== step ④: the markets in this screen, once
+# Above the rows: every market that a product of a kept row was placed in, once, with the products of each company in
+# it, and the paragraph it rests on cited once. The rows below only name the markets. The same market found by several
+# searches is one line, and so are names that differ only by "market for" or a qualifier in brackets (two decisions
+# naming the same market slightly differently); a different name stays its own line (whether it is the same market is
+# for the lawyer).
+MARKET_GROUPS = (("both", "Products of Both Sides"), ("target", "Only the Target's Products"),
+                 ("portco", "Only Portfolio Companies' Products"))
+ITEMS_SHOWN = 6
+
+
+def overview_key(name):
+    return prec._market_key(re.sub(r"\s*\([^)]*\)", "", mname(name)))
+
+
+def market_overview():
+    """{"lines": [{"name", "market" (the best record), "decisions": [(case, record, status)], "sides": {company:
+    {activity: group}}, "group"}], "none": {company: {activity: [items]}}, "failed": {...}, "paras": {...}} or None.
+    Code only, from the stored searches of the rows kept now."""
+    if not ss.get("precedents") or not ss.get("results"):
+        return None
+    current_overrides()
+    target = ss.companies[0]["name"]
+    lines, none, failed, paras, settled = {}, {}, {}, {}, {}
+    for r in ss.results:
+        if not kept(row_status(r)):
+            continue
+        rec, view = row_view(r)
+        if not rec or view is None or view.get("error"):
+            continue
+        paras.update(rec.get("paragraphs") or {})
+        for m in (rec.get("markets") or {}).values():
+            if m.get("conclusion") in SETTLED and m.get("decided_paragraph"):
+                settled.setdefault(m["decided_paragraph"], set()).add(mname(m["name"]))
+        for side, company, act in (("a", target, r["a"]), ("b", r["portco"], r["b"])):
+            aname = short_name(act)
+            for g in view[side]:
+                if g["market_id"] in ("none", "failed") or not g.get("market"):
+                    store = failed if g["market_id"] == "failed" else none
+                    lst = store.setdefault(company, {}).setdefault(aname, [])
+                    lst += [i for i in g["items"] if i not in lst]
+                    continue
+                e = lines.setdefault(overview_key(g["market"]["name"]), {"markets": [], "sides": {}})
+                if g["market"] not in e["markets"]:
+                    e["markets"].append(g["market"])
+                acts = e["sides"].setdefault(company, {})
+                acts[aname] = _merge_group(acts.get(aname), g)
+    placed = {(c, a, i) for e in lines.values() for c, acts in e["sides"].items() for a, g in acts.items()
+              for i in g["items"]}
+    for store in (none, failed):          # placed in a market by another search: not "no precedent"
+        for c in list(store):
+            for a in list(store[c]):
+                store[c][a] = [i for i in store[c][a] if (c, a, i) not in placed]
+                if not store[c][a]:
+                    del store[c][a]
+            if not store[c]:
+                del store[c]
+    out = []
+    for e in lines.values():
+        best = _best(e["markets"])
+        by_case = {}
+        for m in e["markets"]:
+            by_case.setdefault(decision_of(m), []).append(m)
+        decisions = []          # per decision, each different statement once (e.g. M.5644: the definition of chocolate
+        for case in sorted(by_case, key=lambda c: (c == "", c)):    # confectionery left open (13), and the category
+            found = {}                                               # divided into tablets, countlines, pralines (24))
+            for m in by_case[case]:
+                status, pids = CONCLUSION_TEXT.get(m.get("conclusion"), "defined"), market_pids(m)
+                if m.get("conclusion") == prec.NOT_STATED:
+                    own = overview_key(m["name"])
+                    seg_pids = {pid for pid in m.get("product_paragraphs") or [] if pid in settled
+                                and any(overview_key(n) != own for n in settled[pid])}
+                    segs = sorted({n for pid in seg_pids for n in settled[pid] if overview_key(n) != own})
+                    if segs:
+                        status, pids = (f"category divided into separate markets ({', '.join(segs)})",
+                                        prec._sorted_ids(seg_pids))
+                found.setdefault(status, []).append((m, pids))
+            if len(found) > 1:             # "no definition in the paragraphs found" adds nothing next to a statement
+                found.pop(CONCLUSION_TEXT[prec.NOT_STATED], None)
+            for status, ms in found.items():
+                m = _best([x for x, _ in ms])
+                pids = next(p_ for x, p_ in ms if x is m)
+                decisions.append((case, m, status, pids))
+        has_t = target in e["sides"]
+        has_p = any(c != target for c in e["sides"])
+        out.append({"name": mname(best["name"]), "market": best, "decisions": decisions, "sides": e["sides"],
+                    "group": "both" if has_t and has_p else ("target" if has_t else "portco")})
+    order = [k for k, _ in MARKET_GROUPS]
+    out.sort(key=lambda x: (order.index(x["group"]), x["name"].lower()))
+    return {"lines": out, "none": none, "failed": failed, "paras": paras, "target": target}
+
+
+def market_pids(m, limit=2):
+    """The paragraphs a market's conclusion rests on (as _cites)."""
+    pids = [x for x in (m.get("decided_paragraph"), m.get("open_paragraph")) if x]
+    if not pids:
+        pids = prec._sorted_ids({x for x in m.get("product_paragraphs") or [] if not x.startswith("Notice")})[:limit]
+    return list(dict.fromkeys(pids))[:limit]
+
+
+def _plain_refs(pids):
+    return " ".join("[" + pid.rpartition("-")[0] + " (" + pid.rpartition("-")[2] + ")]" for pid in pids)
+
+
+def _items_short(g, name):
+    """A company's products in one market: the first few, the rest on hover."""
+    shown = dict(g, items=g["items"][:ITEMS_SHOWN])
+    text = _items_html(shown, name)
+    rest = g["items"][ITEMS_SHOWN:]
+    if rest:
+        text += f" <span class='hov' title='{h(', '.join(rest))}'>and {len(rest)} more</span>"
+    if g.get("status") == "possibly":
+        text += " <span class='or'>possibly</span>"
+    return text
+
+
+def market_overview_html(ov):
+    target = ov["target"]
+    paras = ov["paras"]
+
+    def companies(sides, name, own):
+        out = []
+        for c, acts in sides.items():
+            if (c == target) != own:
+                continue
+            for a, g in acts.items():
+                who = "" if own else f"<span class='mco'>{he(c)}</span> · "
+                out.append(f"<div class='mrow'>{who}<span class='mact'>{he(a)}:</span> {_items_short(g, name)}</div>")
+        return "".join(out) or "<span class='sub2'>–</span>"
+
+    def plain_items(store, own):
+        out = []
+        for c, acts in store.items():
+            if (c == target) != own:
+                continue
+            for a, items in acts.items():
+                who = "" if own else f"<span class='mco'>{he(c)}</span> · "
+                more = (f" <span class='hov' title='{h(', '.join(items[ITEMS_SHOWN:]))}'>and "
+                        f"{len(items) - ITEMS_SHOWN} more</span>" if len(items) > ITEMS_SHOWN else "")
+                out.append(f"<div class='mrow'>{who}<span class='mact'>{he(a)}:</span> "
+                           f"{he(', '.join(items[:ITEMS_SHOWN]))}{more}</div>")
+        return "".join(out) or "<span class='sub2'>–</span>"
+
+    body = ""
+    for key, title in MARKET_GROUPS:
+        lines = [x for x in ov["lines"] if x["group"] == key]
+        if not lines:
+            continue
+        body += f"<tr class='mgrp'><td colspan='4'>{h(title)}</td></tr>"
+        for x in lines:
+            decs = "".join(f"<div class='mrow'>{h(capital(status))} {para_refs(pids, paras)}"
+                           + (f" <span class='sub2'>(as “{h(mname(m['name']))}”)</span>"
+                              if mname(m["name"]) != x["name"] else "") + "</div>"
+                           for case, m, status, pids in x["decisions"])
+            body += (f"<tr><td><b>{market_hover(x['market'], paras)}</b></td><td>{decs}</td>"
+                     f"<td>{companies(x['sides'], x['name'], True)}</td>"
+                     f"<td>{companies(x['sides'], x['name'], False)}</td></tr>")
+    for store, title, text in ((ov["none"], "No Precedent", "to be assessed under the Market Definition Notice"),
+                               (ov["failed"], "Search Failed", "press “Update the market definitions” below")):
+        if store:
+            body += (f"<tr class='mgrp'><td colspan='4'>{h(title)}</td></tr><tr><td>"
+                     + (outcome_chip("No precedent") if title == "No Precedent" else "<b>Search failed</b>")
+                     + f"</td><td><span class='sub2'>{h(text)}</span></td><td>{plain_items(store, True)}</td>"
+                     f"<td>{plain_items(store, False)}</td></tr>")
+    return (f"<table class='sumt mkt'><colgroup><col style='width:17%'><col style='width:21%'><col style='width:31%'>"
+            f"<col style='width:31%'></colgroup><thead><tr><th>Market</th><th>Commission's Decision</th>"
+            f"<th>{he(target)}</th><th>Portfolio Companies</th></tr></thead><tbody>{body}</tbody></table>")
+
+
+def market_overview_plain(ov):
+    """The same table as text, for the Word document: [{"group", "market", "decisions", "target", "portcos"}]."""
+    target = ov["target"]
+
+    def items(g):
+        text = ", ".join(g["items"])
+        return text + (" (possibly)" if g.get("status") == "possibly" else "")
+
+    def rows(sides, own, store=False):
+        out = []
+        for c, acts in sides.items():
+            if (c == target) != own:
+                continue
+            for a, g in acts.items():
+                out.append(("" if own else f"{c} · ") + f"{a}: " + (", ".join(g) if store else items(g)))
+        return out
+    out = []
+    for x in ov["lines"]:
+        out.append({"group": dict(MARKET_GROUPS)[x["group"]], "market": x["name"],
+                    "decisions": [f"{capital(status)} {_plain_refs(pids)}".strip()
+                                  + (f" (as “{mname(m['name'])}”)" if mname(m["name"]) != x["name"] else "")
+                                  for case, m, status, pids in x["decisions"]],
+                    "target": rows(x["sides"], True), "portcos": rows(x["sides"], False)})
+    if ov["none"]:
+        out.append({"group": "No Precedent", "market": "No precedent",
+                    "decisions": ["to be assessed under the Market Definition Notice"],
+                    "target": rows(ov["none"], True, True), "portcos": rows(ov["none"], False, True)})
+    return out
+
+
+def market_overview_cited(ov):
+    """{case: {paragraph numbers}} of the paragraphs the market table cites (for the list of decisions cited)."""
+    cited = {}
+    for x in ov["lines"]:
+        for case, m, status, pids in x["decisions"]:
+            for pid in pids:
+                c, _, n = pid.rpartition("-")
+                if n.isdigit():
+                    cited.setdefault(c, set()).add(int(n))
+    return cited
+
+
 def reseller_flags(r):
     return {"a": is_reseller(r["a"]), "b": is_reseller(r["b"])}
+
+
+# One Commission box per row, with one part per label of the row: its result and what the decisions give for it (the
+# market of both products, or of each side's products). The heading of a part names the label of step ③ it belongs
+# to: the relationship itself comes from the app's comparison, the decisions only define markets. The internal label
+# ("horizontal", "vertical, X → Y", "vertical, both directions") is what the summary and an edited text use.
+BOTH_DIRECTIONS = "vertical, both directions"
+
+
+def commission_heading(label):
+    if label == BOTH_DIRECTIONS:
+        return "Vertical Labels, Both Directions"
+    if label.startswith("vertical, "):
+        return "Vertical Label, " + label[len("vertical, "):]
+    if label.startswith("horizontal"):
+        return "Horizontal Label"
+    return "This Row"
+
+
+def label_of_heading(head):
+    """The internal label of a part heading (for an edited text read back)."""
+    head = head.strip()
+    if head == "Vertical Labels, Both Directions":
+        return BOTH_DIRECTIONS
+    if head.startswith("Vertical Label, "):
+        return "vertical, " + head[len("Vertical Label, "):]
+    return "horizontal" if head == "Horizontal Label" else ""
 
 
 def commission_sentences(r, target, portco, html_out=True):
@@ -3442,7 +3804,10 @@ def commission_sentences(r, target, portco, html_out=True):
     if h_on:
         out.append(("horizontal", horizontal_sentences(entries, view, verdict, target, portco, paras, html_out, rs,
                                                        acts), horizontal_outcome(entries, verdict, rs)))
-    for up in ups:
+    if len(ups) > 1:                   # supply in both directions: each side's market once
+        out.append((BOTH_DIRECTIONS, vertical_sentence(entries, view, "both", target, portco, paras, html_out, rs,
+                                                       acts), vertical_outcome(entries, ups[0], rs)))
+    for up in ups if len(ups) == 1 else []:
         u, d = (target, portco) if up == "a" else (portco, target)
         out.append((f"vertical, {u} → {d}", vertical_sentence(entries, view, up, target, portco, paras, html_out, rs,
                                                                acts), vertical_outcome(entries, up, rs)))
@@ -3463,88 +3828,16 @@ def commission_plain(r, target, portco):
         return ""
 
     def head(label, outcome):
-        return " · ".join(x for x in (outcome, "Commission" + (f" ({label})" if label else "")) if x)
+        return " · ".join(x for x in (outcome, commission_heading(label)) if x)
     return "\n".join(f"{head(label, outcome)}:\n"
                      + "\n".join(f"- {capital(b).replace(PREFIX_SEP, ': ')}" for b in bullets)
                      for label, bullets, outcome in sentences)
 
 
-def grouped_markets(view, entries, h_on, ups, target, portco, paras, rs=None, acts=None):
-    """The Commission's markets for one row, grouped: for a horizontal row “Same market”, “Possibly the same market”,
-    “Only one company”, “No precedent”; for a vertical row the upstream and the downstream market. One market per
-    line with one line per company below; a category divided into separate markets is
-    its own group; a shop's or wholesaler's side is labelled as what it sells; names escaped once (no "&amp;")."""
-    rs, acts = rs or {}, acts or {}
-
-    def item(e, lines, one=False):
-        m = e["market"]
-        status = ("category divided into separate markets" if e.get("category")
-                  else CONCLUSION_TEXT.get(m.get("conclusion"), "defined"))
-        body = "".join(f"<span class='wr'>{x}</span>" for x in lines)
-        return (f"<div class='it{' one' if one else ''}'><b>{market_hover(m, paras, e.get('category'))}</b> "
-                f"<span class='sub2'>· {h(status)} {_cites(m, paras)}</span>{body}</div>")
-
-    def unplaced(side, kind):
-        return [i for g in view.get(side) or [] if g["market_id"] == kind for i in g["items"]]
-    t, p = he(target), he(portco)
-    groups = []
-    if h_on:
-        pairs = [e for e in entries if e["a"] and e["b"]]
-        same = [e for e in pairs if _rank(e) == "specific" and not e.get("category")]
-        maybe = [e for e in pairs if _rank(e) != "specific" and not e.get("category")]
-        cat = [e for e in pairs if e.get("category")]
-        one = [e for e in entries if not (e["a"] and e["b"])]
-        both = lambda e: [f"<i>{t}:</i> {_items_html(e['a'], e['market']['name'])}",   # noqa: E731
-                          f"<i>{p}:</i> {_items_html(e['b'], e['market']['name'])}"]
-        if same:
-            groups.append(("Same Market", "".join(item(e, both(e)) for e in same)))
-        if maybe:
-            groups.append(("Possibly the Same Market (depends on the product format)",
-                           "".join(item(e, both(e)) for e in maybe)))
-        if cat:
-            groups.append(("Within a Category the Commission Divided into Separate Markets",
-                           "".join(item(e, both(e)) for e in cat)))
-        if one:
-            groups.append(("Only One Company", "".join(
-                item(e, [f"<i>{t if e['a'] else p}:</i> {_items_html(e['a'] or e['b'], e['market']['name'])}"], True)
-                for e in one)))
-        sides = (("a", t), ("b", p))
-    else:
-        order = ups[:1] or []
-        up, down = ("a", "b") if order in ([], ["a"]) else ("b", "a")
-        names = {"a": target, "b": portco}
-
-        def title(s, level, role):
-            if rs.get(s):
-                return f"{capital(level)} · {names[s]}: {level_word(acts.get(s))} of the products below (no precedent)"
-            return f"{capital(level)} Market · {names[s]} ({capital(role)})" if order else names[s]
-        for s, level, role in ((up, "upstream", "supplier"), (down, "downstream", "customer")):
-            body = "".join(item(e, [_items_html(e[s], e["market"]["name"])], True) for e in entries if e[s])
-            none = unplaced(s, "none")
-            if none:
-                body += f"<div class='it one'><span class='sub2'>No precedent:</span> {he(', '.join(none))}</div>"
-            failed = unplaced(s, "failed")
-            if failed:
-                body += f"<div class='it one'><span class='sub2'>Search failed:</span> {he(', '.join(failed))}</div>"
-            if body:
-                groups.append((title(s, level, role), body))
-        sides = ()
-    none = [(name, unplaced(s, "none")) for s, name in sides if unplaced(s, "none")]
-    if none:
-        groups.append(("No Precedent", "".join(f"<div class='it one'><i>{n}:</i> {he(', '.join(i))} "
-                                               "<span class='sub2'>· to be assessed under the Market Definition "
-                                               "Notice</span></div>" for n, i in none)))
-    failed = [(name, unplaced(s, "failed")) for s, name in sides if unplaced(s, "failed")]
-    if failed:
-        groups.append(("Search Failed", "".join(f"<div class='it one'><i>{n}:</i> "
-                                                f"{he(', '.join(i))}</div>" for n, i in failed)))
-    return "".join(f"<div class='grp'>{h(title)}</div>{body}" for title, body in groups)
-
-
 def commission_cell(r, target, portco):
-    """Step ④, the Commission column of a row (after the preliminary assessment): per relationship the result chip and
-    the bullets, in the colour of the result. Code only, no AI call. Returns the market list for under the row (or
-    "")."""
+    """Step ④, the Commission column of a row (after the preliminary assessment): one box, with one part per label of
+    the row (its result chip, the label it belongs to, and the markets as names; hover for the Commission's sentence).
+    The paragraphs are cited once, in the market table above the rows. Code only, no AI call."""
     if not ss.get("precedents") or ss.get("step") != 4:
         return ""
     rec, view = row_view(r)
@@ -3559,27 +3852,21 @@ def commission_cell(r, target, portco):
         st.markdown(f"<div class='ccell'><b>Commission:</b> the search failed ({he(view['error'])}): press “Update "
                     "the market definitions” below.</div>", unsafe_allow_html=True)
         return ""
-    _, _, entries, h_on, ups, _ = commission_parts(r, target, portco)
-    paras = rec.get("paragraphs") or {}
     o = ss.override_store.get(cmp.pair_id(r), {})
     edited = (o.get("text_commission") or "").strip()
     if edited:
-        cells = (f"<div class='ccell'>{he(edited).replace(chr(10), '<br>')} <span class='ed'>edited by you</span>"
+        cells = (f"<div class='ccell'>{he_lines(edited)} <span class='ed'>edited by you</span>"
                  "</div>")
     else:
-        cells = ""
-        for label, bullets, outcome in commission_sentences(r, target, portco):
-            head = "Commission" + (f" ({label})" if label else "")
-            cells += (f"<div class='ccell {OUTCOME_CLASS.get(outcome, '')}'>{outcome_chip(outcome)}"
-                      f"<span class='chd'>{he(head)}</span><ul>"
-                      + "".join(f"<li>{b[:1].upper() + b[1:] if not b.startswith('<') else b}</li>" for b in bullets)
-                      + "</ul></div>")
+        parts = "".join(
+            f"<div class='cpart'>{outcome_chip(outcome)}<span class='cph'>{he(commission_heading(label))}</span><ul>"
+            + "".join(f"<li>{b[:1].upper() + b[1:] if not b.startswith('<') else b}</li>" for b in bullets)
+            + "</ul></div>" for label, bullets, outcome in commission_sentences(r, target, portco))
+        cells = f"<div class='ccell'>{parts}</div>" if parts else ""
     if view.get("failed"):
         cells = (f"<div class='ccell'><b>The search failed</b> for {he(', '.join(dict.fromkeys(view['failed'])))}: "
                  "press “Update the market definitions” below.</div>") + cells
     st.markdown(cells, unsafe_allow_html=True)
-    return grouped_markets(view, entries, h_on, ups, target, portco, paras, reseller_flags(r),
-                           {"a": r["a"], "b": r["b"]})
 
 
 def precedent_warnings(units):
@@ -3591,7 +3878,7 @@ def precedent_warnings(units):
                    "definitions” to try them again.")
 
 
-def precedent_button(units, todo):
+def precedent_button(units, todo, step=4):
     store = ss.get("precedents") or {}
     failed = [u for u in units if (store.get(u["target_aid"]) or {}).get("error")]
     todo = todo + [u for u in failed if u not in todo]
@@ -3601,17 +3888,24 @@ def precedent_button(units, todo):
         st.button("Go to the summary →", type="primary", on_click=go_to, args=(5,))
         return
     if not store:
-        label = "Find Commission market definitions"
-    elif todo:
-        label = (f"Update the market definitions ({plural(len(todo), 'search', 'searches')} for new or changed rows, "
-                 f"{len(units) - len(todo)} kept)")
-    else:
-        return                      # no "up to date" line; a changed row shows its own note
-    if st.button(label, type="primary"):
-        if failed:          # a failed search is never "reusable": drop it so that it runs again
-            for u in failed:
-                ss.precedents.pop(u["target_aid"], None)
-        start_work("precedents")
+        if st.button("Find Commission market definitions", type="primary"):
+            start_work("precedents")
+        return
+    # the market definitions exist: the way on (to step ④ from step ③, to the summary from step ④), and, if rows
+    # changed or a search failed, the update first
+    with st.container(horizontal=True, vertical_alignment="center"):
+        if todo:
+            label = (f"Update the market definitions ({plural(len(todo), 'search', 'searches')} for new or changed "
+                     f"rows, {len(units) - len(todo)} kept)")
+            if st.button(label, type="primary"):
+                for u in failed:          # a failed search is never "reusable": drop it so that it runs again
+                    ss.precedents.pop(u["target_aid"], None)
+                start_work("precedents")
+        nxt = "secondary" if todo else "primary"
+        if step == 3:
+            st.button("Go to the market definitions →", type=nxt, on_click=go_to, args=(4,), key="to_step4")
+        else:
+            st.button("Go to the summary →", type=nxt, on_click=go_to, args=(5,), key="to_step5")
 
 
 def precedent_rows():
@@ -3887,8 +4181,9 @@ def legend_html(step):
               + line("<span class='lab lab-v'>Vertical</span>", "one could supply the other",
                      "Potential vertical relationship: one company's products could be an input for the other, or could "
                      "be resold by it. The arrow points from supplier to customer."))
-    dots = line("●●○", "direct customers (hover over the dots)",
-                "●●● the same, ●●○ partly the same, ●○○ different direct customers. Compares only who each company sells "
+    dots = line(dots_html("●●○"), "direct customers (hover over the dots)",
+                "Three filled dots: the same direct customers; two: partly the same; one: different; “customers not stated”: one "
+                "side's sources do not say. Compares only who each company sells "
                 "to directly (e.g. shops, other manufacturers, consumers), not the products. Different customers alone "
                 "do not rule out an overlap: customers form a separate market only if the seller can tell which group "
                 "a customer belongs to at the time of sale, customers cannot resell to each other, and the different "
@@ -3908,9 +4203,7 @@ def legend_html(step):
         ("Confirmed", "same market"), ("Possible", "depends on the product format"),
         ("Not excluded", "definition left open"), ("Not supported", "separate markets"),
         ("No precedent", "for the lawyer"), ("Markets defined", "vertical: both sides"),
-        ("One side defined", "vertical: one side")))
-        + line("<i>(or Tablets)</i>", "could be in either market",
-               "The product could fall in either market; which one is for you to check.")) + group("Labels", labels)
+        ("One side defined", "vertical: one side")))) + group("Labels", labels)
 
 
 def sidebar_panel(ai, step):
@@ -4024,20 +4317,24 @@ LANDING_FOOT = ("A working document for a lawyer to verify, not a legal conclusi
                 "point 5.")
 
 
-def landing_html():
-    """The explanation of the landing page (our own constant text, with a little markup only)."""
+def landing_html(title=False):
+    """The explanation of the landing page (our own constant text, with a little markup only). On the start page the
+    title, the question and "Why It Matters" share the left column, so the panel on the right starts level with the
+    title; under "How This Tool Works" (title already above) the question heads the left column."""
     why = "".join(f"<p><b>{t}.</b> {x}</p>" for t, x in LANDING_WHY)
     rely = "".join(f"<div class='lp-item'>{_ICON.format(icon)}<div><b>{t}</b> <span>{x}</span></div></div>"
                    for icon, t, x in LANDING_RELY)
     steps = "".join(f"<li><span class='lp-num'>{k}</span><span class='lp-st'>{t}</span><span class='lp-sx'>{x}</span>"
                     "</li>" for k, (t, x) in enumerate(LANDING_STEPS, start=1))
-    return ("<div class='lp-lead'>A preliminary overlap screen for EU merger control: where does the company to be "
-            "bought (the <i>target</i>) meet the companies the buyer already owns (the <i>portfolio companies</i>)?</div>"
-            "<div class='lp-split'>"
-            f"<div class='lp-main lp-why'><div class='lp-h2'>Why It Matters</div>{why}</div>"
+    head = "<div class='lp-title'>EU Overlap Screen</div>" if title else ""
+    return ("<div class='lp-split' lang='en'>"
+            f"<div class='lp-main'>{head}<div class='lp-lead'>A preliminary overlap screen for EU merger control: where "
+            "does the company to be bought (the <i>target</i>) meet the companies the buyer already owns (the "
+            "<i>portfolio companies</i>)?</div>"
+            f"<div class='lp-why'><div class='lp-h2'>Why It Matters</div>{why}</div></div>"
             f"<div class='lp-panel'><div class='lp-h2'>What You Can Rely On</div>{rely}</div>"
             "</div>"
-            f"<div class='lp-steps-sec'><div class='lp-h2'>How It Works</div><ol class='lp-steps'>{steps}</ol></div>")
+            f"<div class='lp-steps-sec' lang='en'><div class='lp-h2'>How It Works</div><ol class='lp-steps'>{steps}</ol></div>")
 
 
 def _start():
@@ -4047,7 +4344,7 @@ def _start():
 def landing_page():
     """The start page: the explanation, then the call to action below it, then the small print. No sidebar (nothing is
     written to it), so the page has the full width; "Open saved progress" sits next to "Start now"."""
-    st.markdown(landing_html(), unsafe_allow_html=True)
+    st.markdown(landing_html(title=True), unsafe_allow_html=True)
     with st.container(key="ctaband"):
         c1, c2 = st.columns([3, 2], vertical_alignment="center")
         c1.markdown("<div class='lp-cta-t'>Ready to Screen a Deal?</div><div class='lp-cta-x'>Enter the target and up "
@@ -4092,14 +4389,14 @@ def progress_nav(step):
 
 
 api_key = credentials()        # the first screen until the password (or key) is entered (it draws its own title)
-st.title("EU Overlap Screen")
 step = ss.get("step", 1)
 # The start page: the explanation in steps on a page of its own (step ① shows only the companies). Shown once per
 # session, before anything is entered; a saved screen that is opened skips it, and
 # "Start over" leads straight to step ①.
 if not ss.get("started") and step == 1 and not ss.get("companies"):
-    landing_page()
+    landing_page()                 # draws the title itself, in its left column
     st.stop()
+st.title("EU Overlap Screen")
 with st.expander("How This Tool Works"):
     st.markdown(landing_html() + f"<div class='lp-foot'>{LANDING_FOOT}</div>", unsafe_allow_html=True)
 ai = make_ai(api_key)
