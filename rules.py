@@ -340,17 +340,23 @@ def level_hint(activity, own_names=()):
 
 
 def merge_other(activities):
-    """All 'other' activities of one company become ONE line, 'Other activities': listed item by
-    item under 'includes', compared once. Done in code, so there is always exactly one such line. The original
-    activities are kept under 'merged_from' for the audit trail."""
+    """The extraction's "other" lines, sorted in code into the two things they can be:
+    - a side line sold to third parties (e.g. a café, merchandise, sales to businesses): an activity like any other.
+      It keeps its own line and level of trade and is compared like a main activity (category "main", marked
+      "side_line" for the display);
+    - production or services only for the group's own use: not offered on the market, so not compared. All of a
+      company's own-use lines become ONE line, "Own use", listed item by item under "includes" and marked as not
+      compared (excluded, "own_use"); the lawyer can include it with "Edit". The original lines are kept under
+      "merged_from" for the audit trail."""
     # A line whose product is not stated is never merged (it would become the item "not stated" and its name would
-    # disappear); it stays its own question for the company, as a main line so that it is not treated as part of
-    # "Other activities" anywhere else.
+    # disappear); it stays its own question for the company, as a main line.
     gaps = [dict(a, category="main") for a in activities if is_gap(a)]
     main = [a for a in activities if category(a) == "main" and not is_gap(a)]
     others = [a for a in activities if category(a) == "other" and not is_gap(a)]
-    if not others:
-        return main + gaps
+    side = [dict(a, category="main", side_line=True) for a in others if not captive_only(a)]
+    own = [a for a in others if captive_only(a)]
+    if not own:
+        return main + side + gaps
 
     def uniq(values):
         out = []
@@ -360,38 +366,37 @@ def merge_other(activities):
         return out
 
     items = []
-    for a in others:
+    for a in own:
         inc = [i for i in a.get("includes") or [] if i and i.strip().lower() != a.get("product", "").strip().lower()]
-        items.append(a.get("product", "") + (" (own use)" if captive_only(a) else "")
-                     + (f" ({', '.join(inc[:4])})" if inc else ""))
-    customers = uniq(c for a in others for c in a.get("direct_customers") or [])
-    end_users = uniq(a.get("end_users") for a in others)
+        items.append(a.get("product", "") + " " + OWN_USE_MARK + (f" ({', '.join(inc[:4])})" if inc else ""))
     merged = {
-        "business_area": "other activities", "sector": "; ".join(uniq(a.get("sector") for a in others)) or "not stated",
-        "entity": ", ".join(uniq(a.get("entity") for a in others)) or "not stated",
-        "brands": uniq(b for a in others for b in a.get("brands") or []),
+        "business_area": "own use", "sector": "; ".join(uniq(a.get("sector") for a in own)) or "not stated",
+        "entity": ", ".join(uniq(a.get("entity") for a in own)) or "not stated",
+        "brands": uniq(b for a in own for b in a.get("brands") or []),
         "category": "other",
-        "category_reason": "Secondary activities and production for own use, merged into one line",
-        "product": "Other activities",
+        "category_reason": "Production or services only for the group's own use, merged into one line",
+        "product": "Own use",
         "includes": items,
-        "description": " ".join(f"{a.get('product', '')}: {a.get('description', '')}" for a in others),
-        "intended_use": "; ".join(uniq(a.get("intended_use") for a in others)) or "not stated",
-        "main_inputs": uniq(i for a in others for i in a.get("main_inputs") or []) or ["not stated"],
+        "description": " ".join(f"{a.get('product', '')}: {a.get('description', '')}" for a in own),
+        "intended_use": "; ".join(uniq(a.get("intended_use") for a in own)) or "not stated",
+        "main_inputs": uniq(i for a in own for i in a.get("main_inputs") or []) or ["not stated"],
         "value_chain_level": "other",
-        "direct_customers": customers or ["not stated"],
-        "customer_details": "; ".join(uniq(a.get("customer_details") for a in others)) or "not stated",
-        "end_users": end_users[0] if len(end_users) == 1 else ("consumers and businesses" if end_users else "not stated"),
-        "sales_channels": "; ".join(uniq(a.get("sales_channels") for a in others)) or "not stated",
-        "countries_of_sale": uniq(c for a in others for c in a.get("countries_of_sale") or []) or ["not stated"],
-        "status": "on the market" if any(a.get("status") == "on the market" for a in others) else "not stated",
-        "source_numbers": sorted({n for a in others for n in a.get("source_numbers") or []}),
-        "evidence": " | ".join(uniq(a.get("evidence") for a in others))[:800] or "not stated",
-        "quotes": [q for a in others for q in a.get("quotes") or []],       # unchanged, per source
-        "merged_from": others,
-        # the levels of trade of the merged lines, so that the reseller check can still be applied
-        "merged_levels": uniq(a.get("value_chain_level") for a in others),
+        "direct_customers": ["internal use (captive)"],
+        "customer_details": "; ".join(uniq(a.get("customer_details") for a in own)) or "not stated",
+        "end_users": "not stated",
+        "sales_channels": "not stated",
+        "countries_of_sale": uniq(c for a in own for c in a.get("countries_of_sale") or []) or ["not stated"],
+        "status": "on the market" if any(a.get("status") == "on the market" for a in own) else "not stated",
+        "source_numbers": sorted({n for a in own for n in a.get("source_numbers") or []}),
+        "evidence": " | ".join(uniq(a.get("evidence") for a in own))[:800] or "not stated",
+        "quotes": [q for a in own for q in a.get("quotes") or []],       # unchanged, per source
+        "merged_from": own,
+        "merged_levels": uniq(a.get("value_chain_level") for a in own),
+        # not offered on the market: not compared, unless the lawyer includes it ("Edit")
+        "excluded": True, "own_use": True,
+        "exclusion_reason": "own use only: produced for the group itself, not offered on the market",
     }
-    return main + gaps + [merged]
+    return main + side + gaps + [merged]
 
 
 def is_gap(activity):

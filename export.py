@@ -10,13 +10,27 @@ points to the AI in an Annex that can be ignored.
     Annex       how the overview was prepared (the tool, its limits, the run summary), the pairs without an overlap,
                 the passages behind an existing relationship, the activities not compared
 The content comes from app.report_model(); this module only lays it out (python-docx). No AI call.
+
+"Save progress" saves the same document with the screen's data inside it (a Custom XML part, invisible in Word), so
+that the app can open it again: embed_progress / read_progress. A document saved in step ②, before the comparison,
+lists the activities instead (activities_docx). "Download the Word document" saves it without the data, to share.
 """
+import base64
+import gzip
 import io
+import json
+import uuid
+import zipfile
+import xml.etree.ElementTree as ET
+import zlib
 
 from docx import Document
 from docx.enum.section import WD_ORIENT
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK, WD_TAB_ALIGNMENT
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
+from docx.opc.packuri import PackURI
+from docx.opc.part import Part
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt, Cm, RGBColor
@@ -29,18 +43,20 @@ LABEL = {"h": ("Potential horizontal overlap", "FDECEA", "8A1C12"),
          "q": ("To be checked", "ECEAE5", "4A463F")}
 PREFIX_SEP = ":  "        # app.PREFIX_SEP: the products a bullet concerns (set in italics)
 KEY = [("Confirmed", "both products fall in a market the Commission defined"),
-       ("Possible", "both may fall in the same market, depending on the product format"),
+       ("Possible", "both may fall in the same market, depending on the product format, or the market is not an "
+                    "exact match for one of them"),
        ("Not excluded", "the Commission left the market definition open"),
        ("Not supported", "the Commission puts the products in separate markets"),
-       ("No precedent", "no decision in the database covers the products (or, for a shop or wholesaler, its retail or "
-                        "wholesale market)"),
+       ("No precedent", "no decision in the database covers the products (or, for a shop or wholesaler, its own retail "
+                        "or wholesale market; the markets of the products it sells are named)"),
        ("Markets defined / One side defined", "vertical rows: the decisions define the market of both sides' products "
                                               "/ of one side's only; not the link between the two companies")]
 HOW = [
     ("Research", "Each company was researched on its own, in two searches of public websites (its main business, and "
                  "what such a search easily misses: smaller brands, sales to other businesses, own shops and cafés, "
                  "side lines). Each search saw only that company, never another company of this overview or the "
-                 "planned transaction. The app checked every quotation the search relied on against the page."),
+                 "planned transaction. The app checked every quotation the search relied on against the page. "
+                 "Production for the group's own use was listed but not compared (Annex D)."),
     ("Preliminary assessment", "Every activity of the target was compared with every activity of each portfolio "
                                "company, one pair at a time, by an AI model that saw only two anonymised "
                                "descriptions. The model judged whether the products are the same or similar for the "
@@ -269,53 +285,70 @@ def _company_table(doc, model, company, blocks):
     for block in blocks:
         start = len(t.rows)
         for i, r in enumerate(block["rows"]):
-            row = t.add_row()
-            _row_props(row)
-            c = row.cells
-            if i == 0:
-                _activity(c[0], block["target"])
-            _activity(c[1], r["b_rec"])
-            w = _Cell(c[2])
-            for lab in r["labels"]:
-                _label(w.p(), lab["kind"])
-                if lab["basis"]:
-                    _font(w.p().add_run(lab["basis"]), 9.5, color=GREY)
-                if lab["regard"]:
-                    _font(w.p().add_run("With regard to"), 10)
-                    for who, what in lab["regard"]:
+            # in step ④ one sub-row per label, so that each label has its Commission part beside it; the activities
+            # and the notes span the sub-rows
+            groups = r.get("commission_by_label") or [r["commission"]]
+            n = len(r["labels"]) if step4 and len(r["labels"]) > 1 and len(groups) == len(r["labels"]) else 1
+            first = len(t.rows)
+            for k in range(n):
+                row = t.add_row()
+                _row_props(row)
+                c = row.cells
+                if i == 0 and k == 0:
+                    _activity(c[0], block["target"])
+                if k == 0:
+                    _activity(c[1], r["b_rec"])
+                w = _Cell(c[2])
+                for lab in (r["labels"][k:k + 1] if n > 1 else r["labels"]):
+                    _label(w.p(), lab["kind"])
+                    if lab["basis"]:
+                        _font(w.p().add_run(lab["basis"]), 9.5, color=GREY)
+                    if lab["regard"]:
+                        _font(w.p().add_run("With regard to"), 10)
+                        for who, what in lab["regard"]:
+                            p = w.p()
+                            p.paragraph_format.left_indent = Cm(0.3)
+                            _font(p.add_run(who + ": "), 10, False, True)
+                            _font(p.add_run(what), 10)
+                    for line in lab["lines"]:
+                        _font(w.p().add_run(line[:1].upper() + line[1:]), 10)
+                if k == n - 1:
+                    for line in r["edited"]:
+                        _font(w.p().add_run(line), 10)
+                    if r.get("relationship"):
                         p = w.p()
-                        p.paragraph_format.left_indent = Cm(0.3)
-                        _font(p.add_run(who + ": "), 10, False, True)
-                        _font(p.add_run(what), 10)
-                for line in lab["lines"]:
-                    _font(w.p().add_run(line[:1].upper() + line[1:]), 10)
-            for line in r["edited"]:
-                _font(w.p().add_run(line), 10)
-            if r.get("relationship"):
-                p = w.p()
-                _font(p.add_run("Existing relationship: "), 9.5, True)
-                _font(p.add_run(f"the public sources of {model['target']} and {company} mention each other "
-                                "(Annex C)."), 9.5)
-            if step4:
-                w = _Cell(c[3])
-                for label, bullets, outcome in r["commission"]:
-                    name = _label_name(label) if label and len(r["commission"]) > 1 else ""
-                    # "Possible (horizontal label)", or the label alone where there is no result (e.g. a failed search)
-                    head = f"{outcome} ({name})" if outcome and name else outcome or name[:1].upper() + name[1:]
-                    if head:
-                        _font(w.p().add_run(head + ":"), 10, True)
-                    for b in bullets:
-                        _bullet(w, b)
+                        _font(p.add_run("Existing relationship: "), 9.5, True)
+                        _font(p.add_run(f"the public sources of {model['target']} and {company} mention each other "
+                                        "(Annex C)."), 9.5)
                 if not w.used:
                     w.p()
-            w = _Cell(c[4 if step4 else 3])
-            views = list(dict.fromkeys(r["views"]))
-            if views:
-                _font(w.p().add_run(" · ".join(v[:1].upper() + v[1:] for v in views)), 10, True)
-            if r["note"]:
-                _font(w.p().add_run(r["note"]), 10)
-            if not w.used:
-                w.p()
+                if step4:
+                    w = _Cell(c[3])
+                    part = groups[k] if n > 1 else r["commission"]
+                    for label, bullets, outcome in part:
+                        # beside its label the result alone; where one cell holds several parts, the label each
+                        # belongs to: "Possible (horizontal label)"
+                        name = _label_name(label) if label and n == 1 and len(part) > 1 else ""
+                        head = f"{outcome} ({name})" if outcome and name else outcome or name[:1].upper() + name[1:]
+                        if head:
+                            _font(w.p().add_run(head + ":"), 10, True)
+                        for b in bullets:
+                            _bullet(w, b)
+                    if not w.used:
+                        w.p()
+                if k == 0:
+                    w = _Cell(c[4 if step4 else 3])
+                    views = list(dict.fromkeys(r["views"]))
+                    if views:
+                        _font(w.p().add_run(" · ".join(v[:1].upper() + v[1:] for v in views)), 10, True)
+                    if r["note"]:
+                        _font(w.p().add_run(r["note"]), 10)
+                    if not w.used:
+                        w.p()
+            last = len(t.rows) - 1
+            if last > first:
+                for col in (1, 4 if step4 else 3):
+                    t.cell(first, col).merge(t.cell(last, col))
         end = len(t.rows) - 1
         if end > start:
             t.cell(start, 0).merge(t.cell(end, 0))
@@ -362,7 +395,9 @@ def _markets_table(doc, model, n):
     _widths(t, [4.2, 5.4, 8.0, 8.1])
 
 
-def docx_bytes(model):
+def docx_bytes(model, progress=None, note=""):
+    """The Word document. progress: the screen's data (bytes of the progress file), kept inside the document so that
+    the app can open it again; note: a line under the title saying how far the screen has got (progress copies)."""
     doc = Document()
     _styles(doc)
     _page(doc, model["target"])
@@ -379,7 +414,9 @@ def docx_bytes(model):
           + (f" The Commission decisions cited describe each market as it was at the time ({model['years']})."
              if model["years"] else ""), 10.5, before=5, after=2)
     _para(doc, "Prepared with the help of an AI-assisted screening tool; see the Annex.", 9.5, italic=True,
-          color=GREY, after=8)
+          color=GREY, after=2 if progress else 8)
+    if progress:
+        _progress_note(doc, note)
 
     # 1 summary
     _heading(doc, "1. Summary", 1)
@@ -402,8 +439,9 @@ def docx_bytes(model):
                 if bits:
                     _font(p.add_run(f"({'; '.join(bits)})"), 10, False, True)
     _widths(t, [4.4, 11.2, 10.1])
-    _para(doc, "Target activity first; the arrow points to the customer.", 9.5, italic=True, color=GREY, before=3,
-          after=6)
+    _para(doc, "Target activity first; the arrow points to the customer. Different levels of trade are often different "
+               "markets; a horizontal label across levels where the two companies do not have the same direct "
+               "customers is marked “less likely”.", 9.5, italic=True, color=GREY, before=3, after=6)
     if model["step4"]:
         _para(doc, "Commission Results Used in This Overview", 10, True, before=4, after=1, keep=True)
         for res, text in KEY:
@@ -424,8 +462,12 @@ def docx_bytes(model):
             _font(p.add_run(f"the public sources of {target} and {sec['portco']} mention each other (Annex C)."), 10.5)
         if sec["blocks"]:
             _company_table(doc, model, sec["portco"], sec["blocks"])
-        elif not sec["own"]:
+        elif not sec["own"] and not sec.get("less"):
             _para(doc, "The pairs compared are listed in Annex B.", 10.5, color=GREY, after=6)
+        if sec.get("less"):
+            _para(doc, "Less Likely (horizontal labels across different levels of trade, without the same direct "
+                       "customers)", 10.5, True, before=8, after=2, keep=True)
+            _company_table(doc, model, sec["portco"], sec["less"])
         if sec["own"]:
             _para(doc, "Own Use (production for the group itself, which can only be the customer side)", 10.5, True,
                   before=8, after=2, keep=True)
@@ -520,7 +562,123 @@ def docx_bytes(model):
     _heading(doc, "D. Activities Not Compared", 2)
     for line in model["annex"]["not_compared"] or ["None."]:
         _para(doc, line, 10.5, after=1)
+    return _save(doc, progress)
 
+
+# =============================================================== progress copies (Save progress)
+PROGRESS_NS = "urn:eu-overlap-screen:progress:1"      # the root element of the data part: how the app finds it again
+MAX_PROGRESS = 60 * 1024 * 1024                         # bytes, unpacked: larger data is not read (damaged or foreign)
+PROGRESS_TEXT = ("Progress copy: this file also holds the screen's data, invisible in Word, so that the app can open "
+                 "it again (“Open saved progress”); changes made in Word are not read back. To share the document, "
+                 "use “Download the Word document” in the app, or remove the data in Word (File → Info → Check for "
+                 "Issues → Inspect Document → Custom XML Data).")
+
+
+def _progress_note(doc, note):
+    if note:
+        _para(doc, note, 10.5, True, after=2)
+    _para(doc, PROGRESS_TEXT, 9.5, italic=True, color=GREY, after=8)
+
+
+def _save(doc, progress=None):
+    if progress:
+        embed_progress(doc, progress)
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
+
+
+def embed_progress(doc, data):
+    """Puts the screen's data (bytes) into the document as a Custom XML part, compressed: the place Word keeps for
+    data that belongs to a document; Word keeps it when the document is edited and saved, and shows it in
+    "Inspect Document" (Custom XML Data), where it can be removed."""
+    payload = base64.b64encode(gzip.compress(data)).decode("ascii")
+    item = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<progress xmlns="{PROGRESS_NS}" '
+            f'encoding="gzip+base64">{payload}</progress>').encode("utf-8")
+    package = doc.part.package
+    item_part = Part(package.next_partname("/customXml/item%d.xml"), "application/xml", item, package)
+    n = str(item_part.partname).rsplit("item", 1)[1].split(".")[0]
+    props = (f'<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n<ds:datastoreItem '
+             f'ds:itemID="{{{str(uuid.uuid4()).upper()}}}" '
+             'xmlns:ds="http://schemas.openxmlformats.org/officeDocument/2006/customXml"><ds:schemaRefs/>'
+             '</ds:datastoreItem>').encode("utf-8")
+    props_part = Part(PackURI(f"/customXml/itemProps{n}.xml"),
+                      "application/vnd.openxmlformats-officedocument.customXmlProperties+xml", props, package)
+    doc.part.relate_to(item_part, RT.CUSTOM_XML)
+    item_part.relate_to(props_part, RT.CUSTOM_XML_PROPS)
+
+
+def _unpack(text):
+    raw = base64.b64decode("".join(text.split()), validate=True)
+    d = zlib.decompressobj(16 + zlib.MAX_WBITS)            # gzip, with a limit on the unpacked size
+    out = d.decompress(raw, MAX_PROGRESS)
+    if d.unconsumed_tail:
+        raise ValueError("the data is too large")
+    return out
+
+
+def read_progress(blob):
+    """The screen's data saved in a Word document by "Save progress" (a dict), or None if the document holds none
+    (any other Word document). Raises ValueError if the data is there but damaged."""
+    try:
+        z = zipfile.ZipFile(io.BytesIO(blob))
+    except zipfile.BadZipFile:
+        raise ValueError("the file is not a Word document (.docx)")
+    for info in z.infolist():
+        name = info.filename
+        if not (name.startswith("customXml/item") and name.endswith(".xml")) or "Props" in name:
+            continue
+        if info.file_size > 2 * MAX_PROGRESS:
+            continue
+        try:
+            root = ET.fromstring(z.read(info))
+        except ET.ParseError:
+            continue
+        if root.tag != f"{{{PROGRESS_NS}}}progress":
+            continue
+        try:
+            return json.loads(_unpack(root.text or "").decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, zlib.error) as e:
+            raise ValueError(f"the screen's data in this document is damaged ({e})")
+    return None
+
+
+def activities_docx(model, progress=None, note=""):
+    """A progress copy saved in step ②, before the comparison: the companies with their profiles and activities as
+    they stand, in the same layout as the full document."""
+    doc = Document()
+    _styles(doc)
+    _page(doc, model["target"])
+    _para(doc, "Preliminary Overlap Overview", 20, True, after=6)
+    for k, v in (("Target: ", f"{model['target']} (the business to be acquired)"),
+                 ("Portfolio companies: ", ", ".join(model["portcos"])), ("Date: ", model["date"])):
+        p = _para(doc, after=1)
+        _font(p.add_run(k), 11, True)
+        _font(p.add_run(v), 11)
+    _para(doc, "Draft for internal review. The activities found so far; the preliminary assessment has not been made "
+               "yet.", 10.5, before=5, after=2)
+    _progress_note(doc, note)
+    for i, c in enumerate(model["companies"], start=1):
+        _heading(doc, f"{i}. {c['name']} ({'target' if c['role'] == 'target' else 'portfolio company'})", 1)
+        if c["profile"]:
+            _para(doc, c["profile"], 11, after=4)
+        if not c["activities"]:
+            _para(doc, "No activities found yet.", 10.5, color=GREY, after=6)
+            continue
+        t = doc.add_table(rows=1, cols=4)
+        _borders(t)
+        _margins(t)
+        _head(t, ["Activity", "Stage", "Includes", "Direct Customers"])
+        for a in c["activities"]:
+            row = t.add_row()
+            _row_props(row)
+            w = _Cell(row.cells[0])
+            _font(w.p().add_run(a["name"]), 10, True)
+            if a["excluded"] is not None:
+                _font(w.p().add_run("Not relevant to this deal" + (f": {a['excluded']}" if a["excluded"] else "")),
+                      9, italic=True, color=GREY)
+            for c_, txt in ((row.cells[1], a["stage"]), (row.cells[2], ", ".join(a["includes"]) or "–"),
+                            (row.cells[3], a["customers"] or "–")):
+                _font(_Cell(c_).p().add_run(txt), 9.5)
+        _widths(t, [6.5, 3.2, 11.0, 5.0])
+    return _save(doc, progress)

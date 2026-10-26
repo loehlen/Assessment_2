@@ -272,7 +272,8 @@ def extract(ai, company, found, companies):
     data["extracted_activities"] = len(data["activities"])
     move_gaps(data, company)                                          # no "not stated" activity lines
     data["activities"] = consolidate(ai, name, data["activities"], data["warnings"])
-    data["activities"] = rules.merge_other(data["activities"])        # exactly one "Other activities" line
+    # side lines become activities of their own; own use one line, not compared
+    data["activities"] = rules.merge_other(data["activities"])
     valid = {s["n"] for s in found["sources"]}
     data["profile_source_numbers"] = [n for n in data.get("profile_source_numbers", []) if n in valid]
     for act in data["activities"]:          # code check: only source numbers the search actually returned

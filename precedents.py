@@ -938,11 +938,34 @@ def horizontal_verdict(record, r, items, a, b):
 MARKET_PREFIX = re.compile(r"^(the\s+)?(relevant\s+)?(product\s+)?markets?\s+(for|of)\s+(the\s+)?")
 
 
+# words that change how a market is named, not which market it is
+MARKET_FILLER = {"a", "an", "the", "as", "separate", "possible"}
+
+
 def _market_key(name):
-    """'Market for e-bikes', 'the market for e-bikes' and 'e-bikes' are one market."""
-    name = MARKET_PREFIX.sub("", (name or "").lower().strip())
-    name = re.sub(r"\s+markets?$", "", name)
+    """One key for the different wordings of one market: 'Market for e-bikes', 'the market for e-bikes' and 'e-bikes'
+    are one market, and so are 'X as a separate market within Y' and 'X within the Y market'."""
+    words = [w for w in (name or "").lower().split() if w not in MARKET_FILLER]
+    name = MARKET_PREFIX.sub("", " ".join(words))
+    name = " ".join(w for w in name.split() if w not in ("market", "markets"))
     return re.sub(r"[^a-z0-9]", "", name)
+
+
+def unify_names(records):
+    """Each AI call names its own markets, so one market can come back in several wordings (see _market_key). Every
+    wording of one market is shown under its shortest one; the AI's own wording is kept in "name_as_found"."""
+    markets = [m for rec in records if isinstance(rec, dict) for m in (rec.get("markets") or {}).values()]
+    shortest = {}
+    for m in markets:
+        name = m.get("name_as_found") or m.get("name") or ""
+        k = _market_key(name)
+        if k and (k not in shortest or (len(name), name) < (len(shortest[k]), shortest[k])):
+            shortest[k] = name
+    for m in markets:
+        name = m.get("name_as_found") or m.get("name") or ""
+        best = shortest.get(_market_key(name))
+        if best and best != name:
+            m["name_as_found"], m["name"] = name, best
 
 
 def _same_call(record, r, items):
