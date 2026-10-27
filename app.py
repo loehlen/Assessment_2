@@ -27,6 +27,7 @@ import json
 import math
 import re
 import time
+from collections import Counter
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -89,6 +90,15 @@ details.mkts>summary{cursor:pointer;color:#5B7089;font-size:.85rem;list-style:no
 details.mkts>summary::-webkit-details-marker{display:none}
 details.mkts>summary:before{content:"▸ "}
 details.mkts[open]>summary:before{content:"▾ "}
+details.lfold{margin:.05rem 0 .2rem 0}
+details.lfold>summary .oc{margin-left:0}
+details.lfold ul{margin-top:.2rem}
+[class*="st-key-note_"] [data-testid="stTextAreaRootElement"]:has(textarea:placeholder-shown:not(:focus)){
+ background:transparent !important;border-color:transparent !important;border-bottom:1px dashed #C9C2B4 !important;
+ border-radius:0 !important;min-height:0 !important;height:auto !important}
+[class*="st-key-note_"] textarea:placeholder-shown:not(:focus){height:2.3rem !important;min-height:2.3rem !important;
+ background:transparent !important}
+[class*="st-key-note_"] textarea::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .grp{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:.95rem;margin:.5rem 0 .15rem 0}
 .it{padding:.12rem 0 .12rem .6rem;border-left:2px solid #5B7089;margin:.1rem 0}
 .it.one{border-left-color:#E2DDD2}
@@ -173,6 +183,7 @@ details.mkts[open]>summary:before{content:"▾ "}
 .sumt th .lab{margin:0}
 .sumt td{border-bottom:1px solid #C9C2B4;padding:.5rem .7rem;vertical-align:top}
 .sumul{margin:0;padding-left:1.1rem}.sumul li{margin:.15rem 0}
+.sless{font-size:.85rem;font-style:italic;margin:.25rem 0 0 0}
 [class*="st-key-thead"]{background:#22313F;border-radius:4px;padding:.5rem .7rem .05rem .7rem;margin-top:.3rem}
 [class*="st-key-thead"] p{color:#FFFFFF !important;font-weight:600}
 [class*="st-key-thead"] [data-testid="stTooltipIcon"],[class*="st-key-thead"] [data-testid="stTooltipIcon"] *{
@@ -1920,6 +1931,13 @@ def _store_view(pid, part, key, tool_parts, kind):
         views[part] = value
 
 
+def _store_views(pid, parts, key, tool_parts, kind):
+    """"Your view" of a line on the screen: the same view for each label it shows (one, or an input and a resale link
+    in the same direction)."""
+    for part in parts:
+        _store_view(pid, part, key, tool_parts, kind)
+
+
 def kept(status):
     return status in ("candidate", "unclear", "added back by user")
 
@@ -1944,11 +1962,14 @@ def search_overrides():
             for pid, o in (ss.get("overrides") or {}).items()}
 
 
-def listing(items, limit=4):
-    """Items as HTML; more than `limit`: “and 2 more”, hovering shows every item."""
+def listing(items, limit=3):
+    """Items as HTML, on the screen (the Word document uses word_list); more than `limit`: “and 2 more”, hovering
+    shows every item. “and 1 more” would save nothing, so one item more is shown as it is."""
     items = [i for i in items if i]
     if not items:
         return ""
+    if len(items) == limit + 1:
+        limit += 1
     text = ", ".join(he(i) for i in items[:limit])
     if len(items) > limit:
         tip = h("All: " + "; ".join(items))
@@ -2026,6 +2047,31 @@ def link_sentence(link, vitems, r, target, portco, html_out=True):
         "A could be resold by B": f"{a} could be resold through {b}",
         "B could be resold by A": f"{b} could be resold through {a}",
     }.get(link, link)
+
+
+def joint_link_sentence(links, r, target, portco):
+    """An input and a resale link in the same direction whose supplying side names the same items, as one sentence
+    on the screen (None otherwise): "X's … could be an input for Y's …, or be resold through Y's …"."""
+    if len(links) != 2 or not any(lk in INPUT_LINKS for lk in links) or all(lk in INPUT_LINKS for lk in links):
+        return None
+    vi = {v["link"]: v for v in r.get("vertical_items") or []}
+    inp = next(lk for lk in links if lk in INPUT_LINKS)
+    res = next(lk for lk in links if lk not in INPUT_LINKS)
+    sup, cus = ("a", "b") if inp.startswith("A ") else ("b", "a")
+    if not res.startswith("A " if sup == "a" else "B "):
+        return None
+    items_sup = [(vi.get(lk) or {}).get(sup) or [] for lk in (inp, res)]
+    if items_sup[0] != items_sup[1]:
+        return None
+    names = {"a": target, "b": portco}
+
+    def side(x, items):
+        return f"{he(names[x])}'s {listing(items) or he(r[x]['product'])}"
+    c_in, c_res = ((vi.get(lk) or {}).get(cus) or [] for lk in (inp, res))
+    if c_in == c_res:
+        return f"{side(sup, items_sup[0])} could be an input for, or be resold through, {side(cus, c_in)}"
+    return (f"{side(sup, items_sup[0])} could be an input for {side(cus, c_in)}, or be resold through "
+            f"{side(cus, c_res)}")
 
 
 def dots_html(score):
@@ -2125,10 +2171,10 @@ LABEL_TEXT = {"h": "Potential horizontal overlap", "v": "Potential vertical rela
 
 def label_html(p, less=False):
     cls = "lab-off" if p["off"] else ("lab-h" if p["kind"] == "h" else "lab-v")
+    tip = LESS_TIP_H if p["kind"] == "h" else LESS_TIP_V
     tag = " <span class='tag'>added by you</span>" if p["origin"] == "lawyer" else (
         " <span class='tag'>dismissed by you</span>" if p["off"] else
-        " <span class='tag' title='Different levels of trade and not the same direct customers: often different "
-        "markets, so a horizontal overlap is less likely; to be checked.'>less likely</span>" if less else "")
+        f" <span class='tag' title='{h(tip)}'>less likely</span>" if less else "")
     return f"<span class='lab {cls}'>{LABEL_TEXT[p['kind']]}</span>{tag}"
 
 
@@ -2152,7 +2198,7 @@ def assessment_cell(r, status, rv, target, portco, commission=False):
     tool_parts = [p["part"] for p in parts if p["origin"] == "tool"]
     edited = (o.get("text_assessment") or "").strip()
 
-    def line(html_text, part, kind, off=False, comm=""):
+    def line(html_text, part_names, kind, off=False, comm=""):
         if commission:          # step ④: the assessment, the Commission, then the lawyer's view (the lawyer last)
             c1, c3, c2 = st.columns(STEP4_INNER, vertical_alignment="top")
             if comm:
@@ -2160,31 +2206,49 @@ def assessment_cell(r, status, rv, target, portco, commission=False):
         else:
             c1, c2 = st.columns(STEP3_INNER, vertical_alignment="top")
         c1.markdown(html_text, unsafe_allow_html=True)
+        part = part_names[0]
         safe = re.sub(r"\W", "", part)         # no backslash inside an f-string (Python before 3.12)
         key = f"view_{rv}_{pid}_{safe}"
         c2.selectbox("Your view", VIEWS, index=VIEWS.index(view_of(pid, part, off)), key=key,
                      format_func=lambda v: "Your view" if v == "To check" else v,
-                     label_visibility="collapsed", on_change=_store_view, args=(pid, part, key, tool_parts, kind),
+                     label_visibility="collapsed", on_change=_store_views,
+                     args=(pid, part_names, key, tool_parts, kind),
                      help="Your view of this relationship: used in the summary and the Word document. “Ask the "
                           "company” puts it into the open points; “Dismiss” removes it.")
 
-    items = []                          # [text, part, kind, off], one line (with its own "Your view") each
+    items = []                          # [text, [parts], kind, off], one line (with its own "Your view") each
     metas = []                          # the label of each line, for the Commission's parts (assign_commission)
+    folded = []                         # per line: shown folded ("less likely")
     if status == "added back by user":
         items.append(["<span class='lab lab-q'>Added back by you</span> <span class='sub2'>the tool found no overlap; "
-                      "see “Why?”</span>", "row", "row", False])
+                      "see “Why?”</span>", ["row"], "row", False])
         metas.append({"kind": "row"})
+        folded.append(False)
     elif r["decision"]["status"] == "unclear":
         items.append(["<span class='lab lab-q'>Unclear: please check</span> <span class='sub2'>see “Why?”</span>",
-                      "row", "row", bool(o.get("dismiss"))])
+                      ["row"], "row", bool(o.get("dismiss"))])
         metas.append({"kind": "row"})
-    for p in parts:
-        detail = [] if edited else part_detail(p, r, target, portco)
-        items.append(["  \n".join([label_html(p, less=p["kind"] == "h" and p["origin"] == "tool"
-                                               and weak_horizontal(r))] + detail),
-                      p["part"], p["origin"], p["off"]])
+        folded.append(False)
+    for g in label_groups(r, parts):
+        p = g[0]
+        fold = not edited and all(less_likely_part(r, q) for q in g)
+        head = label_html(p, less=all(less_tag(r, q) for q in g))
+        if edited:
+            detail = []
+        else:   # the basis line once; under it the sentence of each link (two for an input and a resale link)
+            details = [part_detail(q, r, target, portco) for q in g]
+            joint = joint_link_sentence([q["part"] for q in g], r, target, portco) if len(g) == 2 else None
+            detail = details[0][:1] + ([joint] if joint else [x for d in details for x in d[1:]])
+        if fold:            # the label and its basis stay visible; what it concerns opens on request
+            text = (f"<div>{head}<br>{detail[0] if detail else ''}"
+                    + (f"<details class='mkts lfold'><summary>Details</summary>{'<br>'.join(detail[1:])}</details>"
+                       if detail[1:] else "") + "</div>")
+        else:
+            text = "  \n".join([head] + detail)
+        items.append([text, [q["part"] for q in g], p["origin"], p["off"]])
         metas.append(p)
-    comms = commission_htmls(r, target, portco, metas) if commission else [""] * len(items)
+        folded.append(fold)
+    comms = commission_htmls(r, target, portco, metas, folded) if commission else [""] * len(items)
     # the lawyer's wording and the existing relationship go under the last label, in the same narrow part of the
     # column (not under "Your view" as well)
     extra = []
@@ -2195,8 +2259,8 @@ def assessment_cell(r, status, rv, target, portco, commission=False):
         extra.append(relationship_html(rel, target, portco))
     if items and extra:
         items[-1][0] += "\n\n" + "".join(f"<div class='aext'>{x}</div>" for x in extra)
-    for (text, part, kind, off), comm in zip(items, comms):
-        line(text, part, kind, off=off, comm=comm)
+    for (text, part_names, kind, off), comm in zip(items, comms):
+        line(text, part_names, kind, off=off, comm=comm)
     if not items:
         for x in extra:
             st.markdown(x, unsafe_allow_html=True)
@@ -2518,6 +2582,60 @@ def is_less_likely(r):
             and all(view_of(pid, p["part"]) == "To check" for p in parts if not p["off"]))
 
 
+# A vertical input link whose customer side is a shop or a wholesaler: such a company resells; an input could only
+# serve its own minor use (e.g. food served in its shops), not its main business. Display only, like the horizontal
+# rule above: the label, step ④ and the counts stay as they are. Services stay as they are (a service provider can
+# use inputs for its main business).
+INPUT_LINKS = ("A could be an input for B", "B could be an input for A")
+LESS_TIP_H = ("Different levels of trade and not the same direct customers: often different markets, so a horizontal "
+              "overlap is less likely; to be checked.")
+LESS_TIP_V = ("An input for a shop or wholesaler: such a company resells, so the input could only serve its own minor "
+              "use (e.g. food served in its shops), not its main business; to be checked.")
+
+
+def ancillary_input(r, link):
+    if link not in INPUT_LINKS:
+        return False
+    buyer = r["b"] if link == "A could be an input for B" else r["a"]
+    return buyer.get("value_chain_level") in ("retail", "wholesale / distribution")
+
+
+def less_tag(r, p):
+    """Whether a label carries the "less likely" tag (whatever the lawyer's view)."""
+    if p.get("origin") != "tool":
+        return False
+    return weak_horizontal(r) if p["kind"] == "h" else ancillary_input(r, p["part"])
+
+
+def less_likely_part(r, p):
+    """A label shown folded in its row (steps ③–④) and counted on one line in the summary: a "less likely" label of
+    the tool that the lawyer has not worked on (no view, note or own wording). Display only."""
+    if p.get("off") or r["decision"]["status"] != "candidate" or is_own_use(r) or not less_tag(r, p):
+        return False
+    pid = cmp.pair_id(r)
+    o = ss.override_store.get(pid) or {}
+    if any((o.get(k) or "").strip() for k in ("note", "text_assessment", "text_commission")):
+        return False
+    return view_of(pid, p["part"]) == "To check"
+
+
+def label_groups(r, parts):
+    """The labels of a row as shown on the screen: the tool's two vertical links in the same direction (an input and a
+    resale link) form one label, as in the Word document, when neither is dismissed and both have the same view;
+    their "Your view" then sets both. [[part, ...], ...] in the order of the parts."""
+    pid = cmp.pair_id(r)
+    groups = []
+    for p in parts:
+        if p["kind"] == "v" and p["origin"] == "tool" and not p["off"]:
+            g = next((g for g in groups if g[0]["kind"] == "v" and g[0]["origin"] == "tool" and not g[0]["off"]
+                      and g[0]["up"] == p["up"] and view_of(pid, g[0]["part"]) == view_of(pid, p["part"])), None)
+            if g is not None:
+                g.append(p)
+                continue
+        groups.append([p])
+    return groups
+
+
 def assign_commission(entries, parts, target):
     """The Commission's parts of a row, each next to the label it belongs to: [[entries] per label]. parts: the labels
     as shown ({kind, up, off}; kind "row" for a line of the whole row). A part for the whole row ("", e.g. a failed
@@ -2618,7 +2736,9 @@ def row_record(r, target, portco, step4):
     labels = []
     edited = (o.get("text_assessment") or "").strip()
     for p in parts:
-        lab = {"kind": p["kind"], "view": label_view(pid, p), "basis": "", "regard": [], "lines": [], "up": p["up"]}
+        lab = {"kind": p["kind"], "view": label_view(pid, p), "basis": "", "regard": [], "lines": [], "up": p["up"],
+               "less": less_likely_part(r, p),      # the summary counts it on one line
+               "tag_less": less_tag(r, p)}          # a vertical label's basis says "less likely" (as a horizontal's)
         if not edited:
             if p["kind"] == "h" and p["origin"] == "tool":
                 kind = "same product" if c.get("product_relation") == "same product" else "similar product"
@@ -2668,6 +2788,10 @@ def row_record(r, target, portco, step4):
         prev = merged[same]
         prev["lines"] += [x for x in lab["lines"] if x not in prev["lines"]]
         prev["view"] = prev["view"] or lab["view"]
+        prev["tag_less"] = prev.get("tag_less") and lab.get("tag_less")     # a resale link is never less likely
+    for lab in merged:
+        if lab["kind"] == "v" and lab.get("tag_less") and lab["basis"]:
+            lab["basis"] += " · less likely"
     labels = merged + labels[len(parts):]          # the "To be checked" line of a row without labels stays
     metas = metas or [{"kind": "row"}]
     return {"pid": pid, "a": r["a"], "b": r["b"], "b_rec": activity_record(r["b"], portco), "labels": labels,
@@ -2704,6 +2828,39 @@ def long_date(iso):
     except ValueError:
         return str(iso or "")
     return f"{d.day} {d:%B %Y}"
+
+
+def summary_item(kind, up, names_, res, lab):
+    """One label of a kept row, for the summary: (target activity, portfolio company's activity, their stages)."""
+    a, b, la, lb = names_
+    return {"kind": kind, "up": up, "a": a, "b": b, "la": la, "lb": lb, "pair": (a, b), "res": res,
+            "view": lab["view"], "less": bool(lab.get("less"))}
+
+
+def summary_lines(items):
+    """The summary's bullets of one portfolio company and one column: [(text, Commission result, view)].
+    Labels are joined only if they are the same relationship in every respect the summary shows or rests on: kind,
+    direction, both stages (levels of trade), the Commission's result and the lawyer's view. First the portfolio
+    company's activities of each target activity are joined, then the target activities with the same set of them;
+    so every bullet "A1; A2 → B1" stands for pairs that all exist, each with that result. A check unfolds every
+    bullet into its pairs again: if they are not exactly the labels given, each label keeps a bullet of its own."""
+    def key(x):
+        return x["kind"], x["up"], x["la"], x["lb"], x["res"], x["view"]
+    first = {}
+    for x in items:
+        bs = first.setdefault((key(x), x["a"]), [])
+        if x["b"] not in bs:
+            bs.append(x["b"])
+    second = {}
+    for (k, a), bs in first.items():
+        second.setdefault((k, tuple(bs)), []).append(a)
+
+    def sym(k):
+        return "×" if k[0] == "h" else ("→" if k[1] == "a" else "←")
+    unfolded = Counter((k, a, b) for (k, bs), as_ in second.items() for a in as_ for b in bs)
+    if unfolded != Counter((key(x), x["a"], x["b"]) for x in items):
+        return [(f"{x['a']} {sym(key(x))} {x['b']}", x["res"], x["view"]) for x in items]
+    return [(f"{'; '.join(as_)} {sym(k)} {'; '.join(bs)}", k[4], k[5]) for (k, bs), as_ in second.items()]
 
 
 def report_model():
@@ -2758,7 +2915,7 @@ def report_model():
                             for m in re.finditer(r"\[(M\.\d+|Notice) \((\d+)\)", b):
                                 cited.setdefault(m.group(1), set()).add(int(m.group(2)))
                     if not is_own_use(r):
-                        pair = f"{short_name(r['a'])} × {short_name(r['b'])}"
+                        names_ = (short_name(r["a"]), short_name(r["b"]), stage_of(r["a"]), stage_of(r["b"]))
                         outs = {}       # per relationship and direction; a label "" covers all
                         for lab_, _, o_ in rec["commission"]:
                             if lab_.startswith("horizontal"):
@@ -2773,16 +2930,17 @@ def report_model():
                                 outs.setdefault(k_, o_)
                         for lab in rec["all_labels"]:
                             if lab["kind"] == "h":
-                                hor.append((pair, outs.get("h", ""), lab["view"]))
-                            elif lab["kind"] == "v":
-                                arrow = "→" if lab["up"] == "a" else "←"     # the target supplies
-                                entry = (f"{short_name(r['a'])} {arrow} {short_name(r['b'])}",
-                                         outs.get("va" if lab["up"] == "a" else "vb", ""), lab["view"])
-                                same = [x for x in ver if x[0] == entry[0] and x[1] == entry[1]]
+                                hor.append(summary_item("h", None, names_, outs.get("h", ""), lab))
+                            elif lab["kind"] == "v":           # up "a": the target supplies
+                                entry = summary_item("v", lab["up"], names_,
+                                                     outs.get("va" if lab["up"] == "a" else "vb", ""), lab)
+                                same = [x for x in ver if x["pair"] == entry["pair"] and x["up"] == entry["up"]
+                                        and x["res"] == entry["res"]]
                                 if not same:        # two links in one direction (input and resale): one entry
                                     ver.append(entry)
-                                elif entry[2] and not same[0][2]:
-                                    ver[ver.index(same[0])] = entry
+                                else:               # the lawyer's view of either; less likely only if both are
+                                    same[0]["view"] = same[0]["view"] or entry["view"]
+                                    same[0]["less"] = same[0]["less"] and entry["less"]
                     for lab in rec["all_labels"]:
                         if lab["view"] == "open point":
                             open_points.append({"portco": p, "pair": f"{short_name(r['a'])} × {short_name(r['b'])}",
@@ -2800,7 +2958,10 @@ def report_model():
                              "blocks": blocks, "own": own, "less": less,
                              # a relationship with no kept row to show it in: one line under the sentence
                              "relationship": bool(rel) and not rel_ids})
-            summary.append({"portco": p, "horizontal": hor, "vertical": ver})
+            summary.append({"portco": p, "horizontal": summary_lines([x for x in hor if not x["less"]]),
+                            "vertical": summary_lines([x for x in ver if not x["less"]]),
+                            "less_h": sum(1 for x in hor if x["less"]), "less_v": sum(1 for x in ver if x["less"]),
+                            "n": portcos.index(p) + 1})
         sources = []
         for c in ss.companies:
             found = research_of(c["name"])         # the research the compared activities' source numbers refer to
@@ -3022,7 +3183,10 @@ GUIDES = {
             "customer.",
             f"{dots_html('●●●')} {dots_html('●●○')} {dots_html('●○○')} the same, partly the same or different "
             "direct customers; “customers not stated” if one side's sources do not say.",
-            "<span class='lab lab-q'>Existing relationship</span> the companies' own sources name each other."]),
+            "<span class='lab lab-q'>Existing relationship</span> the companies' own sources name each other.",
+            "<span class='tag'>less likely</span> a horizontal label across levels with other customers, or an input "
+            "for a shop or wholesaler: shown folded, open “Details” for what it concerns; a view or a note shows it "
+            "in full."]),
         ("Limits", [
             "<b>Deliberately generous:</b> unlikely links are shown too. A missed relationship is easily overlooked "
             "later; an unlikely one takes a second to dismiss.",
@@ -3159,14 +3323,17 @@ def run_summary():
 # The same summary as page 1 of the Word document (one bullet per relationship, the Commission's result and the lawyer's
 # view), the open points, and the download. Built in code from the rows, live; no AI call.
 def summary_html(model):
-    def cell(entries):
-        if not entries:
+    def cell(entries, less=""):
+        if not entries and not less:
             return "<span class='sub2'>None</span>"
         lis = "".join(f"<li>{he(pair)} {outcome_chip(res) if res else ''}"
                       + (f"<i class='sub2'>{he(view)}</i>" if view else "") + "</li>" for pair, res, view in entries)
-        return f"<ul class='sumul'>{lis}</ul>"
-    rows = "".join(f"<tr><td><b>{he(s['portco'])}</b></td><td>{cell(s['horizontal'])}</td>"
-                   f"<td>{cell(s['vertical'])}</td></tr>" for s in model["summary"])
+        return (f"<ul class='sumul'>{lis}</ul>" if lis else "") + (f"<div class='sub2 sless'>{he(less)}</div>"
+                                                                  if less else "")
+    rows = "".join(f"<tr><td><b>{he(s['portco'])}</b></td>"
+                   f"<td>{cell(s['horizontal'], export.less_line('h', s['less_h'], 'step ③'))}</td>"
+                   f"<td>{cell(s['vertical'], export.less_line('v', s['less_v'], 'step ③'))}</td></tr>"
+                   for s in model["summary"])
     return ("<table class='sumt'><thead><tr><th>Portfolio Company</th><th><span class='lab lab-h'>Potential horizontal "
             "overlaps</span></th><th><span class='lab lab-v'>Potential vertical relationships</span></th></tr></thead>"
             f"<tbody>{rows}</tbody></table>")
@@ -3262,7 +3429,8 @@ def stage_summary(ai):
     pending_warning(model)
     st.markdown(summary_html(model), unsafe_allow_html=True)
     st.caption("Target activity first; the arrow points to the customer. After each entry: the Commission's result "
-               "and your view.")
+               "and your view. Activities joined by “;” each have the relationship shown, with the same result and "
+               "view. Less likely labels are counted on one line; set a view on one in step ③ to list it here.")
     if model["open_points"]:
         st.markdown("##### Open Points")
         st.markdown("\n".join(f"- {esc(o['text'])} :gray[({esc(o['pair'])}, {esc(o['portco'])})]"
@@ -3885,8 +4053,14 @@ def horizontal_sentences(entries, view, verdict, target, portco, paras, html_out
         side = "a" if rs.get("a") else "b"
         who = T if side == "a" else P
         lw = level_word(acts.get(side))
-        n14, n25 = ((para_ref("Notice-14", {}, seen=False), para_ref("Notice-25", {}, seen=False)) if html_out
-                    else ("(Market Definition Notice (14))", "(Market Definition Notice (25))"))
+        if html_out:        # the screen: one line, the full explanation on hover (the Word document has it in full)
+            name = target if side == "a" else portco
+            tip = (f"{name}'s side is {lw}: the decisions define the markets of the products, not the {lw} market. "
+                   "Markets can differ at different levels of the supply chain (Market Definition Notice (14)); "
+                   "whether both compete for the same customers is to be checked (Market Definition Notice (25)).")
+            return [f"<span class='hov' title='{h(tip)}'>{who}'s side is {lw}: the decisions define product markets, not a {lw} market</span> "
+                    f"{para_ref('Notice-14', {}, seen=False)} {para_ref('Notice-25', {}, seen=False)}"]
+        n14, n25 = "(Market Definition Notice (14))", "(Market Definition Notice (25))"
         return [f"{who}'s side is {lw}: the decisions define the markets of the products, not the {lw} market. "
                 f"Markets can differ at different levels of the supply chain {n14}; whether both compete for the same "
                 f"customers is to be checked {n25}"]
@@ -4308,9 +4482,11 @@ def commission_plain(r, target, portco):
                      for label, bullets, outcome in sentences)
 
 
-def commission_htmls(r, target, portco, parts):
+def commission_htmls(r, target, portco, parts, folded=None):
     """Step ④: the Commission's part for each line of a row (parts as in assign_commission), as HTML; the chip says
-    the result, the line beside it says which label it belongs to. Code only, no AI call."""
+    the result, the line beside it says which label it belongs to. A folded line ("less likely") shows its chip; the
+    markets open with a click on it. Code only, no AI call."""
+    folded = folded or [False] * len(parts)
     out = [""] * max(len(parts), 1)
     if not ss.get("precedents") or ss.get("step") != 4:
         return out
@@ -4340,7 +4516,12 @@ def commission_htmls(r, target, portco, parts):
                 for j, q in enumerate(parts[:i]))):
             out[i] = "<div class='ccell'><span class='sub2'>Same markets as the vertical label above.</span></div>"
     for i, g in enumerate(groups[:len(out)]):
-        if g:
+        if g and i < len(folded) and folded[i]:
+            out[i] = "<div class='ccell'>" + "".join(
+                f"<details class='mkts lfold'><summary>{outcome_chip(outcome) or 'Details'}</summary><ul>"
+                + "".join(f"<li>{b[:1].upper() + b[1:] if not b.startswith('<') else b}</li>" for b in bullets)
+                + "</ul></details>" for label, bullets, outcome in g) + "</div>"
+        elif g:
             out[i] = "<div class='ccell'>" + "".join(
                 f"<div class='cpart'>{outcome_chip(outcome)}"
                 + (f"<span class='cph'>{he(commission_heading(label))}</span>" if label == BOTH_DIRECTIONS else "")
@@ -4762,13 +4943,16 @@ def legend_html(step):
               + line("<span class='lab lab-v'>Vertical</span>", "one could supply the other",
                      "Potential vertical relationship: one company's products could be an input for the other, or could "
                      "be resold by it. The arrow points from supplier to customer.")
-              + line("<span class='tag'>less likely</span>", "horizontal across levels, other customers",
+              + line("<span class='tag'>less likely</span>", "horizontal across levels, other customers; an "
+                     "input for a shop",
                      "A horizontal label across different levels of trade (e.g. manufacturing v retail) where the two "
-                     "companies do not have the same direct customers. Different levels of trade are often "
+                     "companies do not have the same direct customers: different levels of trade are often "
                      "different markets (Market Definition Notice (14)), so a horizontal overlap is less likely; "
-                     "whether both compete for the same customers is to be checked. Rows with only "
-                     "such a label are folded under “Less likely”; setting a view or a note moves a row back into "
-                     "the table."))
+                     "whether both compete for the same customers is to be checked. A vertical input link to a shop "
+                     "or wholesaler: such a company resells, so the input could only serve its own minor use. Such "
+                     "a label is shown folded (open “Details”) and counted on one line in the summary; setting a "
+                     "view or a note shows it in full. Rows with only less likely horizontal labels are folded "
+                     "under “Less likely”."))
     dots = line(dots_html("●●○"), "direct customers (hover over the dots)",
                 "Three filled dots: the same direct customers; two: partly the same; one: different; “customers not stated”: one "
                 "side's sources do not say. Compares only who each company sells "

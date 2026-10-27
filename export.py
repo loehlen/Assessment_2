@@ -395,6 +395,15 @@ def _markets_table(doc, model, n):
     _widths(t, [4.2, 5.4, 8.0, 8.1])
 
 
+def less_line(kind, n, where):
+    """The one line of a summary column for its less likely labels (also on the app's summary, step ⑤)."""
+    if not n:
+        return ""
+    what = ("across levels of trade, without the same direct customers" if kind == "h" else
+            "inputs for a shop or wholesaler")
+    return f"{n} less likely label{'' if n == 1 else 's'} ({what}): see {where}"
+
+
 def docx_bytes(model, progress=None, note=""):
     """The Word document. progress: the screen's data (bytes of the progress file), kept inside the document so that
     the app can open it again; note: a line under the title saying how far the screen has got (progress copies)."""
@@ -428,9 +437,10 @@ def docx_bytes(model, progress=None, note=""):
         row = t.add_row()
         _row_props(row)
         _font(_Cell(row.cells[0]).p().add_run(s["portco"]), 10.5, True)
-        for c, entries in ((row.cells[1], s["horizontal"]), (row.cells[2], s["vertical"])):
+        for c, entries, kind in ((row.cells[1], s["horizontal"], "h"), (row.cells[2], s["vertical"], "v")):
             w = _Cell(c)
-            if not entries:
+            less = less_line(kind, s.get(f"less_{kind}", 0), f"2.{s.get('n', '')}")
+            if not entries and not less:
                 _font(w.p().add_run("None"), 10)
             for pair, res, view in entries:
                 p = w.p(style="List Bullet")
@@ -438,10 +448,14 @@ def docx_bytes(model, progress=None, note=""):
                 bits = [x for x in (res, view) if x]
                 if bits:
                     _font(p.add_run(f"({'; '.join(bits)})"), 10, False, True)
+            if less:            # the less likely labels: one line, in full in section 2
+                _font(w.p().add_run(less), 9.5, False, True, GREY)
     _widths(t, [4.4, 11.2, 10.1])
-    _para(doc, "Target activity first; the arrow points to the customer. Different levels of trade are often different "
-               "markets; a horizontal label across levels where the two companies do not have the same direct "
-               "customers is marked “less likely”.", 9.5, italic=True, color=GREY, before=3, after=6)
+    _para(doc, "Target activity first; the arrow points to the customer. Activities joined by “;” each have the "
+               "relationship shown, with the same result. Different levels of trade are often different markets; a "
+               "horizontal label across levels where the two companies do not have the same direct customers, and an "
+               "input for a shop or wholesaler (which resells), are marked “less likely”: counted on one line here, "
+               "in full in section 2.", 9.5, italic=True, color=GREY, before=3, after=6)
     if model["step4"]:
         _para(doc, "Commission Results Used in This Overview", 10, True, before=4, after=1, keep=True)
         for res, text in KEY:
