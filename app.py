@@ -550,11 +550,11 @@ TRUST_HEAD = {"found": "✔ Checked: the quotation is on the page",
               "no quote": "○ Read by the search only"}
 NOT_CHECKED_WHY = {
     "blocked": "The search read this page and the activity is based on it, but the app could not open the page itself "
-               "to confirm the quotation ({reason}).",
-    "no text": "The search read this page and the activity is based on it, but the page shows the app almost no text "
-               "(probably built by JavaScript), so the app could not confirm the quotation.",
+               "to confirm the quotation: {reason}.",
+    "no text": "The search read this page and the activity is based on it, but the app could not read it, so it could "
+               "not confirm the quotation: {reason}.",
     "error": "The search read this page and the activity is based on it, but the app could not open the page itself to "
-             "confirm the quotation ({reason}).",
+             "confirm the quotation: {reason}.",
     "off": "The search read this page and the activity is based on it; the app's own check is switched off.",
 }
 NOT_CHECKED_END = " This says nothing about the source; open the link if the row matters."
@@ -617,8 +617,8 @@ def source_tip(s, c, kind_text):
         return (tip + f"\n\n{TRUST_HEAD['no quote']}\nThe search read this page and cited it without quoting it, so "
                 "the app had nothing to confirm." + NOT_CHECKED_END)
     why = NOT_CHECKED_WHY.get((s.get("check") or {}).get("state"),
-                              "The search read this page, but the app could not confirm the quotation ({reason}).")
-    return (tip + f"\n\n{TRUST_HEAD['not checked']}\n" + why.format(reason=reason or "no reason given")
+                              "The search read this page, but the app could not confirm the quotation: {reason}.")
+    return (tip + f"\n\n{TRUST_HEAD['not checked']}\n" + why.format(reason=plain_reason(reason) or "no reason given")
             + NOT_CHECKED_END
             + (f"\nQuotation given by the search:\n“{quote}”" if quote else ""))
 
@@ -860,11 +860,15 @@ def typed_warning(name, found, what="The description of"):
 
 
 def typed_text_warnings(companies):
+    """Shows the warnings; returns the companies whose description the lawyer sends anyway."""
+    sent = []
     for c in companies:
         found = typed_names(c, companies)
         if found:
             typed_warning(c["name"], found)
-            st.checkbox(SEND_ANYWAY, key=send_key(c["name"], found))
+            if st.checkbox(SEND_ANYWAY, key=send_key(c["name"], found)):
+                sent.append(c["name"])
+    return sent
 
 
 def read_companies():
@@ -907,9 +911,12 @@ def stage_companies(ai):
     example_buttons()
     target_card()
     portfolio_card()
-    typed_text_warnings(read_companies()[0])
-    st.caption("Each company is researched separately; the AI never sees two company names together. With web search "
-               "this takes about one to four minutes.")
+    sent = typed_text_warnings(read_companies()[0])
+    together = ("the AI never sees two company names together" if not sent else
+                f"the AI sees two company names together only in the description{'s' if len(sent) > 1 else ''} of "
+                f"{words_list(sent)} that you send anyway")
+    st.caption(f"Each company is researched separately; {together}. With web search this takes about one to four "
+               "minutes.")
     c1, c2 = st.columns([1, 3], vertical_alignment="center")
     submitted = c1.button("Find activities →", type="primary")
     if ss.get("mapped"):
@@ -1405,35 +1412,54 @@ def stage_activities(ai):
                   on_click=go_to, args=(3,))
 
 
-SOURCE_STATE = {
-    "readable": "read",
-    "blocked": "○ read by the search only (the app could not open it)",
-    "no text": "○ read by the search only (the app could not read it)",
-    "error": "○ read by the search only (the app could not open it)",
-    "off": "○ read by the search only (source check off)",
+SOURCE_STATE = {          # a page the app could open needs no remark; only the exceptions are marked
+    "blocked": "○ read by the search only: the app could not open it",
+    "no text": "○ read by the search only: the app could not read it",
+    "error": "○ read by the search only: the app could not open it",
+    "off": "○ read by the search only: the app's check is switched off",
+}
+# The reasons of the source check (sources.py) in plain words, without brackets inside brackets. Saved files keep
+# the original wording; it is translated here, when shown.
+PLAIN_REASON = {
+    "page shows almost no text (probably built by JavaScript)":
+        "the page shows almost no text, probably because it is built by JavaScript",
+    "PDF without text (probably scanned)": "the PDF holds no text, probably because it is scanned",
+    "the domain does not exist (any more)": "the domain no longer exists",
+    "the domain could not be looked up just now (temporary failure)": "the domain could not be looked up just now",
+    "the domain could not be looked up (network problem on the app's side?)":
+        "the domain could not be looked up, perhaps because of a network problem on the app's side",
+    "PDF reader missing (pypdf)": "the app's PDF reader is missing",
+    "source check switched off (CHECK_SOURCES=0)": "the app's check is switched off",
 }
 
 
+def plain_reason(reason):
+    """The reason in plain words; a technical code at the end (an HTTP status, the name of a Python error) is left
+    out: it stays in the audit log."""
+    r = (reason or "").strip()
+    r = PLAIN_REASON.get(r, r)
+    r = re.sub(r"\s*\((?:HTTP \d{3}|\w*(?:Error|Exception|Timeout)\w*)\)$", "", r)
+    return {"could not be opened": "the app could not open it",
+            "PDF could not be read": "the PDF could not be read"}.get(r, r)
+
+
 def sources_list(found):
-    """All sources of one company with the result of the check; links that no longer exist are listed apart, as
-    'no longer available (cited by the search, not used)', and not as links."""
-    check = found.get("source_check") or {}
-    st.markdown(f"**Sources** · {found.get('model', '')} · accessed {found.get('date', '')}"
-                + (f" · checked by the app on the same day ({check.get('seconds')} s)" if check.get("checked") else ""))
-    # links that no longer exist were not used and are not listed (the progress file keeps them)
+    """All sources of one company with the result of the app's own visit; links that no longer exist were not used
+    and are not listed (the progress file keeps them)."""
+    st.markdown(f"**Sources** · accessed {esc(long_date(found.get('date', '')))}")
     live = [s for s in found["sources"] if not s.get("dead")]
     for s in live:
         c = s.get("check") or {}
         link = f"[{esc(display_title(s))}]({s['url']})" if s.get("url") else esc(s["title"])
         state = SOURCE_STATE.get(c.get("state"), "")
         if c.get("state") == "readable" and c.get("kind") == "pdf" and c.get("pages"):
-            state = f"read (PDF, {c['pages']} pages)"
-        detail = f" ({c['reason']})" if c.get("reason") and c.get("state") != "readable" else ""
-        if c.get("state") == "readable" and c.get("reason"):
-            detail = f" ({c['reason']})"
+            state = f"PDF, {c['pages']} pages"
+        elif state and c.get("reason"):
+            # the reason replaces the general phrase after the colon: one statement, no brackets inside brackets
+            state = state.split(":")[0] + ": " + plain_reason(c["reason"])
         origin = " · :gray[link written by the AI, not a search citation]" if s.get("origin") == "text link" else ""
         st.markdown(f"[{s['n']}] {link} · *{SOURCE_KIND.get(s.get('type'), s.get('type') or 'unlabelled')}*"
-                    + origin + (f" · :gray[{esc(state)}{esc(detail)}]" if state else ""))
+                    + origin + (f" · :gray[{esc(state)}]" if state else ""))
 
 
 def company_block(ai, c, index):
@@ -2242,8 +2268,10 @@ _AB_NOT_LABEL = {"vitamin", "type", "grade", "class", "plan", "size", "option", 
 
 
 def name_ab(text, target, portco):
-    names = {"A": target, "B": portco}
-    t = str(text or "")
+    # The rules below run one after another. They first put placeholders in, and the names only at the end: otherwise
+    # a later rule would read the "A" inside a name already put in ("Planet A Foods") as the label once more.
+    names = {"A": "\x01", "B": "\x02"}
+    t = str(text or "").replace("\x01", "").replace("\x02", "")
 
     def label(m, group=1):
         """The name, unless the letter follows a word like "vitamin" or "type" (then it is not the label)."""
@@ -2261,7 +2289,7 @@ def name_ab(text, target, portco):
     t = re.sub(r"(?<=[a-z,;(]\s)(A)(?![\w-])|(?<=[a-z,;(])(A)(?![\w-])",
                lambda m: label(m, 1 if m[1] else 2), t)
     t = re.sub(r"(?:(?<=^)|(?<=[.!?:]\s))(A)(?=\s+(?:and|or|" + _AB_VERBS + r")\b|[,);:.])", label, t)
-    return t
+    return t.replace("\x01", target).replace("\x02", portco)
 
 
 def why_popover(r, target, portco):

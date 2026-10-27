@@ -36,7 +36,8 @@ BARRY_CALLEBAUT_ADDED = (
     "Since November 2025, Barry Callebaut has had a commercial partnership with Planet A Foods for ChoViva, a "
     "cocoa-free alternative to chocolate made from oats and sunflower seeds. Since May 2026, Barry Callebaut has been "
     "the exclusive distributor of ChoViva to food manufacturers in the United States, for use in coatings, fillings, "
-    "snacks, bakery products and confectionery.")
+    "snacks, bakery products and confectionery. Barry Callebaut also processes cocoa beans into cocoa liquor, cocoa "
+    "butter and cocoa powder, which it sells to food manufacturers.")
 
 # TC3, "my description": how the client would describe its own portfolio company; no web search for this company.
 RITTER_SPORT_DESCRIBED = (

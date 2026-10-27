@@ -69,7 +69,7 @@ one such input to try, so that you can see the output change.
 
 - **Input:** target Planet A Foods (ChoViva, a cocoa-free alternative to chocolate); same portfolio; Barry Callebaut by
   **both**: web search plus the lawyer's description (filled in by the button) of Barry Callebaut's partnership with
-  Planet A Foods for ChoViva.
+  Planet A Foods for ChoViva and of its cocoa products (cocoa liquor, cocoa butter, cocoa powder).
 - **Your input (required, step ①):** because the description names the target, the app shows a confidentiality warning: the text would be
   sent in Barry Callebaut's own research call, so the AI would see both names together. Tick **Send anyway** (the
   lawyer's decision; it is recorded in the progress file), then click **Find activities**.
@@ -80,13 +80,19 @@ one such input to try, so that you can see the output change.
   - Barry Callebaut: the existing relationship (ChoViva); a **vertical** link (Barry Callebaut distributes ChoViva to
     food manufacturers) and compound and industrial chocolate as related products; in step ④ the Commission's
     markets for Barry Callebaut's products, while ChoViva itself has no market definition.
+  - Barry Callebaut's cocoa products against Planet A Foods's cocoa-butter alternative and cocoa powder replacer: a
+    **horizontal** label; in step ④ the Commission has defined the markets for cocoa butter and cocoa powder, which
+    fit Planet A Foods's products only as "not an exact match", so the result is at most **Possible**.
   - Ritter Sport: ChoViva as a possible input for Ritter Sport's chocolate (**vertical**) and a related product.
   - FRoSTA: no real overlap (fats as an input for frozen food may be kept as a vertical link for the lawyer to check).
 - **Where it performs well:** the relationship and the partnership are shown with their sources; step ④ says which
   side has a precedent and which does not.
 - **Where it does not:** without the lawyer's description, the web search finds the partnership in some runs and
   not in others; a distributor of ChoViva can then look like a competitor of Planet A Foods. A new product has no
-  precedent, so whether it is in the same market as chocolate remains a question for the lawyer.
+  precedent, so whether it is in the same market as chocolate remains a question for the lawyer. Where the public
+  sources say too little, the row comes back **Unclear: please check** instead of a guess: a product still under
+  development (in some runs Planet A Foods's coffee) and a line the sources name without its products (FRoSTA's
+  industrial business). The lawyer adds what they know with "Edit" in step ② or asks the company.
 
 ### TC3 · Koa (no precedent)
 
