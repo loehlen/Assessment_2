@@ -13,8 +13,8 @@ to verify, not a legal conclusion. Product markets only: geography and market sh
 
 Enter your own OpenAI API key in the sidebar under **API Key Input** (the course's API Credentials sidebar module,
 `api_key.py`) and click **Update API Key**. The key is used only for the calls of your session and is not stored.
-Each test case below costs about USD 0.50–1 in API fees, most of it for the web searches, and takes about
-[ADD] minutes.
+Each test case below costs about USD 0.40–0.70 in API fees, most of it for the web searches, and takes about
+4–5 minutes of processing, plus the time for reading and checking.
 
 ## The three test cases
 
@@ -54,15 +54,17 @@ one such input to try, so that you can see the output change.
     Commission's separate markets for countlines, tablets and pralines (M.5644 Kraft Foods / Cadbury); a **vertical**
     link from Lindt's chocolate to Ritter Sport's own shops (resale).
   - Barry Callebaut: a **vertical** link (cocoa products and industrial chocolate as inputs for Lindt's chocolate),
-    with the Commission's markets for industrial chocolate and semi-finished cocoa products (M.6872, M.7120, M.7408).
+    with the Commission's markets for industrial chocolate and semi-finished cocoa products (M.6872, M.7408; in some runs also M.7120).
   - FRoSTA: no real overlap.
-- **Your input to try:** in step ③, set the labels in FRoSTA's box (the rows the generous comparison kept) to
-  **Dismiss**. They leave the step ④ search and the main part
-  of the Word document; the Annex of the Word document still lists them among the pairs compared without an overlap.
+- **Your input to try:** in step ③, open a label marked *less likely* (for example Barry Callebaut's cocoa products
+  as an input for Lindt's shops) and set it to **Unlikely**: the label is then shown in full, and the summary lists it
+  as a bullet of its own with your view, instead of counting it on the "less likely" line. Set it to **Dismiss**
+  instead: it leaves the summary; a row whose labels are all dismissed also leaves the step ④ search and the main part
+  of the Word document, and the Annex still lists it among the pairs compared without an overlap.
 - **Where it performs well:** the activities with checked sources (✔ = the quotation found word for word on the page);
   the overlap with Ritter Sport and the Commission's own sentences, each checked word for word against the decision.
-- **Where it does not:** the comparison is generous by design, so some unlikely pairs with FRoSTA are kept for the
-  lawyer to dismiss; the split into activities can differ from run to run; facts a company does not publish clearly
+- **Where it does not:** the comparison is generous by design, so some unlikely pairs are kept for the lawyer to
+  dismiss (for example links with a training or workshop service); the split into activities can differ from run to run; facts a company does not publish clearly
   (for example Lindt's travel retail or business-to-business sales) may be missing.
 
 ### TC2 · Planet A Foods (a precedent for only one side)
@@ -79,20 +81,28 @@ one such input to try, so that you can see the output change.
 - **Expected:**
   - Barry Callebaut: the existing relationship (ChoViva); a **vertical** link (Barry Callebaut distributes ChoViva to
     food manufacturers) and compound and industrial chocolate as related products; in step ④ the Commission's
-    markets for Barry Callebaut's products, while ChoViva itself has no market definition.
+    markets for Barry Callebaut's products, while ChoViva itself fits a defined market (chocolate compound) only as
+    "not an exact match".
   - Barry Callebaut's cocoa products against Planet A Foods's cocoa-butter alternative and cocoa powder replacer: a
     **horizontal** label; in step ④ the Commission has defined the markets for cocoa butter and cocoa powder, which
-    fit Planet A Foods's products only as "not an exact match", so the result is at most **Possible**.
-  - Ritter Sport: ChoViva as a possible input for Ritter Sport's chocolate (**vertical**) and a related product.
+    fit Planet A Foods's products only as "not an exact match", so the result for the cocoa-butter alternative is
+    at most **Possible**; for the cocoa powder replacer it is **Possible** or, in some runs, **Not supported** (see
+    "Where it does not").
+  - Ritter Sport: ChoViva as a possible input for Ritter Sport's chocolate (**vertical**).
   - FRoSTA: no real overlap (fats as an input for frozen food may be kept as a vertical link for the lawyer to check).
 - **Where it performs well:** the relationship and the partnership are shown with their sources; step ④ says which
   side has a precedent and which does not.
 - **Where it does not:** without the lawyer's description, the web search finds the partnership in some runs and
   not in others; a distributor of ChoViva can then look like a competitor of Planet A Foods. A new product has no
   precedent, so whether it is in the same market as chocolate remains a question for the lawyer. Where the public
-  sources say too little, the row comes back **Unclear: please check** instead of a guess: a product still under
+  sources say too little, a row can come back **Unclear: please check** instead of a guess: a product still under
   development (in some runs Planet A Foods's coffee) and a line the sources name without its products (FRoSTA's
-  industrial business). The lawyer adds what they know with "Edit" in step ② or asks the company.
+  industrial business). The lawyer adds what they know with "Edit" in step ② or asks the company. Planet A Foods
+  splits into two to four activities between runs, so the rows differ from run to run. In step ④ each product is
+  placed with its activity's description as context; this helps, but in some runs the description of one product
+  (the cocoa powder replacer) colours the placement of another, and the replacer itself is left without a market:
+  the row then reads **Not supported**. The Commission's sentence on hover and "Why?" show what the placement rests
+  on.
 
 ### TC3 · Koa (no precedent)
 
@@ -109,14 +119,16 @@ one such input to try, so that you can see the output change.
   - Step ④: **No precedent** for cocoa fruit products: the market is then for the lawyer to assess under the Market
     Definition Notice; the app does not force a chocolate decision onto cocoa fruit.
   - FRoSTA: no real overlap (fruit ingredients as an input for frozen food may be kept for the lawyer to check).
-- **Your input to try:** in step ③, set the label of the row with Ritter Sport's CacaoVida drinks (if the comparison
-  kept it) to **Ask the company** and write a note (for example, where CacaoVida is sold). The row then appears under **Open Points** in
+- **Your input to try:** in step ③, set the label of the row with Ritter Sport's cocoa-fruit drinks (its CacaoVida
+  brand, see step ②; if the comparison kept it) to **Ask the company** and write a note (for example, where CacaoVida is sold). The row then appears under **Open Points** in
   step ⑤ and in the Word document.
 - **Where it performs well:** the overlap with CacaoVida from the lawyer's own description; an honest "No precedent"
   instead of an analogy the decisions do not support.
 - **Where it does not:** with no precedent, the app can only show the facts; the market definition itself is the
   lawyer's work. A typed description has no web sources: the app can only check that each fact comes from the text
-  the lawyer typed.
+  the lawyer typed. The web search can attribute a customer's product to the company: in one run, Koa's
+  "caffeinated soft drinks" came from a "where to buy" page that lists a customer's drink made with Koa's
+  ingredients. The source passage on hover shows this, and "Ask the company" on that row is the right next step.
 
 ### One more example (not one of the three test cases)
 
@@ -135,13 +147,17 @@ this sector is in the database, so step ④ shows "No precedent".
    The lawyer edits, adds or excludes activities.
 3. **Preliminary assessment**: one anonymised pair per AI call; the decision rule, the reseller and own-use checks and
    the customer comparison in code. The lawyer sets a view on each label ("Likely", "Unlikely", "Ask the company",
-   "Dismiss"), adds labels and rewrites the wording. Rows whose only label is a horizontal one across different levels
-   of trade, without the same direct customers, are folded under "Less likely" (display only).
+   "Dismiss"), adds labels and rewrites the wording. Labels that are less likely (a horizontal label across different
+   levels of trade without the same direct customers, or an input for a shop or wholesaler, which resells) are shown
+   folded in their row; rows whose only labels are such horizontal ones are folded under "Less likely". Display
+   only: the labels, step ④ and the tables of the Word document stay as they are.
 4. **Market definitions**: one search per target activity in the database of Commission decisions (hybrid retrieval,
    one reflection per type of product, at most one rewrite); every quotation of the Commission is checked word for
    word. Each result stands beside the label it belongs to.
 5. **Summary**: the result per portfolio company and the Word document (the lawyer's final choices in the main part,
-   how the tool prepared them in an Annex).
+   how the tool prepared them in an Annex). The summary joins labels that are the same relationship (same direction,
+   levels of trade, Commission result and view: "A1; A2 → B") and counts the less likely labels on one line; the
+   full rows are in the tables.
 
 "Save progress" in the sidebar downloads the screen so far as a Word document that also holds the screen's data
 (invisible in Word, as Custom XML), so that "Open saved progress" can continue it later without any AI call; changes made
@@ -149,7 +165,7 @@ in Word are not read back. "Download the Word document" saves the final document
 audit log (every AI call with what it was sent and returned, the sources, the checks and the lawyer's changes) is under
 "About This Run" (.json); "Open saved progress" opens it too.
 
-**AI calls.** A test case makes well over a hundred AI calls: per company two web searches and one extraction (one
+**AI calls.** A test case makes about 70 to 130 AI calls: per company two web searches and one extraction (one
 extraction only with "my description"); one comparison per pair of activities; in step ④ one call that sorts the
 products into types and one reflection per type and attempt. The embedding requests that turn search questions into
 vectors for the database are counted separately; they are not AI answers.
@@ -223,4 +239,5 @@ After a push that changes any file other than `app.py`, reboot the app on Stream
 | `export.py` | the Word document (python-docx); the progress copy with the screen's data inside, and reading it back |
 | `examples.py` | the inputs of the example buttons, including the two typed descriptions of TC2 and TC3 |
 | `ingest.py`, `build_corpus.py`, `build_index.py`, `retrieval.py`, `corpus/` | the decision corpus: `corpus/paragraphs.json` (the 265 paragraphs with footnotes), `corpus/chroma/` (the ChromaDB index with the 266 chunks and their embeddings, used by step ④), `corpus/chunks.json` (the same chunks, readable, without vectors) and `corpus/corpus_report.md`. The decision PDFs that `build_corpus.py` reads (`corpus_src/`) are not in the repository; `build_corpus.py` lists where to download them |
+| `static/decisions/` | the same official PDFs (© European Union; reuse authorised under Commission Decision 2011/833/EU), shown in the app's reader of a decision (sidebar of step ④, tab "Original Document") next to the paragraphs from the database |
 | `retrieval_check.py`, `no_rag_check.py`, `test_results/` | development checks of the retrieval (with and without context headers, query forms) and of the model without the corpus; `test_results/` holds the reports of the retrieval checks (`no_rag_check.py` writes its report there when it is run); not part of the app |

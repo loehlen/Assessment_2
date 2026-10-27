@@ -25,6 +25,7 @@ import hashlib
 import html
 import json
 import math
+import os
 import re
 import time
 from collections import Counter
@@ -211,6 +212,22 @@ details.lfold ul{margin-top:.2rem}
 .guide .lab{margin:0 .15rem 0 0}
 @media (max-width:900px){.guide{grid-template-columns:1fr;gap:.8rem}.guide>div{border-left:none;padding:0}}
 .br{color:#6E6A63}
+.rd-t{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:1.25rem;color:#22313F}
+.rd-m{color:#55514A;font-size:.88rem;margin:.1rem 0 .4rem 0}
+.rd-j{font-size:.88rem;margin:.1rem 0 .5rem 0}.rd-j a{margin-right:.35rem}
+.rd{line-height:1.6}
+.rd-h{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:.95rem;color:#22313F;margin:.9rem 0 .3rem 0}
+.rd-p{padding:.35rem .6rem;margin:.15rem 0;border-left:3px solid transparent;scroll-margin-top:1rem;
+ text-align:justify;hyphens:auto;-webkit-hyphens:auto}
+.rd-mk{font-size:.88rem;color:#3D3A35;margin:.1rem 0 .5rem 0;text-align:justify}
+.rd-p.used{background:#EEF2F7;border-left-color:#2E5A88}
+.rd-n{font-weight:600;color:#22313F;margin-right:.4rem;float:left}
+.rd-u{font-size:.8rem;font-weight:600;color:#1F3F66;margin-bottom:.15rem}
+.rd-fn{font-size:.8rem;color:#55514A;margin-top:.2rem;text-align:justify;hyphens:auto}
+.rd-pdf{width:100%;height:72vh;border:1px solid #E2DDD2;border-radius:4px}
+[class*="st-key-read_"] button{justify-content:flex-start;text-align:left;padding:.1rem 0;min-height:0}
+[class*="st-key-read_"] button p{color:#3A5A80;font-size:.88rem;text-align:left}
+[class*="st-key-read_"] button:hover p{text-decoration:underline}
 </style>"""
 st.html(APP_CSS)            # style only: takes no space on the page
 
@@ -1164,8 +1181,15 @@ def relationship_rows(target, portco, rows):
     def named(words):
         return any(re.search(r"(?<!\w)" + re.escape(w.lower()) + r"(?!\w)", text) for w in words
                    if w.lower() not in own)
-    # the portfolio company's activity first (it differs from row to row), then the target's, else every kept row
-    hit = ({cmp.pair_id(r) for r in rows if named(_row_words(r["b"]))}
+    # first the rows where one company's activity names the other company (e.g. a brand of the other company that
+    # it distributes): that row is the relationship itself; then the portfolio company's activity named in the
+    # passages (it differs from row to row), then the target's, else every kept row
+    def names_other(act, other):
+        words = " ".join(_row_words(act) + [act.get("description") or ""]).lower()
+        return any(re.search(r"(?<!\w)" + re.escape(n.lower()) + r"(?!\w)", words) for c in ss.companies
+                   if c["name"] == other for n in am.names_of(c) if len(n) > 2)
+    hit = ({cmp.pair_id(r) for r in rows if names_other(r["b"], target) or names_other(r["a"], portco)}
+           or {cmp.pair_id(r) for r in rows if named(_row_words(r["b"]))}
            or {cmp.pair_id(r) for r in rows if named(_row_words(r["a"]))})
     return (hit or {cmp.pair_id(r) for r in rows}), rel
 
@@ -2658,6 +2682,14 @@ def assign_commission(entries, parts, target):
         else:
             i = 0
         out[i].append(e)
+    # links in both directions: each side's markets are given once, beside the first vertical label; the label in the
+    # other direction says so (otherwise its Commission cell would stay empty)
+    both = next((e for e in entries if e[0] == BOTH_DIRECTIONS), None)
+    if both:
+        for i, p in enumerate(parts):
+            if p.get("kind") == "v" and not p.get("off") and not out[i]:
+                out[i].append(("", ["the same markets as the vertical label above: the links run in both "
+                                    "directions, so each side's markets are given once there"], both[2]))
     return out
 
 
@@ -3813,12 +3845,12 @@ def level_word(act):
     return "wholesale" if (act or {}).get("value_chain_level") == "wholesale / distribution" else "retail"
 
 
-def decisions_html():
-    """The sidebar's "Commission decisions": one line per decision used in this screen, linked to the decision; on
-    hover, the markets the screen uses from it. Plus the Market Definition Notice."""
+def decision_entries():
+    """The sidebar's "Commission decisions": [(case, label, hover)] for each decision used in this screen (hover: the
+    markets the screen uses from it), plus the Market Definition Notice. Each opens the reader."""
     used = used_markets()
     if not used:
-        return ""
+        return []
     settled = {}
     for e in used.values():
         for m in e["markets"]:
@@ -3827,9 +3859,8 @@ def decisions_html():
     by_case = {}
     for (case, key), e in used.items():
         by_case.setdefault(case, []).append(e)
-    corpus = corpus_paragraphs()
-    lines = []
-    for case in sorted(c for c in by_case if c):
+    out = []
+    for case in sorted(c for c in by_case if c and c != "Notice"):
         groups = {}
         for e in sorted(by_case[case], key=lambda x: x["name"].lower()):
             m = _best(e["markets"])
@@ -3838,18 +3869,126 @@ def decisions_html():
             label = ("category divided into separate markets" if may_be_category(m) and segs
                      else CONCLUSION_TEXT.get(m.get("conclusion"), "defined"))
             groups.setdefault(label, []).append(mname(e["name"]))
-        tip = " · ".join(f"{k}: {', '.join(v)}" for k, v in groups.items())
-        url = next((p.get("url") for pid, p in corpus.items() if pid.startswith(case + "-") and
-                    str(p.get("url") or "").startswith("https://")), "")
-        text = h(decision_label(case))
-        link = f"<a href='{h(url)}' target='_blank'>{text}</a>" if url else text
-        lines.append(f"<div class='lg' title='{h(tip)}'>{link}</div>")
-    notice = corpus.get("Notice-14") or {}
-    if str(notice.get("url") or "").startswith("https://"):
-        lines.append(f"<div class='lg' title='The Commission Notice on the definition of the relevant market, used where "
-                     f"no decision covers the products'><a href='{h(notice['url'])}' target='_blank'>Market Definition "
-                     "Notice (2024)</a></div>")
-    return "".join(lines)
+        out.append((case, decision_label(case), " · ".join(f"{k}: {', '.join(v)}" for k, v in groups.items())))
+    if corpus_paragraphs().get("Notice-14"):
+        out.append(("Notice", "Market Definition Notice (2024)", "The Commission Notice on the definition of the "
+                    "relevant market, used where no decision covers the products"))
+    return out
+
+
+# The reader: a decision (or the Notice) inside the app. Tab 1: its paragraphs as the app's database holds them (the
+# parts on market definition the step ④ search reads), with the paragraphs this screen uses highlighted. Tab 2: the
+# official document, if its PDF is stored in static/decisions/ (as downloaded from the Commission's website, or named
+# "M5644.pdf" … "NOTICE.pdf"); otherwise a link to it. Display only: no AI call, no search.
+NOTICE_RULES = {"14": "levels of trade (the app's rule)", "25": "same customers (the app's rule)",
+                "88": "customer groups (the app's customer dots)"}
+PDF_DIR = os.path.join("static", "decisions")
+
+
+def paragraph_uses(case):
+    """{paragraph number: [what this screen uses it for]} for one decision: the markets it defines, leaves open or
+    describes (from the stored searches of the rows kept now)."""
+    roles = (("decided_paragraph", "defines"), ("open_paragraph", "leaves open"),
+             ("other_open_paragraph", "leaves open"), ("scope_paragraph", "scope of"))
+    out = {}
+    for e in used_markets().values():
+        for m in e["markets"]:
+            name = mname(m["name"])
+            marked = set()
+            for field, word in roles:
+                pid = m.get(field) or ""
+                if pid.rpartition("-")[0] == case:
+                    out.setdefault(pid.rpartition("-")[2], []).append(f"{word} {name}")
+                    marked.add(pid)
+            for pid in m.get("product_paragraphs") or []:
+                if pid.rpartition("-")[0] == case and pid not in marked:
+                    out.setdefault(pid.rpartition("-")[2], []).append(f"on {name}")
+    if case == "Notice":
+        for n, why in NOTICE_RULES.items():
+            out.setdefault(n, []).append(why)
+    return {n: list(dict.fromkeys(v)) for n, v in out.items()}
+
+
+def pdf_of(case, url):
+    """The stored official PDF of a decision, as the path the app serves it under, or ''. Found by its name, whatever
+    the spelling: the case number at the start ("M5644.pdf", "m5644_20100106_20212_en.pdf"); for the Notice "NOTICE.pdf"
+    or the file as downloaded from EUR-Lex (its number, 202401645, in the name)."""
+    try:
+        files = sorted(f for f in os.listdir(PDF_DIR) if f.lower().endswith(".pdf"))
+    except OSError:
+        return ""
+    flat = case.replace(".", "").lower()
+    for f in files:
+        name = f.lower().replace(".", "", 1) if f.lower().startswith("m.") else f.lower()
+        if (name.startswith("notice") or "202401645" in name) if case == "Notice" else name.startswith(flat):
+            return f"app/static/decisions/{f}"
+    return ""
+
+
+def para_num(p):
+    return int(p["para"]) if str(p.get("para", "")).isdigit() else 10 ** 6
+
+
+def reader_body(case, markets=""):
+    paras = sorted((p for pid, p in corpus_paragraphs().items() if pid.startswith(case + "-")), key=para_num)
+    if not paras:
+        st.write("This document is not in the app's database.")
+        return
+    first = paras[0]
+    url = first.get("url") if str(first.get("url") or "").startswith("https://") else ""
+    name = "Market Definition Notice" if case == "Notice" else f"{case} {first.get('title', '')}"
+    meta = " · ".join(x for x in (long_date(first.get("date")), decision_text(first.get("decision"))
+                                  if case != "Notice" else first.get("title", "")) if x)
+    st.markdown(f"<div class='rd-t'>{h(name)}</div><div class='rd-m'>{h(meta)}"
+                + (f" · <a href='{h(url)}' target='_blank'>official version</a>" if url else "") + "</div>"
+                + (f"<div class='rd-mk'><b>Markets this screen uses from it</b> · {h(markets)}</div>"
+                   if markets and case != "Notice" else ""),
+                unsafe_allow_html=True)
+    uses = paragraph_uses(case)
+    t1, t2 = st.tabs(["In the App's Database", "Original Document"])
+    with t1:
+        st.caption(f"The {plural(len(paras), 'paragraph')} of this document in the database that step ④ searches "
+                   "(its parts on market definition), word for word. Highlighted: the paragraphs this screen uses.")
+        only = st.toggle("Only the paragraphs used in this screen", key=f"rd_only_{case}", value=False) \
+            if uses else False
+        if uses and not only:
+            jumps = " ".join(f"<a href='#rd-{h(case)}-{n}'>({n})</a>" for n in sorted(uses, key=lambda x: int(x)
+                                                                                     if x.isdigit() else 10 ** 6))
+            st.markdown(f"<div class='rd-j'>Used in this screen: {jumps}</div>", unsafe_allow_html=True)
+        out, last = [], None
+        for p in paras:
+            n = str(p.get("para"))
+            if only and n not in uses:
+                continue
+            heads = prec.headings_of(p)
+            if heads != last:
+                out.append(f"<div class='rd-h'>{h(heads.replace(' > ', ' › '))}</div>")
+                last = heads
+            notes = "".join(f"<div class='rd-fn'><sup>{h(f.get('n'))}</sup> {h(f.get('text'))}</div>"
+                            for f in p.get("footnotes") or [])
+            use = (f"<div class='rd-u'>Used in this screen: {h('; '.join(uses[n]))}</div>" if n in uses else "")
+            out.append(f"<div class='rd-p{' used' if n in uses else ''}' id='rd-{h(case)}-{h(n)}'>"
+                       f"<span class='rd-n'>({h(n)})</span>{use}<div>{h(p.get('text'))}</div>{notes}</div>")
+        st.markdown("<div class='rd'>" + "".join(out) + "</div>", unsafe_allow_html=True)
+    with t2:
+        src = pdf_of(case, url)
+        if src:
+            st.markdown(f"<iframe class='rd-pdf' src='{h(src)}' title='{h(name)}'></iframe>", unsafe_allow_html=True)
+            st.caption("The official document as published. Paragraph numbers are in the margin of the text.")
+        else:
+            st.write("The official document is not stored in this app.")
+            if url:
+                st.markdown(f"[Open it on the {'EUR-Lex' if 'eur-lex' in url else 'Commission'}'s website]({url})")
+
+
+@st.dialog("Commission Decision", width="large")
+def decision_reader(case, markets=""):
+    reader_body(case, markets)
+
+
+@st.dialog("Commission Notice", width="large")
+def notice_reader(case, markets=""):
+    reader_body(case, markets)
 
 
 def market_hover(m, paras, category=None):
@@ -3933,7 +4072,14 @@ def _side_text(entries, view, side, paras, html_out=True):
     """Where one side's products fall: the markets, else “no precedent for …” or “search failed”."""
     found = [e for e in entries if e[side]]
     if found:
-        return market_list(found, paras, html_out, sides=(side,))
+        # a market reached only through a general term (e.g. the activity's name) is not a market of its products
+        spec = [e for e in found if (e[side] or {}).get("status") != "general"]
+        gen = [e for e in found if (e[side] or {}).get("status") == "general"]
+        text = market_list(spec, paras, html_out, sides=(side,)) if spec else "no precedent"
+        if gen:
+            text += (", and only through a general term: " if spec else ", except through a general term: ") \
+                + market_list(gen, paras, html_out, sides=(side,))
+        return text
     groups = view.get(side) or []
     if any(g["market_id"] == "failed" for g in groups):
         return "search failed"
@@ -5012,11 +5158,15 @@ def sidebar_panel(ai, step):
             with st.expander("Legend", expanded=True):       # open in every step
                 st.markdown(f"<div class='lgg'>{legend_html(step)}</div>", unsafe_allow_html=True)
         if step >= 4 and ss.get("precedents"):
-            decisions = decisions_html()
-            if decisions:
+            entries = decision_entries()
+            if entries:
                 with st.expander("Commission Decisions", expanded=True):
-                    st.caption("The decisions used in this screen; hover for the markets, click to open the decision.")
-                    st.markdown(decisions, unsafe_allow_html=True)
+                    st.caption("The decisions used in this screen; click to read one here, with the markets this "
+                               "screen uses from it and its paragraphs highlighted.")
+                    # no hover tooltip on these buttons: the window opens over it, so it would stay on the screen
+                    for case, label, tip in entries:
+                        if st.button(label, key=f"read_{case}", type="tertiary"):
+                            (notice_reader if case == "Notice" else decision_reader)(case, tip)
         if ss.get("stage_logs") or ss.get("loaded_from"):
             with st.expander("About This Run"):
                 st.caption(run_summary())
