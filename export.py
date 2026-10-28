@@ -49,8 +49,9 @@ KEY = [("Confirmed", "both products fall in a market the Commission defined"),
        ("Not supported", "the Commission puts the products in separate markets"),
        ("No precedent", "no decision in the database covers the products (or, for a shop or wholesaler, its own retail "
                         "or wholesale market; the markets of the products it sells are named)"),
-       ("Markets defined / One side defined", "vertical rows: the decisions define the market of both sides' products "
-                                              "/ of one side's only; not the link between the two companies")]
+       ("Markets defined / One side defined", "vertical rows: the decisions name a market for both sides' products / "
+                                              "for one side's only (defined or left open); not the link between the "
+                                              "two companies")]
 HOW = [
     ("Research", "Each company was researched on its own, in two searches of public websites (its main business, and "
                  "what such a search easily misses: smaller brands, sales to other businesses, own shops and cafés, "
@@ -75,6 +76,12 @@ HOW = [
                                "nature of the relationship is not assessed."),
     ("Not covered", "Geography and market shares; anything the companies do not publish."),
 ]
+
+
+def poss(name):
+    """A company's name with the possessive: "Ritter Sport's", but "Planet A Foods'" (a name ending in s)."""
+    name = str(name or "")
+    return f"{name}'" if name.endswith(("s", "S")) else f"{name}'s"
 
 
 # =============================================================== helpers
@@ -399,7 +406,7 @@ def less_line(kind, n, where):
     """The one line of a summary column for its less likely labels (also on the app's summary, step ⑤)."""
     if not n:
         return ""
-    what = ("across levels of trade, without the same direct customers" if kind == "h" else
+    what = ("across levels of trade, without fully the same direct customers" if kind == "h" else
             "inputs for a shop or wholesaler")
     return f"{n} less likely label{'' if n == 1 else 's'} ({what}): see {where}"
 
@@ -429,6 +436,18 @@ def docx_bytes(model, progress=None, note=""):
 
     # 1 summary
     _heading(doc, "1. Summary", 1)
+    ov = model.get("overview") or {}
+    if ov.get("text"):                  # the result in a few sentences, then the table
+        p = _para(doc, after=2)
+        _font(p.add_run("Result. "), 11, True)
+        _font(p.add_run(ov["text"]), 11)
+    for line in ov.get("relationships") or []:
+        p = _para(doc, after=2)
+        _font(p.add_run("Existing relationship. "), 11, True)
+        _font(p.add_run(line), 11)
+    _para(doc, f"Under each activity of {target} (in bold), the portfolio company's activities it meets, each with the "
+               "Commission's result and, where set, the reviewing lawyer's view; below it, which products meet and what "
+               "the Commission's decisions say about them.", 9.5, italic=True, color=GREY, before=3, after=4)
     t = doc.add_table(rows=1, cols=3)
     _borders(t)
     _margins(t)
@@ -436,26 +455,47 @@ def docx_bytes(model, progress=None, note=""):
     for s in model["summary"]:
         row = t.add_row()
         _row_props(row)
-        _font(_Cell(row.cells[0]).p().add_run(s["portco"]), 10.5, True)
-        for c, entries, kind in ((row.cells[1], s["horizontal"], "h"), (row.cells[2], s["vertical"], "v")):
+        first = _Cell(row.cells[0])
+        _font(first.p().add_run(s["portco"]), 10.5, True)
+        _font(first.p().add_run(((s["result"] + " ") if s.get("result") else "")
+                                + f"{s['compared']} {'activity' if s['compared'] == 1 else 'activities'} compared."),
+              9.5, color=GREY)
+        if s.get("relationship"):
+            _font(first.p().add_run("Existing relationship (Annex C)."), 9.5, False, True)
+        lesses = {k: less_line(k, s.get(f"less_{k}", 0), f"2.{s.get('n', '')}") for k in ("h", "v")}
+        if not (s["horizontal"] or s["vertical"] or any(lesses.values())):
+            merged = row.cells[1].merge(row.cells[2])
+            _font(_Cell(merged).p().add_run(f"None found: {s['pairs']} pair{'' if s['pairs'] == 1 else 's'} "
+                                            "compared, each with the reason in Annex B."), 10)
+            continue
+        for c, groups, kind in ((row.cells[1], s["horizontal"], "h"), (row.cells[2], s["vertical"], "v")):
             w = _Cell(c)
-            less = less_line(kind, s.get(f"less_{kind}", 0), f"2.{s.get('n', '')}")
-            if not entries and not less:
-                _font(w.p().add_run("None"), 10)
-            for pair, res, view in entries:
-                p = w.p(style="List Bullet")
-                _font(p.add_run(pair + " "), 10)
-                bits = [x for x in (res, view) if x]
-                if bits:
-                    _font(p.add_run(f"({'; '.join(bits)})"), 10, False, True)
+            less = lesses[kind]
+            if not groups and not less:
+                _font(w.p().add_run("None found"), 10)
+            for k, g in enumerate(groups):
+                p = w.p()
+                if k:
+                    p.paragraph_format.space_before = Pt(5)
+                _font(p.add_run("; ".join(g["targets"])), 10, True)
+                for e in g["entries"]:
+                    p = w.p(style="List Bullet")
+                    _font(p.add_run(e["text"] + " "), 10)
+                    bits = [x for x in (e["res"], e["view"]) if x]
+                    if bits:
+                        _font(p.add_run(f"({'; '.join(bits)})"), 10, False, True)
+                    for x in e["reasons"]:
+                        q = w.p()
+                        q.paragraph_format.left_indent = Cm(0.63)
+                        _font(q.add_run(x), 9, color=GREY)
             if less:            # the less likely labels: one line, in full in section 2
                 _font(w.p().add_run(less), 9.5, False, True, GREY)
     _widths(t, [4.4, 11.2, 10.1])
-    _para(doc, "Target activity first; the arrow points to the customer. Activities joined by “;” each have the "
-               "relationship shown, with the same result. Different levels of trade are often different markets; a "
-               "horizontal label across levels where the two companies do not have the same direct customers, and an "
-               "input for a shop or wholesaler (which resells), are marked “less likely”: counted on one line here, "
-               "in full in section 2.", 9.5, italic=True, color=GREY, before=3, after=6)
+    _para(doc, "Activities joined by “;” each have the relationship shown, with the same result. Different levels of "
+               "trade are often different markets; a horizontal label across levels where the two companies do not "
+               "have fully the same direct customers, and an input for a shop or wholesaler (which resells), are marked "
+               "“less likely”: counted on one line here, in full in section 2.", 9.5, italic=True, color=GREY,
+          before=3, after=6)
     if model["step4"]:
         _para(doc, "Commission Results Used in This Overview", 10, True, before=4, after=1, keep=True)
         for res, text in KEY:
@@ -479,7 +519,7 @@ def docx_bytes(model, progress=None, note=""):
         elif not sec["own"] and not sec.get("less"):
             _para(doc, "The pairs compared are listed in Annex B.", 10.5, color=GREY, after=6)
         if sec.get("less"):
-            _para(doc, "Less Likely (horizontal labels across different levels of trade, without the same direct "
+            _para(doc, "Less Likely (horizontal labels across different levels of trade, without fully the same direct "
                        "customers)", 10.5, True, before=8, after=2, keep=True)
             _company_table(doc, model, sec["portco"], sec["less"])
         if sec["own"]:
@@ -527,7 +567,9 @@ def docx_bytes(model, progress=None, note=""):
             _font(p.add_run(name), 10.5, False, True)
             paras = ", ".join(f"({x})" for x in d["paras"])
             _font(p.add_run((f", {d['date']}" if d["date"] else "") + (f"; paragraphs cited: {paras}" if paras
-                                                                        else "")), 10.5)
+                                                                        else "")
+                            + ("; text added by the user for this screen, not checked against the official version"
+                               if d.get("added") else "")), 10.5)
 
     # Annex
     doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
@@ -571,7 +613,7 @@ def docx_bytes(model, progress=None, note=""):
         for who, passage in rel["passages"]:
             t_ = passage.strip()
             quoted = t_ if t_[:1] in "“\"„«" else f"“{t_}”"
-            _para(doc, f"{who}'s sources: {quoted}", 10.5, after=2)
+            _para(doc, f"{poss(who)} sources: {quoted}", 10.5, after=2)
 
     _heading(doc, "D. Activities Not Compared", 2)
     for line in model["annex"]["not_compared"] or ["None."]:

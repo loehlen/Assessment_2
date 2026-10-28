@@ -44,6 +44,7 @@ import examples
 import export
 import precedents as prec
 import rules
+import uploads
 
 st.set_page_config(page_title="EU Overlap Screen", page_icon="⚖️", layout="wide", initial_sidebar_state="expanded")
 
@@ -124,6 +125,12 @@ details.lfold ul{margin-top:.2rem}
 .lgl>span{cursor:help}
 .lgm .lab,.lgm .oc{margin:0;white-space:nowrap}
 .lgm .lab.lab-q{white-space:normal}
+.lgm .lab{border:1px solid transparent}
+.lgm .lab-h,.lgm .oc.o-conf{border-color:#E7A9A2}
+.lgm .lab-v{border-color:#E6C66E}
+.lgm .lab-q{border-color:#BDB7AC}
+.lgm .oc.o-nosup{border-color:#A9C4AE}
+.lgm .tag,.lgm>.dts{padding-left:calc(.4rem + 1px)}
 .lgh{grid-column:1/-1;font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:.92rem;
  margin:.45rem 0 0 0}
 .lgh:first-child{margin-top:0}
@@ -185,6 +192,15 @@ details.lfold ul{margin-top:.2rem}
 .sumt td{border-bottom:1px solid #C9C2B4;padding:.5rem .7rem;vertical-align:top}
 .sumul{margin:0;padding-left:1.1rem}.sumul li{margin:.15rem 0}
 .sless{font-size:.85rem;font-style:italic;margin:.25rem 0 0 0}
+.sgrp{font-size:.85rem;font-weight:600;color:#3D3A35;margin:0 0 .2rem 0}
+.sgrp.next{margin-top:.7rem}
+.swrt{color:#6E6A63;font-size:.85rem;line-height:1.45;margin:.05rem 0 0 0}
+.scnt{font-size:.85rem;color:#55514A;line-height:1.5;margin-top:.3rem}
+.srel{margin-top:.45rem}.srel .lab{margin:0}
+.sres{background:#F2EFE8;border-radius:6px;padding:.7rem 1rem;margin:.3rem 0 .7rem 0;line-height:1.6;
+ display:flex;flex-direction:column;gap:.3rem}
+.sres-t{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:1.1rem;color:#22313F}
+.sres .lab{margin:0 .3rem 0 0}
 [class*="st-key-thead"]{background:#22313F;border-radius:4px;padding:.5rem .7rem .05rem .7rem;margin-top:.3rem}
 [class*="st-key-thead"] p{color:#FFFFFF !important;font-weight:600}
 [class*="st-key-thead"] [data-testid="stTooltipIcon"],[class*="st-key-thead"] [data-testid="stTooltipIcon"] *{
@@ -357,6 +373,11 @@ def plural(n, word, words=None):
     return f"{n} {word if n == 1 else (words or word + 's')}"
 
 
+def poss(name):
+    """A company's name with the possessive: "Ritter Sport's", but "Planet A Foods'" (a name ending in s)."""
+    return export.poss(name)
+
+
 def words_list(items):
     items = list(dict.fromkeys(items))
     return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1] if items else ""
@@ -375,7 +396,7 @@ def stage_seconds(name):
     return sum(sec for _, _, sec in ss.stage_logs.get(name, []))
 
 
-EMBED_STEPS = ("embed", "embed_query")
+EMBED_STEPS = ("embed", "embed_query", "embed_upload")
 
 
 def call_count(calls):
@@ -836,7 +857,8 @@ def portfolio_card():
         load_portfolio([])
     with st.container(border=True, key="pfbox"):
         st.markdown("**The Buyer's Portfolio Companies**")
-        st.caption(f"One row per company, up to {MAX_PORTCOS}.")
+        st.caption(f"One row per company, up to {MAX_PORTCOS}. One row is enough: if the buyer is a single company "
+                   "or group, enter the buyer itself.")
         with st.container(key="thead_pf"):              # the ink header of the tables in steps ③ and ④
             h = st.columns(PF_WIDTHS, vertical_alignment="center")
             h[0].markdown("**Name**")
@@ -859,7 +881,7 @@ def portfolio_card():
                             on_click=remove_portco, args=(i,))
                 if ss.get(pf_key("source", i), "web search") != "web search":
                     name = (ss.get(pf_key("name", i)) or "").strip() or f"portfolio company {n}"
-                    st.text_area(f"Description of {name}'s activities", key=pf_key("desc", i), height=110,
+                    st.text_area(f"Description of {poss(name)} activities", key=pf_key("desc", i), height=110,
                                  help=DESCRIPTION_HELP)
         with st.container(horizontal=True, vertical_alignment="center"):
             st.button("＋ Add a portfolio company", key="pf_add", on_click=add_portco,
@@ -883,7 +905,7 @@ SEND_ANYWAY = "Send anyway (my responsibility; recorded in the audit log)"
 
 def typed_warning(name, found, what="The description of"):
     st.warning(f"{what} {name} names {words_list(found)}, another company in this screen. The description is sent "
-               f"in {name}'s own research call, so the AI would see both names together. Change the text, or send it "
+               f"in {poss(name)} own research call, so the AI would see both names together. Change the text, or send it "
                "anyway if the sentence reveals nothing confidential.")
 
 
@@ -911,7 +933,7 @@ def read_companies():
     if not target["name"]:
         problems.append("Enter the name of the target.")
     if not portcos:
-        problems.append("Enter at least one portfolio company.")
+        problems.append("Enter at least one portfolio company (or the buyer itself).")
     if len(portcos) > MAX_PORTCOS:
         problems.append(f"Enter at most {MAX_PORTCOS} portfolio companies.")
     lowered = [c["name"].lower() for c in companies if c["name"]]
@@ -931,10 +953,11 @@ def read_companies():
 
 def stage_companies(ai):
     st.header("① Companies")
-    st.markdown("Enter the company to be bought (the *target*) and the companies the buyer already owns (the "
-                "*portfolio companies*). Each portfolio company is looked at together with its subsidiaries and brands. "
-                "For the target, enter only the business being sold, for example a division rather than the seller's "
-                "whole group.")
+    st.markdown("Enter the company to be bought (the *target*) and the businesses the buyer already has (the "
+                "*portfolio companies*): for an investor such as a private equity fund, one row for each company it "
+                "owns; for a company buying another, one row with the buyer itself. Each is looked at together with its "
+                "subsidiaries and brands, because EU merger control looks at the buyer's whole group. For the target, "
+                "enter only the business being sold, for example a division rather than the seller's whole group.")
     restore_inputs()
     example_buttons()
     target_card()
@@ -1414,7 +1437,8 @@ def stage_activities(ai):
                         unsafe_allow_html=True)
         elif i == 1:
             st.markdown("<div class='sec next'>The Portfolio Companies</div><div class='secsub'>The "
-                        "companies the buyer already owns, each with its subsidiaries and brands</div>",
+                        "companies the buyer already owns, or the buyer itself, each with its subsidiaries and "
+                        "brands</div>",
                         unsafe_allow_html=True)
         company_block(ai, c, i)
     name_word_review()
@@ -2060,11 +2084,11 @@ def direction(link, r, target, portco):
 def link_sentence(link, vitems, r, target, portco, html_out=True):
     """A vertical link in words, with the names re-attached and the items the link concerns."""
     if html_out:
-        a = f"{he(target)}'s {listing(vitems.get('a', [])) or he(r['a']['product'])}"
-        b = f"{he(portco)}'s {listing(vitems.get('b', [])) or he(r['b']['product'])}"
+        a = f"{poss(he(target))} {listing(vitems.get('a', [])) or he(r['a']['product'])}"
+        b = f"{poss(he(portco))} {listing(vitems.get('b', [])) or he(r['b']['product'])}"
     else:
-        a = f"{target}'s {word_list(vitems.get('a')) or r['a']['product']}"
-        b = f"{portco}'s {word_list(vitems.get('b')) or r['b']['product']}"
+        a = f"{poss(target)} {word_list(vitems.get('a')) or r['a']['product']}"
+        b = f"{poss(portco)} {word_list(vitems.get('b')) or r['b']['product']}"
     return {
         "A could be an input for B": f"{a} could be an input for {b}",
         "B could be an input for A": f"{b} could be an input for {a}",
@@ -2090,7 +2114,7 @@ def joint_link_sentence(links, r, target, portco):
     names = {"a": target, "b": portco}
 
     def side(x, items):
-        return f"{he(names[x])}'s {listing(items) or he(r[x]['product'])}"
+        return f"{poss(he(names[x]))} {listing(items) or he(r[x]['product'])}"
     c_in, c_res = ((vi.get(lk) or {}).get(cus) or [] for lk in (inp, res))
     if c_in == c_res:
         return f"{side(sup, items_sup[0])} could be an input for, or be resold through, {side(cus, c_in)}"
@@ -2294,7 +2318,7 @@ def assessment_cell(r, status, rv, target, portco, commission=False):
 
 def relationship_html(rel, target, portco):
     """The existing relationship, folded: one line, the passages behind it on request."""
-    quotes = "".join(f"<div class='it one'><span class='sub2'>{he(who)}'s sources:</span> {quoted(p)}</div>"
+    quotes = "".join(f"<div class='it one'><span class='sub2'>{poss(he(who))} sources:</span> {quoted(p)}</div>"
                      for who, p in rel)
     return (f"<details class='mkts' style='margin-top:.3rem'><summary><span class='lab lab-q'>Existing "
             f"relationship</span> the public sources of {he(target)} and {he(portco)} mention each other "
@@ -2331,11 +2355,11 @@ def set_aside_text(r, link, reason, target, portco, md=True):
         if others:
             names = " · ".join(f"“{e(short_name(a))}”" for a in others)
             return (f"{head(f'Resale ({what})')} compared in the row {names}. The tool compares one activity of each "
-                    f"company at a time, and here {e(who)}'s activity is {e(here)}.")
-        return (f"{head(f'Resale not considered ({what})')} in this row {e(who)}'s activity is {e(here)}, and the "
+                    f"company at a time, and here {poss(e(who))} activity is {e(here)}.")
+        return (f"{head(f'Resale not considered ({what})')} in this row {poss(e(who))} activity is {e(here)}, and the "
                 f"screen shows no wholesale or retail activity of {e(who)}.")
     if "own use" in reason:
-        return (f"{head(f'Set aside ({what})')} {e(who)}'s activity here is only for the group's own use, so it "
+        return (f"{head(f'Set aside ({what})')} {poss(e(who))} activity here is only for the group's own use, so it "
                 "supplies no one and resells nothing to third parties.")
     return f"{head('Link set aside by the tool')} {what}; {e(who)} {e(reason[2:])}."
 
@@ -2368,10 +2392,10 @@ def name_ab(text, target, portco):
             return m[0]
         return names[m[group]]
 
-    t = re.sub(r"\b(?:[Aa]ctivity|[Cc]ompany|[Ss]ide|[Pp]arty)\s+([AB])['’]s\b", lambda m: f"{names[m[1]]}'s", t)
-    t = re.sub(r"\b[Aa]ctivity\s+([AB])\b(?![-\w])", lambda m: f"{names[m[1]]}'s activity", t)
+    t = re.sub(r"\b(?:[Aa]ctivity|[Cc]ompany|[Ss]ide|[Pp]arty)\s+([AB])['’]s\b", lambda m: f"{poss(names[m[1]])}", t)
+    t = re.sub(r"\b[Aa]ctivity\s+([AB])\b(?![-\w])", lambda m: f"{poss(names[m[1]])} activity", t)
     t = re.sub(r"\b(?:[Cc]ompany|[Ss]ide|[Pp]arty)\s+([AB])\b(?![-\w])", lambda m: names[m[1]], t)
-    t = re.sub(r"(?<![\w-])([AB])['’]s\b", lambda m: f"{names[m[1]]}'s", t)
+    t = re.sub(r"(?<![\w-])([AB])['’]s\b", lambda m: f"{poss(names[m[1]])}", t)
     t = re.sub(r"(?<![\w-])(B)(?![\w-])", label, t)
     # "A" inside a sentence is the label; at the start of a sentence only before "and/or", a comma, a bracket or a verb
     t = re.sub(r"(?<=[a-z,;(]\s)(A)(?![\w-])|(?<=[a-z,;(])(A)(?![\w-])",
@@ -2544,8 +2568,8 @@ def no_overlap_row(ta, rows, rv, target, portco, n_portco, first):
             "own use" in why for _, why in r["decision"].get("disregarded") or []))
         return esc(short_name(r["b"])) + (" :gray[(own use only, so it can only be the customer side)]" if own else "")
     if len(rows) >= n_portco:
-        cols[1].markdown(f":gray[No overlap found with {esc(portco)}'s only activity]" if n_portco == 1 else
-                         f":gray[No overlap found with any of {esc(portco)}'s activities]")
+        cols[1].markdown(f":gray[No overlap found with {poss(esc(portco))} only activity]" if n_portco == 1 else
+                         f":gray[No overlap found with any of {poss(esc(portco))} activities]")
     else:
         cols[1].markdown(":gray[No overlap found with:] " + " · ".join(named(r) for r in rows))
     with cols[2].popover("Why?", width="stretch"):
@@ -2579,7 +2603,7 @@ def target_block(ta, kept_rows, screened, status, rv, target, portco, n_portco):
         no_overlap_row(ta, screened, rv, target, portco, n_portco, first=not kept_rows)
 
 
-# A horizontal label across different levels of trade, where the two companies do not have the same direct customers
+# A horizontal label across different levels of trade, where the two companies do not have fully the same direct customers
 # (●●○ or ●○○): a horizontal overlap is then less likely (markets differ at different levels of the supply chain,
 # Market Definition Notice (14); whether both compete for the same customers is to be checked). A row whose only
 # labels are
@@ -2611,7 +2635,7 @@ def is_less_likely(r):
 # rule above: the label, step ④ and the counts stay as they are. Services stay as they are (a service provider can
 # use inputs for its main business).
 INPUT_LINKS = ("A could be an input for B", "B could be an input for A")
-LESS_TIP_H = ("Different levels of trade and not the same direct customers: often different markets, so a horizontal "
+LESS_TIP_H = ("Different levels of trade and not fully the same direct customers: often different markets, so a horizontal "
               "overlap is less likely; to be checked.")
 LESS_TIP_V = ("An input for a shop or wholesaler: such a company resells, so the input could only serve its own minor "
               "use (e.g. food served in its shops), not its main business; to be checked.")
@@ -2702,19 +2726,19 @@ def portco_sentence(target, portco, pairs, status, own_where="in the collapsed s
     live = [r for r in pairs if kept(status[cmp.pair_id(r)])]
     P, T = esc(portco), esc(target)
     if not live:
-        return (f"{P}'s only activity does not meet any activity of {T}." if n == 1 else
-                f"None of {P}'s {n} activities meets an activity of {T}.")
+        return (f"{poss(P)} only activity does not meet any activity of {T}." if n == 1 else
+                f"None of {poss(P)} {n} activities meets an activity of {T}.")
     main_live = [r for r in live if not is_own_use(r) and not is_less_likely(r)]
     own_live = [r for r in live if is_own_use(r)]
     less_live = [r for r in live if is_less_likely(r)]
-    notes = ([f"{plural(len(less_live), 'less likely horizontal label')} (different levels of trade, not the same "
+    notes = ([f"{plural(len(less_live), 'less likely horizontal label')} (different levels of trade, not fully the same "
               f"direct customers), {less_where}"] if less_live else []) + \
             ([f"{plural(len(own_live), 'potential link')} involving own use, {own_where}"] if own_live else [])
     if not main_live:
-        return f"No overlap with {T}'s activities except {' and '.join(notes)}."
+        return f"No overlap with {poss(T)} activities except {' and '.join(notes)}."
     k = len({r["label_b"] for r in main_live})
-    text = (f"{P}'s only activity meets activities of {T}." if n == 1 else
-            f"{k} of {P}'s {n} activities {'meets' if k == 1 else 'meet'} activities of {T}.")
+    text = (f"{poss(P)} only activity meets activities of {T}." if n == 1 else
+            f"{k} of {poss(P)} {n} activities {'meets' if k == 1 else 'meet'} activities of {T}.")
     return text + "".join(f" Also {x}." for x in notes)
 
 
@@ -2769,6 +2793,7 @@ def row_record(r, target, portco, step4):
     edited = (o.get("text_assessment") or "").strip()
     for p in parts:
         lab = {"kind": p["kind"], "view": label_view(pid, p), "basis": "", "regard": [], "lines": [], "up": p["up"],
+               "part": p["part"],                   # the link (input or resale), for the summary's wording
                "less": less_likely_part(r, p),      # the summary counts it on one line
                "tag_less": less_tag(r, p)}          # a vertical label's basis says "less likely" (as a horizontal's)
         if not edited:
@@ -2862,37 +2887,214 @@ def long_date(iso):
     return f"{d.day} {d:%B %Y}"
 
 
-def summary_item(kind, up, names_, res, lab):
-    """One label of a kept row, for the summary: (target activity, portfolio company's activity, their stages)."""
+# The summary (step ⑤ and page 1 of the Word document). In each column, the portfolio company's activities are listed
+# under the target activity they meet, strongest first, each with a short line saying which products meet and what the
+# Commission's decisions say about them (the full sentences are in step ④ and section 2 of the Word document). The
+# order rests on the lawyer's view, then on the Commission's result; it says nothing the rows do not say.
+VIEW_RANK = {"likely": 0, "": 1, "open point": 1, "unlikely": 2}
+RESULT_RANK = {"Confirmed": 0, "Possible": 1, "Not excluded": 2, "No precedent": 3, "Not supported": 4,
+               "Markets defined": 0, "One side defined": 1, "": 5}
+# a vertical entry in words, read after the target activity above it: (upstream side, input?, resale?)
+V_PHRASE = {("a", True, False): "Could supply", ("a", False, True): "Could be resold through",
+            ("a", True, True): "Could supply, or be resold through,",
+            ("b", True, False): "Could be supplied by", ("b", False, True): "Could resell the products of",
+            ("b", True, True): "Could be supplied by, or resell the products of,"}
+V_VERB = {(True, False): "could be an input for", (False, True): "could be resold through",
+          (True, True): "could be an input for, or be resold through,"}
+
+
+def summary_item(kind, up, names_, res, lab, r, rec, aidx, target, portco):
+    """One label of a kept row, for the summary: (target activity, portfolio company's activity, their stages), its
+    result and view, and what its short lines are made of."""
     a, b, la, lb = names_
+    edited = bool(rec.get("edited"))
     return {"kind": kind, "up": up, "a": a, "b": b, "la": la, "lb": lb, "pair": (a, b), "res": res,
-            "view": lab["view"], "less": bool(lab.get("less"))}
+            "view": lab["view"], "less": bool(lab.get("less")), "aidx": aidx,
+            "links": {lab["part"]} if kind == "v" and lab.get("part") else set(),
+            "vitems": [] if edited else list(r.get("vertical_items") or []),
+            "reasons": summary_reasons_h(r, rec, target, portco) if kind == "h" else []}
 
 
-def summary_lines(items):
-    """The summary's bullets of one portfolio company and one column: [(text, Commission result, view)].
-    Labels are joined only if they are the same relationship in every respect the summary shows or rests on: kind,
-    direction, both stages (levels of trade), the Commission's result and the lawyer's view. First the portfolio
-    company's activities of each target activity are joined, then the target activities with the same set of them;
-    so every bullet "A1; A2 → B1" stands for pairs that all exist, each with that result. A check unfolds every
-    bullet into its pairs again: if they are not exactly the labels given, each label keeps a bullet of its own."""
-    def key(x):
-        return x["kind"], x["up"], x["la"], x["lb"], x["res"], x["view"]
-    first = {}
+def summary_reasons_h(r, rec, target, portco):
+    """The short lines under a horizontal entry: which products meet and what the decisions say about them. The same
+    groups as horizontal_sentences (step ④), in fewer words; the products are named with their company."""
+    o = ss.override_store.get(cmp.pair_id(r), {})
+    if (o.get("text_commission") or "").strip():          # the lawyer's own wording of step ④
+        return [capital(b) for label, bullets, _ in rec.get("commission") or []
+                if not label or label.startswith("horizontal") for b in bullets]
+    if rec.get("pending"):                                 # said once above the summary (pending_warning)
+        return []
+    parts = commission_parts(r, target, portco)
+    if not parts or parts[1] is None or parts[1].get("error"):
+        return []
+    _, view, entries, _, _, verdict = parts
+    rs = reseller_flags(r)
+
+    def items(es, s):
+        return word_list(list(dict.fromkeys(i for e in es if e.get(s) for i in e[s].get("items") or [])), 3)
+
+    def lead(es=None):
+        if es is None:                 # the products of the label (step ③)
+            m = r.get("matches") or {}
+            a, b = word_list(m.get("a"), 3), word_list(m.get("b"), 3)
+        else:
+            a, b = items(es, "a"), items(es, "b")
+        text = " and ".join(x for x in (f"{poss(target)} {a}" if a else "", f"{poss(portco)} {b}" if b else "") if x)
+        return f"{text}: " if text else ""
+
+    def names(es, joiner=", "):
+        return market_list(es, {}, False, joiner=joiner)
+    if rs["a"] or rs["b"]:
+        sides = [s for s in ("a", "b") if rs[s]]
+        who = " and ".join(f"{poss(target if s == 'a' else portco)} side is {level_word(r[s])}" for s in sides)
+        levels = " or ".join(dict.fromkeys(level_word(r[s]) for s in sides))
+        return [f"{lead()}{who}: the decisions define product markets, not a {levels} market"]
+    if verdict and verdict.get("different"):
+        out = [f"{lead(entries)}separate markets ({target}: {_side_text(entries, view, 'a', {}, False)}; "
+               f"{portco}: {_side_text(entries, view, 'b', {}, False)})"]
+        u = uncovered_items(r, entries)
+        return out + [f"{poss(w)} {word_list(u[s], 3)}: no precedent, to be checked"
+                      for s, w in (("a", target), ("b", portco)) if u[s]]
+    shared = [e for e in entries if e["a"] and e["b"]]
+    cat = [e for e in shared if e.get("category")]
+    shared = [e for e in shared if not e.get("category")]
+
+    def conc(e):
+        return e["market"].get("conclusion")
+    both = [e for e in shared if _rank(e) == "specific" and conc(e) in SETTLED and exact_match(e)]
+    near = [e for e in shared if _rank(e) == "specific" and conc(e) in SETTLED and not exact_match(e)]
+    left = [e for e in shared if _rank(e) == "specific" and conc(e) == "left open"]
+    unknown = [e for e in shared if _rank(e) == "specific" and conc(e) not in SETTLED + ("left open",)]
+    possibly = [e for e in shared if _rank(e) == "possibly"]
+    general = [e for e in shared if _rank(e) == "general"]
+    out = []
+    if both:
+        partly = any(conc(e) == prec.PARTLY for e in both)
+        out.append(f"{lead(both)}both fall in {names(both)}" + ("; a further question was left open" if partly else ""))
+    if near:
+        out.append(f"{lead(near)}both may fall in {names(near)}")
+    if left:
+        out.append(f"{lead(left)}both fall in {names(left)}, whose definition was left open")
+    if possibly:
+        out.append(f"{lead(possibly)}both may fall in {names(possibly, ' or ')}, depending on the product format")
+    for e in cat:
+        out.append(f"{lead([e])}both fall within {names([e])}, which the Commission divided into separate markets")
+    if unknown:
+        out.append(f"{lead(unknown)}both fall in {names(unknown)}: no market definition in the paragraphs found")
+    if general:
+        out.append(f"{lead(general)}both fall in {names(general)} only through a general term, to be checked")
+    return out or [f"{lead()}no decision in the database places both in one market"]
+
+
+def _interleave(lists):
+    """Items of several lists in turn (the first of each, then the second of each, …), without repeats: a joined
+    entry names the products of every pair it stands for."""
+    out = []
+    for k in range(max((len(x) for x in lists), default=0)):
+        for x in lists:
+            if k < len(x) and x[k] not in out:
+                out.append(x[k])
+    return out
+
+
+def summary_reasons_v(xs, target, portco):
+    """The short line under a vertical entry: the link in words, with the products it names (the sentence of step
+    ③). xs: the labels the entry stands for (one per target activity of a joined group)."""
+    up = xs[0]["up"]
+    sup_s, cus_s = ("a", "b") if up == "a" else ("b", "a")
+    links = set().union(*(x["links"] for x in xs))
+    per = [[v for v in x["vitems"] if v.get("link") in links] for x in xs]
+    if not any(per):                   # a label the lawyer added or reworded: no line
+        return []
+    sup = _interleave([list(dict.fromkeys(i for v in vs for i in v.get(sup_s) or [])) for vs in per])
+    cus = _interleave([list(dict.fromkeys(i for v in vs for i in v.get(cus_s) or [])) for vs in per])
+    sup_name, cus_name = (target, portco) if up == "a" else (portco, target)
+    inp, res = any(lk in INPUT_LINKS for lk in links), any(lk not in INPUT_LINKS for lk in links)
+    sup_act = xs[0]["a"] if up == "a" else xs[0]["b"]
+    cus_act = xs[0]["b"] if up == "a" else xs[0]["a"]
+    return [f"{poss(sup_name)} {word_list(sup, 3) or sup_act.lower()} {V_VERB[(inp or not res, res)]} "
+            f"{poss(cus_name)} {word_list(cus, 3) or cus_act.lower()}"]
+
+
+def summary_groups(items, target, portco):
+    """One column of the summary for one portfolio company: [{"targets": [target activities], "entries": [{"text",
+    "res", "view", "reasons"}]}]. Each target activity is a group with the portfolio company's activities it meets,
+    strongest first. Target activities whose entries are the same in every respect the summary shows or rests on (kind,
+    direction, link, both stages, the portfolio activity, the Commission's result, the lawyer's view) are one group, so
+    that a pair is never shown with a result it does not have. Groups are in the target's order; a group with a
+    stronger entry comes first."""
+    def phrase(x):
+        if x["kind"] == "h":
+            return ""
+        inp = any(lk in INPUT_LINKS for lk in x["links"]) or not x["links"]
+        res = any(lk not in INPUT_LINKS for lk in x["links"])
+        return V_PHRASE[(x["up"], inp, res)]
+
+    def sig(x):
+        return x["kind"], x["up"], phrase(x), x["la"], x["lb"], x["b"], x["res"], x["view"]
+
+    def rank(x):
+        return VIEW_RANK.get(x["view"], 1), RESULT_RANK.get(x["res"], 5)
+    by_target = {}
     for x in items:
-        bs = first.setdefault((key(x), x["a"]), [])
-        if x["b"] not in bs:
-            bs.append(x["b"])
-    second = {}
-    for (k, a), bs in first.items():
-        second.setdefault((k, tuple(bs)), []).append(a)
+        by_target.setdefault((x["aidx"], x["a"]), []).append(x)
+    joined = {}                        # the set of entries -> the target activities that have exactly it
+    for (aidx, a), xs in sorted(by_target.items()):
+        joined.setdefault(tuple(sorted(Counter(sig(x) for x in xs).items())), []).append((aidx, a, xs))
+    groups = []
+    for members in joined.values():
+        entries = []
+        for s in dict.fromkeys(sig(x) for x in members[0][2]):
+            xs = [x for _, _, m in members for x in m if sig(x) == s]
+            x0 = xs[0]
+            reasons = (list(dict.fromkeys(r_ for x in xs for r_ in x["reasons"])) if x0["kind"] == "h"
+                       else summary_reasons_v(xs, target, portco))
+            entries.append({"text": f"{phrase(x0)} {x0['b']}".strip(), "res": x0["res"], "view": x0["view"],
+                            "reasons": reasons, "rank": rank(x0)})
+        entries.sort(key=lambda e: e["rank"])            # stable: ties keep the order of the rows
+        groups.append({"targets": [a for _, a, _ in members], "entries": entries,
+                       "rank": (entries[0]["rank"] if entries else (9, 9), members[0][0])})
+    groups.sort(key=lambda g: g["rank"])
+    for g in groups:
+        g.pop("rank")
+        for e in g["entries"]:
+            e.pop("rank")
+    return groups
 
-    def sym(k):
-        return "×" if k[0] == "h" else ("→" if k[1] == "a" else "←")
-    unfolded = Counter((k, a, b) for (k, bs), as_ in second.items() for a in as_ for b in bs)
-    if unfolded != Counter((key(x), x["a"], x["b"]) for x in items):
-        return [(f"{x['a']} {sym(key(x))} {x['b']}", x["res"], x["view"]) for x in items]
-    return [(f"{'; '.join(as_)} {sym(k)} {'; '.join(bs)}", k[4], k[5]) for (k, bs), as_ in second.items()]
+
+def count_line(items, kind):
+    """'4 potential horizontal overlaps (2 Possible, 1 No precedent, 1 Not supported)'."""
+    if not items:
+        return "no potential horizontal overlap" if kind == "h" else "no potential vertical relationship"
+    n = Counter(x["res"] for x in items)
+    by = ", ".join(f"{n[r_]} {r_}" for r_ in sorted(n, key=lambda r_: RESULT_RANK.get(r_, 5)) if r_)
+    word = "potential horizontal overlap" if kind == "h" else "potential vertical relationship"
+    return plural(len(items), word) + (f" ({by})" if by else "")
+
+
+def overview_lines(target, summary, rels):
+    """The result in two or three sentences, above the summary table: which portfolio companies have what."""
+    names = [s["portco"] for s in summary]
+    n = len(names)
+    with_h = [s["portco"] for s in summary if s["count_h"] or s["less_h"]]
+    with_v = [s["portco"] for s in summary if s["count_v"] or s["less_v"]]
+    none = [p for p in names if p not in with_h and p not in with_v]
+
+    def who(ps, first):
+        if n == 1:
+            return ps[0]
+        return (f"{len(ps)} of {n} portfolio companies" if first else str(len(ps))) + f" ({', '.join(ps)})"
+    out = []
+    if with_h:
+        out.append(f"Potential horizontal overlaps with {who(with_h, True)}.")
+    if with_v:
+        out.append(f"Potential vertical relationships with {who(with_v, not with_h)}.")
+    if none:
+        out.append(f"None found with {', '.join(none)}." if with_h or with_v else
+                   ("None found." if n == 1 else f"None found with any of the {n} portfolio companies."))
+    return {"text": " ".join(out),
+            "relationships": [f"{target} and {rel['portco']}: the public sources of each name the other (Annex C)."
+                              for rel in rels]}
 
 
 def report_model():
@@ -2919,7 +3121,7 @@ def report_model():
             rel_ids, rel = relationship_rows(target, p, kept_rows)
             if rel:
                 rels.append({"portco": p, "passages": rel})
-            for ta in t_acts:
+            for aidx, ta in enumerate(t_acts):
                 rows_main, rows_own, rows_less = [], [], []
                 for r in [x for x in pairs if (x["a"].get("aid") or x["label_a"]) == ta.get("aid")]:
                     s_ = status[cmp.pair_id(r)]
@@ -2962,10 +3164,12 @@ def report_model():
                                 outs.setdefault(k_, o_)
                         for lab in rec["all_labels"]:
                             if lab["kind"] == "h":
-                                hor.append(summary_item("h", None, names_, outs.get("h", ""), lab))
+                                hor.append(summary_item("h", None, names_, outs.get("h", ""), lab, r, rec, aidx,
+                                                        target, p))
                             elif lab["kind"] == "v":           # up "a": the target supplies
                                 entry = summary_item("v", lab["up"], names_,
-                                                     outs.get("va" if lab["up"] == "a" else "vb", ""), lab)
+                                                     outs.get("va" if lab["up"] == "a" else "vb", ""), lab,
+                                                     r, rec, aidx, target, p)
                                 same = [x for x in ver if x["pair"] == entry["pair"] and x["up"] == entry["up"]
                                         and x["res"] == entry["res"]]
                                 if not same:        # two links in one direction (input and resale): one entry
@@ -2973,6 +3177,7 @@ def report_model():
                                 else:               # the lawyer's view of either; less likely only if both are
                                     same[0]["view"] = same[0]["view"] or entry["view"]
                                     same[0]["less"] = same[0]["less"] and entry["less"]
+                                    same[0]["links"] |= entry["links"]
                     for lab in rec["all_labels"]:
                         if lab["view"] == "open point":
                             open_points.append({"portco": p, "pair": f"{short_name(r['a'])} × {short_name(r['b'])}",
@@ -2990,10 +3195,16 @@ def report_model():
                              "blocks": blocks, "own": own, "less": less,
                              # a relationship with no kept row to show it in: one line under the sentence
                              "relationship": bool(rel) and not rel_ids})
-            summary.append({"portco": p, "horizontal": summary_lines([x for x in hor if not x["less"]]),
-                            "vertical": summary_lines([x for x in ver if not x["less"]]),
+            main_h, main_v = [x for x in hor if not x["less"]], [x for x in ver if not x["less"]]
+            summary.append({"portco": p, "horizontal": summary_groups(main_h, target, p),
+                            "vertical": summary_groups(main_v, target, p),
                             "less_h": sum(1 for x in hor if x["less"]), "less_v": sum(1 for x in ver if x["less"]),
-                            "n": portcos.index(p) + 1})
+                            "count_h": len(main_h), "count_v": len(main_v),
+                            # the company's line in the first column: what it has, in a sentence
+                            "result": capital(f"{count_line(main_h, 'h')} and {count_line(main_v, 'v')}.")
+                            if main_h or main_v else "",
+                            "compared": len(dict.fromkeys(r["label_b"] for r in pairs)), "pairs": len(pairs),
+                            "relationship": bool(rel), "n": portcos.index(p) + 1})
         sources = []
         for c in ss.companies:
             found = research_of(c["name"])         # the research the compared activities' source numbers refer to
@@ -3033,12 +3244,14 @@ def report_model():
         for case in cases + (["Notice"] if "Notice" in cited else []):
             p0 = next((x for pid, x in corpus_paragraphs().items() if pid.startswith(case + "-")), {})
             decisions.append({"case": case, "title": p0.get("title", ""), "date": long_date(p0.get("date")),
-                              "paras": sorted(cited[case], key=lambda x: (str(type(x)), x))})
+                              "paras": sorted(cited[case], key=lambda x: (str(type(x)), x)),
+                              "added": added_case(case)})
         years = decision_years(cases)
         today = now_local()
         pending = sum(1 for sec in sections for b in sec["blocks"] + sec["less"] + sec["own"] for x in b["rows"]
                       if x["pending"])
         return {"target": target, "portcos": portcos, "date": f"{today.day} {today:%B %Y}", "pending": pending,
+                "overview": overview_lines(target, summary, rels),
                 "step4": step4, "years": years, "summary": summary, "sections": sections, "markets": markets,
                 "open_points": open_points, "sources": sources, "decisions": decisions,
                 "annex": {"run_summary": run_summary().replace("Run summary: ", ""), "pairs": annex_b,
@@ -3117,7 +3330,7 @@ def section_body(t_acts, rows_of, is_out, pairs, status, rv, target, p, n_portco
     less_rows = [r for r in pairs if not is_out(r) and is_less_likely(r)]
     own_rows = [r for r in pairs if not is_out(r) and is_own_use(r)]
     less_title = (f"Less Likely: {plural(len(less_rows), 'horizontal label')} across different levels of trade, "
-                  "without the same direct customers")
+                  "without fully the same direct customers")
     for rows, title in ((less_rows, less_title),
                         (own_rows, f"Own Use: {plural(len(own_rows), 'potential link')} (production for the group "
                                    "itself, which can only be the customer side)")):
@@ -3216,14 +3429,15 @@ GUIDES = {
             f"{dots_html('●●●')} {dots_html('●●○')} {dots_html('●○○')} the same, partly the same or different "
             "direct customers; “customers not stated” if one side's sources do not say.",
             "<span class='lab lab-q'>Existing relationship</span> the companies' own sources name each other.",
-            "<span class='tag'>less likely</span> a horizontal label across levels with other customers, or an input "
+            "<span class='tag'>less likely</span> a horizontal label across levels without fully the same customers, or an input "
             "for a shop or wholesaler: shown folded, open “Details” for what it concerns; a view or a note shows it "
             "in full."]),
         ("Limits", [
             "<b>Deliberately generous:</b> unlikely links are shown too. A missed relationship is easily overlooked "
             "later; an unlikely one takes a second to dismiss.",
             "“Potential” until checked against the Commission's decisions in step ④.",
-            "The judgement is yours: set your view on each label, add a note or use “Edit”."])]),
+            "The judgement is yours: set your view on each label, add a note or use “Edit”. What you keep is the "
+            "summary of step ⑤."])]),
     4: ("How the Market Definitions Are Found", [
         ("How It Works", [
             "The products of each row are sorted into types; each type is searched in the database of Commission "
@@ -3251,12 +3465,15 @@ GUIDES = {
 
 def database_text():
     """'The database holds a limited set of decisions (2010–2015) and the Market Definition Notice', from the corpus."""
-    paras = corpus_paragraphs().values()
+    paras = builtin_paragraphs().values()
     years = sorted({str(p.get("date") or "")[:4] for p in paras if p.get("source_type") == "Commission decision"}
                    - {""})
     span = f" ({years[0]}–{years[-1]})" if len(years) > 1 else (f" ({years[0]})" if years else "")
     notice = any(p.get("source_type") == "Commission notice" for p in paras)
-    return f"The database holds a limited set of decisions{span}" + (" and the Market Definition Notice" if notice else "")
+    added = [u["case"] for u in ss.get("uploads") or []]
+    return (f"The database holds a limited set of decisions{span}" + (" and the Market Definition Notice" if notice
+                                                                      else "")
+            + (f", plus {plural(len(added), 'decision')} you added ({', '.join(added)})" if added else ""))
 
 
 def guide_html(step):
@@ -3321,7 +3538,158 @@ def stage_overview(ai, step=3):
     # no checklist of the Market Definition Notice on screen: "No precedent" already says the market is to be assessed
     # under the Notice
     st.divider()
+    if units:
+        upload_box(ai)
+        if uploads_changed():
+            st.warning("A decision was added or removed after the last search: press “Update the market definitions” "
+                       "so that the search uses the decisions as they are now. Until then, the rows show the result of "
+                       "the earlier search.")
     precedent_button(units, todo, step)
+
+
+# =============================================================== a decision added by the lawyer (uploads.py)
+# For products the built-in database does not cover: the lawyer adds a Commission merger decision (the PDF, or its text
+# pasted) for this screen. Parsed by the same functions as the built-in corpus, searched together with it, quoted and
+# checked like it; kept in the session and the progress file only. No AI call: one embedding request when it is added.
+UPLOAD_HELP = ("A Commission merger decision (case number M.1234), as published on the Commission's website. Its "
+               "numbered paragraphs are read like those of the built-in decisions; by default only the parts on market "
+               "definition are used, as in the built-in database.")
+
+
+def _upload_source():
+    """(text, origin, error) of the decision being added, read once per file or text (kept by its hash)."""
+    mode = st.radio("The decision as", ["PDF", "Pasted text"], horizontal=True, key="up_mode",
+                    label_visibility="collapsed")
+    if mode == "PDF":
+        f = st.file_uploader("The decision (PDF)", type=["pdf"], key=f"up_pdf_{ss.get('up_nonce', 0)}",
+                             help=UPLOAD_HELP)
+        if f is None:
+            return None, "", ""
+        data = f.getvalue()
+        key = hashlib.sha256(data).hexdigest()[:12]
+        cache = ss.setdefault("up_read", {})
+        if key not in cache:
+            try:
+                cache[key] = uploads.read_pdf(data)
+            except Exception as e:  # noqa: BLE001 - a damaged or protected PDF: said, never raised
+                return None, f.name, f"The PDF could not be read ({type(e).__name__}: {e}). Paste its text instead."
+        text, tool = cache[key]
+        ss.up_tool = tool
+        return text, f.name, ""
+    text = st.text_area("The decision's text", key=f"up_text_{ss.get('up_nonce', 0)}", height=180,
+                        placeholder="Paste the decision, or its paragraphs on market definition (e.g. as copied from "
+                                    "a legal database), each with its number: “(42) In previous decisions, the "
+                                    "Commission …”", help=UPLOAD_HELP)
+    ss.up_tool = "pasted text"
+    return (text if text.strip() else None), "pasted text", ""
+
+
+def upload_box(ai):
+    added = ss.setdefault("uploads", [])
+    label = "Add a Commission Decision or Extract" + (f" ({len(added)} added)" if added else "")
+    with st.expander(label, expanded=bool(ss.pop("up_open", False))):
+        st.caption("For products the app's database does not cover, add a Commission merger decision you know, as a PDF "
+                   "or as the paragraphs on market definition copied from a database: step ④ then searches it together "
+                   "with the database, for this screen only, and marks it “added by you”. Quotations are checked word "
+                   "for word against the text you added, not against the official version: include the paragraphs "
+                   "with the Commission's own conclusion. It is kept in “Save progress”; the app stores nothing.")
+        if ss.get("up_msg"):
+            st.success(ss.pop("up_msg"))
+        for k, u in enumerate(added):
+            c = st.columns([10, 2], vertical_alignment="center")
+            nums = uploads.ranges_text([p["para"] for p in u["paragraphs"]])
+            c[0].markdown(f"**{esc(u['case'])} {esc(u['title'])}** ({esc(str(u.get('date') or '')[:4] or 'no date')})"
+                          f" · {plural(len(u['paragraphs']), 'paragraph')}: {esc(nums)} · "
+                          f":gray[{esc(u.get('origin') or '')}]")
+            if c[1].button("Remove", key=f"up_rm_{u['case']}", type="tertiary"):
+                added.pop(k)
+                ss.up_msg = f"{u['case']} removed."
+                ss.up_open = True
+                st.rerun()
+        text, origin, error = _upload_source()
+        if error:
+            st.error(error)
+            return
+        if text is None:
+            return
+        meta = uploads.detect(text)
+        key = hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()[:10]
+        c = st.columns([2, 5, 2])
+        case_in = c[0].text_input("Case number", value=meta["case"], key=f"up_case_{key}", placeholder="M.1234")
+        title_in = c[1].text_input("Title", value=meta["title"], key=f"up_title_{key}",
+                                   placeholder="e.g. Alpha / Beta")
+        date_in = c[2].text_input("Date", value=meta["date"], key=f"up_date_{key}", placeholder="YYYY-MM-DD")
+        url_in = st.text_input("Link to the official version (optional)", key=f"up_url_{key}",
+                               placeholder="https://ec.europa.eu/competition/mergers/cases/…")
+        case = uploads.normalise_case(case_in)
+        if not case:
+            st.error("Enter the case number of a Commission merger decision, e.g. M.1234.")
+            return
+        if any(u["case"] == case for u in added):
+            st.error(f"{case} is already added. Remove it first to add it again with other paragraphs.")
+            return
+        if date_in.strip() and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_in.strip()):
+            st.error("Enter the date as YYYY-MM-DD, or leave it empty.")
+            return
+        builtin = builtin_paragraphs()
+        info = {"case": case, "title": title_in.strip(), "date": date_in.strip(), "decision": meta["decision"],
+                "url": url_in.strip() if url_in.strip().startswith("https://") else ""}
+        # parsed once per text and details (about a second for a long decision; the page reruns on every click)
+        parsed = ss.setdefault("up_parsed", {})
+        pkey = (key, case, info["title"], info["date"], info["url"])
+        if pkey not in parsed:
+            parsed.clear()
+            parsed[pkey] = uploads.parse(text, info, builtin)
+        records, style, n_notes, skipped = parsed[pkey]
+        if skipped:
+            st.info(f"{case} is already in the app's database (paragraphs {uploads.ranges_text(skipped)}): only "
+                    "its other paragraphs can be added. Title, date and link are those of the database.")
+        # a pasted extract can be a single paragraph (the Commission's conclusion); a PDF with so few was not read
+        if len(records) + len(skipped) < (1 if origin == "pasted text" else uploads.MIN_PARAGRAPHS):
+            st.error("No numbered paragraphs were found in this text. "
+                     + ("The PDF may be a scan, or its layout was not read (try pasting its text). "
+                        if origin != "pasted text" else
+                        "Each paragraph must start with its number, e.g. “(12) …” or “12. …”, on a new line."))
+            return
+        if not records:
+            st.warning("Every paragraph found is already in the app's database: nothing to add.")
+            return
+        ranges_in = st.text_input(
+            "Paragraphs to use", value=uploads.default_ranges(records), key=f"up_ranges_{key}",
+            help="Proposed: the parts on market definition, as found from the decision's headings. Change the ranges "
+                 "if the decision defines markets elsewhere too (e.g. in the competitive assessment).")
+        chosen = uploads.select(records, ranges_in)
+        if chosen is None:
+            st.error("Write the paragraphs as numbers and ranges, e.g. “12-49, 92, 117”.")
+            return
+        st.caption(f"Read with {ss.get('up_tool', '')}: {plural(len(records), 'numbered paragraph')} "
+                   f"({uploads.ranges_text([r['para'] for r in records])}), {plural(n_notes, 'footnote')}; "
+                   f"{len(chosen)} selected.")
+        if chosen:
+            p0 = chosen[0]
+            st.markdown(f"<div class='cnote' style='font-size:.85rem;margin-bottom:.6rem'><b>({p0['para']})</b> "
+                        f"{h(prec.headings_of(p0).replace(' > ', ' › '))}<br>{h(p0['text'][:320])}"
+                        f"{'…' if len(p0['text']) > 320 else ''}</div>", unsafe_allow_html=True)
+        if st.button(f"Add {case} to this screen", type="primary", disabled=not chosen, key=f"up_add_{key}",
+                     help="One embedding request (a fraction of a cent) turns its paragraphs into numbers for the "
+                          "search. No AI call."):
+            upload = uploads.make_upload(info, chosen, origin, skipped)
+            try:
+                with st.spinner(f"Preparing {plural(len(chosen), 'paragraph')} for the search …"):
+                    uploads.embed_upload(upload, lambda texts: ai.embed(texts, note=f"decision added: {case}",
+                                                                        step="embed_upload"))
+            except Exception as e:  # noqa: BLE001 - nothing is added; the lawyer can try again
+                st.error(f"{case} could not be added ({type(e).__name__}: {e}). Nothing was changed.")
+                return
+            added.append(upload)
+            ss.up_nonce = ss.get("up_nonce", 0) + 1          # clears the file and the text field
+            ss.pop("up_parsed", None)
+            ss.pop("up_read", None)
+            ss.up_msg = (f"{case} added ({plural(len(chosen), 'paragraph')})."
+                         + ("" if ss.get("precedents") else " Press “Find Commission market definitions” to search it "
+                                                            "together with the database."))
+            ss.up_open = True
+            st.rerun()
 
 
 def run_summary():
@@ -3355,20 +3723,49 @@ def run_summary():
 # The same summary as page 1 of the Word document (one bullet per relationship, the Commission's result and the lawyer's
 # view), the open points, and the download. Built in code from the rows, live; no AI call.
 def summary_html(model):
-    def cell(entries, less=""):
-        if not entries and not less:
-            return "<span class='sub2'>None</span>"
-        lis = "".join(f"<li>{he(pair)} {outcome_chip(res) if res else ''}"
-                      + (f"<i class='sub2'>{he(view)}</i>" if view else "") + "</li>" for pair, res, view in entries)
-        return (f"<ul class='sumul'>{lis}</ul>" if lis else "") + (f"<div class='sub2 sless'>{he(less)}</div>"
-                                                                  if less else "")
-    rows = "".join(f"<tr><td><b>{he(s['portco'])}</b></td>"
-                   f"<td>{cell(s['horizontal'], export.less_line('h', s['less_h'], 'step ③'))}</td>"
-                   f"<td>{cell(s['vertical'], export.less_line('v', s['less_v'], 'step ③'))}</td></tr>"
-                   for s in model["summary"])
-    return ("<table class='sumt'><thead><tr><th>Portfolio Company</th><th><span class='lab lab-h'>Potential horizontal "
-            "overlaps</span></th><th><span class='lab lab-v'>Potential vertical relationships</span></th></tr></thead>"
+    """The summary table of step ⑤ (the same model as page 1 of the Word document)."""
+    def cell(groups, less=""):
+        if not groups and not less:
+            return "<span class='sub2'>None found</span>"
+        out = ""
+        for k, g in enumerate(groups):
+            lis = "".join(f"<li>{he(e['text'])} {outcome_chip(e['res']) if e['res'] else ''}"
+                          + (f"<i class='sub2'>{he(e['view'])}</i>" if e["view"] else "")
+                          + "".join(f"<div class='swrt'>{he(x)}</div>" for x in e["reasons"]) + "</li>"
+                          for e in g["entries"])
+            out += (f"<div class='sgrp{' next' if k else ''}'>{he('; '.join(g['targets']))}</div>"
+                    f"<ul class='sumul'>{lis}</ul>")
+        return out + (f"<div class='sub2 sless'>{he(less)}</div>" if less else "")
+
+    def company(s):
+        rel = ("<div class='srel'><span class='lab lab-q'>Existing relationship</span></div>"
+               if s["relationship"] else "")
+        result = f"{s['result']} " if s["result"] else ""
+        compared = plural(s["compared"], "activity", "activities")
+        return f"<td><b>{he(s['portco'])}</b><div class='scnt'>{he(result)}{compared} compared.</div>{rel}</td>"
+    rows = ""
+    for s in model["summary"]:
+        less_h = export.less_line("h", s["less_h"], "step ③")
+        less_v = export.less_line("v", s["less_v"], "step ③")
+        if not (s["horizontal"] or s["vertical"] or less_h or less_v):
+            rows += (f"<tr>{company(s)}<td colspan='2'><span class='sub2'>None found: "
+                     f"{plural(s['pairs'], 'pair')} compared, each with the reason in Annex B of the Word "
+                     "document.</span></td></tr>")
+            continue
+        rows += f"<tr>{company(s)}<td>{cell(s['horizontal'], less_h)}</td><td>{cell(s['vertical'], less_v)}</td></tr>"
+    return ("<table class='sumt'><thead><tr><th style='width:20%'>Portfolio Company</th><th style='width:39%'>"
+            "<span class='lab lab-h'>Potential horizontal overlaps</span></th><th style='width:41%'><span class='lab "
+            "lab-v'>Potential vertical relationships</span></th></tr></thead>"
             f"<tbody>{rows}</tbody></table>")
+
+
+def overview_html(model):
+    """The result above the summary table, in a sand box."""
+    ov = model.get("overview") or {}
+    rels = "".join(f"<div><span class='lab lab-q'>Existing relationship</span> {he(x)}</div>"
+                   for x in ov.get("relationships") or [])
+    return (f"<div class='sres'><div class='sres-t'>Result</div><div>{he(ov.get('text', ''))}</div>{rels}</div>"
+            if ov.get("text") or rels else "")
 
 
 def pending_warning(model, sidebar=False):
@@ -3453,16 +3850,20 @@ def stage_summary(ai):
     st.header("⑤ Summary")
     model = report_model()
     if model["step4"]:
-        st.write("The result for each portfolio company, from your review in steps ③ and ④. The Word document holds "
-                 "the same summary, the full tables and the sources.")
+        st.markdown("**The result of the screen:** what you kept in steps ③ and ④, strongest first. Steps ① to ④ "
+                    "are generous on purpose, so that nothing is missed; every finding can be checked, changed or "
+                    "dismissed there. The Word document holds the same summary, the full tables and the sources.")
     else:
-        st.write("The result for each portfolio company, from your review in step ③: no row is kept, so there were no "
-                 "market definitions to look up. The Word document lists every pair compared, with the reason.")
+        st.markdown("**The result of the screen:** no row is kept in step ③, so there were no market definitions to "
+                    "look up. The Word document lists every pair compared, with the reason.")
     pending_warning(model)
+    st.markdown(overview_html(model), unsafe_allow_html=True)
+    st.caption(f"How to read: under each activity of {esc(model['target'])} (in bold), the portfolio company's "
+               "activities it meets, each with the Commission's result and, once set, your view. Below it, in grey, "
+               "which products meet and what the Commission's decisions say about them.")
     st.markdown(summary_html(model), unsafe_allow_html=True)
-    st.caption("Target activity first; the arrow points to the customer. After each entry: the Commission's result "
-               "and your view. Activities joined by “;” each have the relationship shown, with the same result and "
-               "view. Less likely labels are counted on one line; set a view on one in step ③ to list it here.")
+    st.caption("Activities joined by “;” each have the relationship shown, with the same result and view. Less "
+               "likely labels are counted on one line; set a view on one in step ③ to list it here.")
     if model["open_points"]:
         st.markdown("##### Open Points")
         st.markdown("\n".join(f"- {esc(o['text'])} :gray[({esc(o['pair'])}, {esc(o['portco'])})]"
@@ -3486,7 +3887,16 @@ def prec_plan():
     units = prec.search_units(ss.results, search_overrides(), cmp.effective_status, cmp.dismissed_parts,
                               cmp.pair_id, order)
     store = ss.get("precedents") or {}
-    return units, [u for u in units if not prec.reusable(store.get(u["target_aid"]), u)]
+    sig = uploads.signature(ss.get("uploads"))
+    return units, [u for u in units if not prec.reusable(store.get(u["target_aid"]), u)
+                   or (store.get(u["target_aid"]) or {}).get("uploads", "") != sig]
+
+
+def uploads_changed():
+    """Whether a decision was added or removed after a stored search (the search then runs again with "Update the
+    market definitions"; until then the rows keep the result of the earlier search)."""
+    sig = uploads.signature(ss.get("uploads"))
+    return any(isinstance(rec, dict) and rec.get("uploads", "") != sig for rec in (ss.get("precedents") or {}).values())
 
 
 def stale_units(todo):
@@ -3517,8 +3927,20 @@ def run_precedents(ai):
     kept = [u for u in units if u not in todo]
     if kept:
         card.log(f"✔ {plural(len(kept), 'search', 'searches')} kept from before (their rows did not change)")
+    added = ss.get("uploads") or []
+    for u in added:                # after "Open saved progress" the added decisions come without their embeddings
+        if u.get("vectors") is None:
+            card.log(f"Embedding the decision you added, {u['case']} ({plural(len(u['paragraphs']), 'paragraph')})")
+            try:
+                uploads.embed_upload(u, lambda texts, c=u["case"]: ai.embed(texts, note=f"decision added: {c}",
+                                                                            step="embed_upload"))
+            except Exception as e:  # noqa: BLE001 - nothing is lost; the user can try again
+                st.error(f"The search could not start: the decision you added, {u['case']}, could not be prepared for "
+                         f"the search ({type(e).__name__}: {e}). Nothing was changed; go back and try again.")
+                st.button("← Back to the assessment", on_click=go_to, args=(3,))
+                return False
     try:
-        retriever = retrieval.Retriever(prec.cached_embed(ai))
+        retriever = retrieval.Retriever(prec.cached_embed(ai), extra=uploads.extra_index(added))
     except Exception as e:  # noqa: BLE001 - nothing is lost; the user can try again
         st.error(f"The search could not start: the decision database could not be opened ({type(e).__name__}: {e}). "
                  "Nothing was changed; go back and try again.")
@@ -3546,6 +3968,9 @@ def run_precedents(ai):
                     rec = fut.result()
                 except Exception as e:  # noqa: BLE001 - shown in the row as an error, never as "no precedent"
                     rec = prec.empty_record(u, error=f"the search failed: {type(e).__name__}: {e}")
+                if added:              # the decisions added when it ran (no key without them: older records match)
+                    rec["uploads"] = uploads.signature(added)
+                    rec["uploaded_decisions"] = [x["case"] for x in added]
                 show_search_done(store, u, rec, card)
     card.log(f"Market definitions looked up for {plural(len(todo), 'activity', 'activities')} of the target in "
              f"{time.time() - t0:.0f} s")
@@ -3663,12 +4088,25 @@ def h(text):
 
 
 @st.cache_data(show_spinner=False)
-def corpus_paragraphs():
-    """All paragraphs of the corpus by id (for the hover of a paragraph that a stored search did not keep)."""
+def builtin_paragraphs():
+    """All paragraphs of the built-in corpus by id."""
     try:
         return {p["id"]: p for p in json.loads(open("corpus/paragraphs.json", encoding="utf-8").read())}
     except (OSError, ValueError):
         return {}
+
+
+def corpus_paragraphs():
+    """All paragraphs step ④ searches, by id (for the hover of a paragraph that a stored search did not keep, the
+    reader and the lists of decisions): the built-in corpus, plus the decisions the lawyer added for this screen."""
+    added = ss.get("uploads") or []
+    if not added:
+        return builtin_paragraphs()
+    out = dict(builtin_paragraphs())
+    for u in added:
+        for p in u["paragraphs"]:
+            out.setdefault(p["id"], p)
+    return out
 
 
 def decision_text(d):
@@ -3704,8 +4142,9 @@ def para_ref(pid, paras, seen=True):
     box = (f"<b>{h(name)} ({h(str(p.get('date') or '')[:4])}), para ({h(p.get('para'))})</b>"
            + (f"<br><span style='opacity:.7'>{h(meta)}</span>" if meta else "")
            + f"<br>{h(p.get('text'))}{notes}"
-           + ("<br><span style='opacity:.7'>" + ("The paragraph exactly as the AI saw it." if seen else
-                                                "The paragraph this rule of the app rests on.")
+           + ("<br><span style='opacity:.7'>" + ("Added by you for this screen (not checked against the official "
+                                                "version). " if p.get("user_provided") else "")
+              + ("The paragraph exactly as the AI saw it." if seen else "The paragraph this rule of the app rests on.")
               + (" Click to open the decision." if url else "") + "</span>"))
     if url:
         return f"<a class='pref' href='{h(url)}' target='_blank'>{h(label)}<span class='pbox'>{box}</span></a>"
@@ -3783,7 +4222,15 @@ def decision_years(cases):
 
 def decision_label(case):
     p = next((x for pid, x in corpus_paragraphs().items() if pid.startswith(case + "-")), None)
-    return f"{case} {p['title']} ({str(p['date'])[:4]})" if p else case
+    if not p:
+        return case
+    return f"{case} {p['title']} ({str(p['date'])[:4] or 'no date'})" + (" · added by you" if added_case(case) else "")
+
+
+def added_case(case):
+    """Whether paragraphs of this decision were added by the lawyer (a decision of its own, or paragraphs of a built-in
+    decision that the database leaves out)."""
+    return any(u["case"] == case for u in ss.get("uploads") or [])
 
 
 def screen_records():
@@ -3948,7 +4395,8 @@ def reader_body(case, markets=""):
     t1, t2 = st.tabs(["In the App's Database", "Original Document"])
     with t1:
         st.caption(f"The {plural(len(paras), 'paragraph')} of this document in the database that step ④ searches "
-                   "(its parts on market definition), word for word. Highlighted: the paragraphs this screen uses.")
+                   "(its parts on market definition), word for word. Highlighted: the paragraphs this screen uses."
+                   + (" Paragraphs you added are marked “added by you”." if added_case(case) else ""))
         only = st.toggle("Only the paragraphs used in this screen", key=f"rd_only_{case}", value=False) \
             if uses else False
         if uses and not only:
@@ -3967,6 +4415,8 @@ def reader_body(case, markets=""):
             notes = "".join(f"<div class='rd-fn'><sup>{h(f.get('n'))}</sup> {h(f.get('text'))}</div>"
                             for f in p.get("footnotes") or [])
             use = (f"<div class='rd-u'>Used in this screen: {h('; '.join(uses[n]))}</div>" if n in uses else "")
+            if p.get("user_provided"):
+                use = "<div class='rd-u'>Added by you</div>" + use
             out.append(f"<div class='rd-p{' used' if n in uses else ''}' id='rd-{h(case)}-{h(n)}'>"
                        f"<span class='rd-n'>({h(n)})</span>{use}<div>{h(p.get('text'))}</div>{notes}</div>")
         st.markdown("<div class='rd'>" + "".join(out) + "</div>", unsafe_allow_html=True)
@@ -3975,6 +4425,10 @@ def reader_body(case, markets=""):
         if src:
             st.markdown(f"<iframe class='rd-pdf' src='{h(src)}' title='{h(name)}'></iframe>", unsafe_allow_html=True)
             st.caption("The official document as published. Paragraph numbers are in the margin of the text.")
+        elif added_case(case) and not any(p.get("case") == case for p in builtin_paragraphs().values()):
+            st.write("You added this decision for this screen; the app keeps its paragraphs, not the file.")
+            if url:
+                st.markdown(f"[Open the official version]({url})")
         else:
             st.write("The official document is not stored in this app.")
             if url:
@@ -4055,6 +4509,15 @@ def market_list(found, paras, html_out=True, sides=("a", "b"), joiner=", "):
     "analogy" in the AI's answer); if every market of the list is, the mark is given once at the end."""
     def analog(e):
         return any(e.get(s) and e[s].get("basis") != "precedent" for s in sides)
+    # one market, one name: two decisions naming the same market slightly differently ("Cocoa cake/powder" and
+    # "Cocoa cake/powder (standard and non-standard products)") are listed once, as in the market table
+    seen, unique = set(), []
+    for e in found:
+        k = overview_key(e["market"]["name"])
+        if k not in seen:
+            seen.add(k)
+            unique.append(e)
+    found = unique
     if html_out:
         names = [market_hover(e["market"], paras, e.get("category")) for e in found]
         mark = NOT_EXACT
@@ -4111,10 +4574,10 @@ OUTCOME_TIP = {
     "No precedent": "No decision in the database covers these products, or, for a shop or wholesaler, its own retail "
                     "or wholesale market (the markets of the products it sells are named in the text): to be assessed "
                     "under the Market Definition Notice.",
-    "Markets defined": "The decisions define the market of each side's products. They do not show a link between "
-                       "the two companies: that comes from the preliminary assessment (step ③).",
-    "One side defined": "The decisions define the market of one side's products only; the other side has no "
-                        "precedent. They do not show a link between the two companies."
+    "Markets defined": "The decisions name a market for each side's products (defined, or left open). They do not "
+                       "show a link between the two companies: that comes from the preliminary assessment (step ③).",
+    "One side defined": "The decisions name a market for one side's products only (defined, or left open); the other "
+                        "side has no precedent. They do not show a link between the two companies."
 }
 
 
@@ -4201,13 +4664,13 @@ def horizontal_sentences(entries, view, verdict, target, portco, paras, html_out
         lw = level_word(acts.get(side))
         if html_out:        # the screen: one line, the full explanation on hover (the Word document has it in full)
             name = target if side == "a" else portco
-            tip = (f"{name}'s side is {lw}: the decisions define the markets of the products, not the {lw} market. "
+            tip = (f"{poss(name)} side is {lw}: the decisions define the markets of the products, not the {lw} market. "
                    "Markets can differ at different levels of the supply chain (Market Definition Notice (14)); "
                    "whether both compete for the same customers is to be checked (Market Definition Notice (25)).")
-            return [f"<span class='hov' title='{h(tip)}'>{who}'s side is {lw}: the decisions define product markets, not a {lw} market</span> "
+            return [f"<span class='hov' title='{h(tip)}'>{poss(who)} side is {lw}: the decisions define product markets, not a {lw} market</span> "
                     f"{para_ref('Notice-14', {}, seen=False)} {para_ref('Notice-25', {}, seen=False)}"]
         n14, n25 = "(Market Definition Notice (14))", "(Market Definition Notice (25))"
-        return [f"{who}'s side is {lw}: the decisions define the markets of the products, not the {lw} market. "
+        return [f"{poss(who)} side is {lw}: the decisions define the markets of the products, not the {lw} market. "
                 f"Markets can differ at different levels of the supply chain {n14}; whether both compete for the same "
                 f"customers is to be checked {n25}"]
     if verdict and verdict.get("different"):
@@ -4576,6 +5039,59 @@ def label_of_heading(head):
     return "horizontal" if head == "Horizontal Label" else ""
 
 
+def link_items(r, up):
+    """The products the vertical links of one direction name ("a": the target's, "b": the portfolio company's);
+    up "both" for links in both directions. Empty on a side where the comparison named none (e.g. a label the lawyer
+    added)."""
+    out = {"a": set(), "b": set()}
+    for v in r.get("vertical_items") or []:
+        if up == "both" or ("a" if v.get("link") in UPSTREAM_LINKS else "b") == up:
+            for s in ("a", "b"):
+                out[s].update(i for i in v.get(s) or [] if i)
+    return out
+
+
+def link_entries(entries, r, up):
+    """The markets of a vertical relationship: on each side only the markets of the products the link names. A row's
+    markets also hold the products of its horizontal label, which are not part of the supply (e.g. the target's
+    ingredients, where the link concerns its finished foods). Where the link names no products of a side, that side
+    keeps all its markets."""
+    items = link_items(r, up)
+    out = []
+    for e in entries:
+        e2 = dict(e)
+        for s in ("a", "b"):
+            if items[s] and e2.get(s) and not set(e2[s].get("items") or []) & items[s]:
+                e2[s] = None
+        if e2.get("a") or e2.get("b"):
+            out.append(e2)
+    return out
+
+
+def uncovered_items(r, entries):
+    """The products of a horizontal label (step ③'s "with regard to") that no market of the row covers."""
+    m = r.get("matches") or {}
+    out = {}
+    for s in ("a", "b"):
+        covered = {i for e in entries if e.get(s) for i in (e[s].get("items") or [])}
+        out[s] = [i for i in m.get(s) or [] if i and i not in covered]
+    return out
+
+
+def uncovered_sentences(r, entries, target, portco, html_out=True):
+    """'Separate markets' covers only the products placed in a market: the products of the label without any precedent
+    are named, so that the result is not read as covering them (e.g. a replacer of a product that is in a market)."""
+    u = uncovered_items(r, entries)
+    out = []
+    for s, who in (("a", target), ("b", portco)):
+        if u[s]:
+            items = listing(u[s]) if html_out else word_list(u[s])
+            out.append(f"{poss(he(who) if html_out else who)} {items}: no precedent, so the separate markets do not "
+                       "cover " + ("it" if len(u[s]) == 1 else "them") + "; to be assessed under the Market Definition "
+                       "Notice")
+    return out
+
+
 def commission_sentences(r, target, portco, html_out=True):
     """[(label, bullets, outcome)], one per relationship shown in the row."""
     parts = commission_parts(r, target, portco)
@@ -4586,15 +5102,20 @@ def commission_sentences(r, target, portco, html_out=True):
     rs, acts = reseller_flags(r), {"a": r["a"], "b": r["b"]}
     out = []
     if h_on:
-        out.append(("horizontal", horizontal_sentences(entries, view, verdict, target, portco, paras, html_out, rs,
-                                                       acts), horizontal_outcome(entries, verdict, rs)))
+        outcome = horizontal_outcome(entries, verdict, rs)
+        bullets = horizontal_sentences(entries, view, verdict, target, portco, paras, html_out, rs, acts)
+        if outcome == "Not supported":
+            bullets += uncovered_sentences(r, entries, target, portco, html_out)
+        out.append(("horizontal", bullets, outcome))
     if len(ups) > 1:                   # supply in both directions: each side's market once
-        out.append((BOTH_DIRECTIONS, vertical_sentence(entries, view, "both", target, portco, paras, html_out, rs,
-                                                       acts), vertical_outcome(entries, ups[0], rs)))
+        le = link_entries(entries, r, "both")
+        out.append((BOTH_DIRECTIONS, vertical_sentence(le, view, "both", target, portco, paras, html_out, rs,
+                                                       acts), vertical_outcome(le, ups[0], rs)))
     for up in ups if len(ups) == 1 else []:
         u, d = (target, portco) if up == "a" else (portco, target)
-        out.append((f"vertical, {u} → {d}", vertical_sentence(entries, view, up, target, portco, paras, html_out, rs,
-                                                               acts), vertical_outcome(entries, up, rs)))
+        le = link_entries(entries, r, up)
+        out.append((f"vertical, {u} → {d}", vertical_sentence(le, view, up, target, portco, paras, html_out, rs,
+                                                               acts), vertical_outcome(le, up, rs)))
     if len(out) > 1 and all(o == "No precedent" for _, _, o in out) and not any(rs.values()):
         out = [("", ["no decision in the database covers these products: "
                      "to be assessed under the Market Definition Notice"], "No precedent")]
@@ -4889,6 +5410,7 @@ def load_audit(data):
     ss.vec_cache = {}
     ss.override_store = {pid: dict(o) for pid, o in (data.get("user_overrides") or {}).items() if isinstance(o, dict)}
     ss.results_version = 1
+    ss.uploads = uploads.from_audit(data.get("user_added_decisions"))     # embedded again when step ④ next searches
     ss.precedents = dict((data.get("stage_4_market_definitions") or {}).get("searches") or {})
     for rec in ss.precedents.values():     # the conclusion labels follow the verified passages, whatever the file holds
         if isinstance(rec, dict):
@@ -4933,8 +5455,11 @@ def loader_box():
     reached = (", with step ④" if data.get("stage_4_market_definitions")
                else ", with the assessment (step ③)" if data.get("stage_2_confirmed_activities") is not None
                else ", activities only (continues in step ②)")
+    added = [u.get("case", "") for u in data.get("user_added_decisions") or [] if isinstance(u, dict)]
     st.write(f"Saved {esc((data.get('created') or 'unknown date').replace('T', ' '))}: target **{esc(target)}**, "
-             f"{plural(len(data['companies']) - 1, 'portfolio company', 'portfolio companies')}{reached}.")
+             f"{plural(len(data['companies']) - 1, 'portfolio company', 'portfolio companies')}{reached}"
+             + (f", with the {plural(len(added), 'decision')} you added ({esc(', '.join(added))})" if added else "")
+             + ".")
     if st.button("Load this screen", type="primary"):
         load_audit(data)
         st.rerun()
@@ -4973,6 +5498,8 @@ def audit_snapshot(ai):
             "calls": audit_calls(),
             # step ④ (one search per target activity) and, for a continued screen, where it came from
             "precedents": dict(ss.get("precedents") or {}), "precedent_rows": precedent_rows(),
+            # the decisions the lawyer added for this screen (their paragraphs; the embeddings are made again)
+            "uploads": uploads.for_audit(ss.get("uploads")),
             "loaded_from": ss.get("loaded_from"), "loaded_calls": list(ss.get("loaded_calls") or [])}
 
 
@@ -5019,6 +5546,8 @@ def audit_json(snap):
                          "query_forms": list(prec.QUERY_FORMS), "hits_per_form": prec.HITS_PER_FORM,
                          "unit": "one search per target activity"},
             "searches": snap["precedents"], "rows": snap["precedent_rows"]}
+    if snap.get("uploads"):
+        log["user_added_decisions"] = snap["uploads"]
     if snap.get("loaded_from"):
         log["loaded_from_saved_audit"] = snap["loaded_from"]
         log["call_log_before_loading"] = snap["loaded_calls"]
@@ -5089,10 +5618,10 @@ def legend_html(step):
               + line("<span class='lab lab-v'>Vertical</span>", "one could supply the other",
                      "Potential vertical relationship: one company's products could be an input for the other, or could "
                      "be resold by it. The arrow points from supplier to customer.")
-              + line("<span class='tag'>less likely</span>", "horizontal across levels, other customers; an "
+              + line("<span class='tag'>less likely</span>", "horizontal across levels, customers not fully the same; an "
                      "input for a shop",
                      "A horizontal label across different levels of trade (e.g. manufacturing v retail) where the two "
-                     "companies do not have the same direct customers: different levels of trade are often "
+                     "companies do not have fully the same direct customers: different levels of trade are often "
                      "different markets (Market Definition Notice (14)), so a horizontal overlap is less likely; "
                      "whether both compete for the same customers is to be checked. A vertical input link to a shop "
                      "or wholesaler: such a company resells, so the input could only serve its own minor use. Such "
@@ -5236,7 +5765,7 @@ LANDING_RELY = [
      "Your views, notes and wording go into the Word document."),
 ]
 LANDING_STEPS = [
-    ("Companies", "The target and up to five portfolio companies."),
+    ("Companies", "The target, and up to five companies the buyer owns, or simply the buyer itself."),
     ("Activities", "Researched on public websites; you check and correct."),
     ("Preliminary assessment", "Every activity against every activity, <span class='lab lab-h'>Horizontal</span> and "
                                "<span class='lab lab-v'>Vertical</span>"),
@@ -5261,8 +5790,9 @@ def landing_html(title=False):
     head = "<div class='lp-title'>EU Overlap Screen</div>" if title else ""
     return ("<div class='lp-split' lang='en'>"
             f"<div class='lp-main'>{head}<div class='lp-lead'>A preliminary overlap screen for EU merger control: where "
-            "does the company to be bought (the <i>target</i>) meet the companies the buyer already owns (the "
-            "<i>portfolio companies</i>)?</div>"
+            "does the company to be bought (the <i>target</i>) meet the businesses the buyer already has (the "
+            "<i>portfolio companies</i>)? For an investor such as a private equity fund, these are the companies it "
+            "owns; for a company buying another, the buyer itself.</div>"
             f"<div class='lp-why'><div class='lp-h2'>Why It Matters</div>{why}</div></div>"
             f"<div class='lp-panel'><div class='lp-h2'>What You Can Rely On</div>{rely}</div>"
             "</div>"

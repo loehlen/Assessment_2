@@ -152,10 +152,10 @@ def _parse_footnotes(lines, foot_re, next_foot, page_no):
     return notes, next_foot
 
 
-def _parse(text, style):
+def _parse(text, style, first=1):
     para_re, foot_re = re.compile(STYLES[style]["para"]), re.compile(STYLES[style]["foot"])
     paras, footnotes = [], {}
-    next_para, next_foot = 1, 1
+    next_para, next_foot = first, 1         # first: an extract that starts in the middle of a decision
     headings = []                    # most recent section headings, outermost first
     section = ""                     # product market / geographic market / competitive assessment / ...
     current = None
@@ -252,11 +252,13 @@ def _attach_footnotes(paras, footnotes, style):
 def ingest_text(text, source):
     """
     text: the plain text of the decision (pdftotext / pypdf output, pages separated by form feeds).
-    source: dict with case, title, date, url, levels, style ("auto" or one of STYLES).
+    source: dict with case, title, date, url, levels, style ("auto" or one of STYLES), and optionally first_para: the
+    number of the first paragraph, for an extract that does not start at (1) (uploads.py).
     Returns paragraph records with case, paragraph number, text, footnotes and section headings.
     """
     styles = [source["style"]] if source.get("style", "auto") != "auto" else list(STYLES)
-    best = max(((s, *_parse(text, s)) for s in styles), key=lambda r: len(r[1]))
+    first = source.get("first_para", 1)       # 1 for a whole decision (the built-in corpus)
+    best = max(((s, *_parse(text, s, first)) for s in styles), key=lambda r: len(r[1]))
     style, paras, footnotes = best
     _attach_footnotes(paras, footnotes, style)
     records = []

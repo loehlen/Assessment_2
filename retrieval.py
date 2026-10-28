@@ -154,7 +154,10 @@ _INDEX_LOCK = threading.Lock()
 
 
 class Retriever:
-    def __init__(self, embed, collection=COLLECTION):
+    def __init__(self, embed, collection=COLLECTION, extra=None):
+        """extra: decisions the lawyer added for this screen (uploads.extra_index): {"paragraphs", "chunk_ids",
+        "vectors"}. They are searched together with the built-in corpus, which stays unchanged on disk; without
+        them the search is exactly that of the built-in corpus."""
         import chromadb
         self.embed = embed
         # one lock for the whole server process: each run of step ④ makes its own Retriever, so a lock per instance
@@ -163,6 +166,14 @@ class Retriever:
         self.client = chromadb.PersistentClient(path=str(CHROMA_DIR))
         self.col = self.client.get_collection(collection)
         self.paragraphs = {p["id"]: p for p in json.loads(CORPUS_FILE.read_text(encoding="utf-8"))}
+        self.extra = None
+        if extra and extra.get("paragraphs"):
+            import numpy as np
+            for p in extra["paragraphs"]:
+                self.paragraphs.setdefault(p["id"], p)          # a built-in paragraph is never replaced
+            vectors = np.asarray(extra["vectors"], dtype=np.float32)
+            norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+            self.extra = {"ids": list(extra["chunk_ids"]), "vectors": vectors / np.maximum(norms, 1e-12)}
         self.order = list(self.paragraphs)                       # corpus order, for neighbouring paragraphs
         # keyword search on section, headings and text; party names are left out (queries never contain names)
         self.bm25 = BM25([" ".join([p["section"]] + p["headings"] + [p["text"]]) for p in self.paragraphs.values()])
@@ -173,12 +184,20 @@ class Retriever:
         vector = [vector] if vector is not None else self.embed([query])
         with self._lock:                         # one read of the index at a time (step ④ searches in parallel)
             res = self.col.query(query_embeddings=vector, n_results=n, include=["metadatas", "distances"])
+        scored = [(meta["paragraph_id"], 1 - dist) for meta, dist in zip(res["metadatas"][0], res["distances"][0])]
+        if self.extra:
+            # the added decisions: the same cosine similarity (ChromaDB's distance is 1 - cosine), the n best pieces
+            # of the built-in index and of the added decisions together
+            import numpy as np
+            q = np.asarray(vector[0], dtype=np.float32)
+            sims = self.extra["vectors"] @ (q / max(float(np.linalg.norm(q)), 1e-12))
+            best = np.argsort(-sims)[:n]
+            scored = sorted(scored + [(self.extra["ids"][i], float(sims[i])) for i in best], key=lambda x: -x[1])[:n]
         ranked, seen = [], set()
-        for meta, dist in zip(res["metadatas"][0], res["distances"][0]):
-            pid = meta["paragraph_id"]
+        for pid, sim in scored:
             if pid not in seen:                                  # several pieces of one paragraph count once
                 seen.add(pid)
-                ranked.append((pid, 1 - dist))
+                ranked.append((pid, sim))
         return ranked
 
     def _keyword(self, query, n):

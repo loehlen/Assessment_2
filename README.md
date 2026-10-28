@@ -1,7 +1,9 @@
 # EU Overlap Screen (LAWS90286 Assignment 2)
 
 A preliminary EU merger control overlap screen: does the target of an acquisition overlap, horizontally or
-vertically, with any of the buyer's portfolio companies? The app researches each company on public sources (or reads
+vertically, with any of the buyer's portfolio companies? The portfolio companies are the businesses the buyer already
+has: for an investor such as a private equity fund, the companies it owns; for a company buying another, simply the
+buyer itself (one row is enough). The app researches each company on public sources (or reads
 a description the lawyer provides), lets the lawyer check the activities, compares every activity of the target with
 every activity of each portfolio company on anonymised descriptions, looks up how the European Commission defined the
 markets of the products in its decisions, and produces a Word document. The result is a working document for a lawyer
@@ -83,20 +85,21 @@ one such input to try, so that you can see the output change.
     food manufacturers) and compound and industrial chocolate as related products; in step ④ the Commission's
     markets for Barry Callebaut's products, while ChoViva itself fits a defined market (chocolate compound) only as
     "not an exact match".
-  - Barry Callebaut's cocoa products against Planet A Foods's cocoa-butter alternative and cocoa powder replacer: a
+  - Barry Callebaut's cocoa products against Planet A Foods' cocoa-butter alternative and cocoa powder replacer: a
     **horizontal** label; in step ④ the Commission has defined the markets for cocoa butter and cocoa powder, which
-    fit Planet A Foods's products only as "not an exact match", so the result for the cocoa-butter alternative is
-    at most **Possible**; for the cocoa powder replacer it is **Possible** or, in some runs, **Not supported** (see
-    "Where it does not").
+    fit Planet A Foods' products only as "not an exact match", so the result for the cocoa-butter alternative is
+    at most **Possible**; for the cocoa powder replacer it is **Possible** or, in some runs, **Not supported**: the
+    "separate markets" then cover only the products placed in a market, and step ④ and the summary name the replacer
+    as having no precedent (see "Where it does not").
   - Ritter Sport: ChoViva as a possible input for Ritter Sport's chocolate (**vertical**).
   - FRoSTA: no real overlap (fats as an input for frozen food may be kept as a vertical link for the lawyer to check).
 - **Where it performs well:** the relationship and the partnership are shown with their sources; step ④ says which
   side has a precedent and which does not.
-- **Where it does not:** without the lawyer's description, the web search finds the partnership in some runs and
-  not in others; a distributor of ChoViva can then look like a competitor of Planet A Foods. A new product has no
+- **Where it does not:** without the lawyer's description, the web search has found the partnership in every test
+  run so far; if a run misses it, a distributor of ChoViva can look like a competitor of Planet A Foods. A new product has no
   precedent, so whether it is in the same market as chocolate remains a question for the lawyer. Where the public
   sources say too little, a row can come back **Unclear: please check** instead of a guess: a product still under
-  development (in some runs Planet A Foods's coffee) and a line the sources name without its products (FRoSTA's
+  development (in some runs Planet A Foods' coffee) and a line the sources name without its products (FRoSTA's
   industrial business). The lawyer adds what they know with "Edit" in step ② or asks the company. Planet A Foods
   splits into two to four activities between runs, so the rows differ from run to run. In step ④ each product is
   placed with its activity's description as context; this helps, but in some runs the description of one product
@@ -134,12 +137,39 @@ one such input to try, so that you can see the output change.
 
 **Other sector · Brillux** (paints, facade systems, DIY retail, adhesives: Brillux against Hornbach, Sto and Henkel)
 shows that the app contains no knowledge of one sector: the same code works for building materials. No decision of
-this sector is in the database, so step ④ shows "No precedent".
+this sector is in the database, so step ④ shows "No precedent", unless the lawyer adds a decision (below).
+
+### Adding a Commission decision
+
+For products the database does not cover, the lawyer can add a Commission merger decision for the current screen
+(**Add a Commission Decision or Extract**, folded above the button of steps ③ and ④): the PDF as published by the
+Commission, or pasted text, either the whole decision or only the paragraphs on market definition as a lawyer would
+copy them from a legal database (each paragraph with its number, e.g. "(42) …"; an extract may start at any paragraph).
+The app reads the case number, title and date from the first page of a whole decision (an extract needs the case
+number typed in), finds the numbered paragraphs with the same parser as the built-in database (`ingest.py`) and
+proposes the parts on market definition (editable ranges, e.g. "12–49, 92"). One embedding request prepares the
+paragraphs for the search; there is no AI call. The added text is never sent to the AI as a whole: it is chunked and
+embedded like the built-in database, and step ④ retrieves only the paragraphs relevant to each type of product (at
+most 14 per reflection call, as for the built-in decisions). Quotations are checked word for word against the added
+text, not against the official version, and everything added is marked "added by you" (in the hover, the sidebar, the
+decision reader and the Word document). The decision
+is kept in "Save progress" and the audit log, never stored by the app. After adding or removing a decision, "Update the
+market definitions" runs the searches again.
+
+To try it: `static/decisions/m7120_1451_2.pdf` is M.7120 Ecom / Armajaro, whose coffee paragraphs (42)–(51) were left
+out of the database on purpose (a hold-out). Uploading it adds only the paragraphs the database does not hold
+(proposed: (42)–(51) and (67)–(72)), so that step ④ of a screen with green-coffee traders has the Commission's
+coffee-bean paragraphs to search.
+
+Limits: Commission merger decisions only (case numbers "M.1234"); a scanned PDF has no text to read (paste the text
+instead); an extract is only as complete as the lawyer's selection (it should include the Commission's own conclusion,
+not only the parties' submissions or a reference to an earlier decision); the decision is not tagged with levels of trade, so the level filter of the first search attempt never
+excludes it.
 
 ## The steps
 
-1. **Companies**: the target and up to five portfolio companies (names, optional websites, other names; web search,
-   your own description, or both).
+1. **Companies**: the target and up to five portfolio companies, or the buyer itself in one row (names, optional
+   websites, other names; web search, your own description, or both).
 2. **Activities**: two web searches and one extraction per company, each company in its own calls; every cited page
    is opened and every quotation checked (✔ checked · ≈ probably right · ○ not checked · ⚠ check before relying on
    it). Production for the group's own use is listed as one line, "Own use", but not compared (the lawyer can
@@ -148,16 +178,25 @@ this sector is in the database, so step ④ shows "No precedent".
 3. **Preliminary assessment**: one anonymised pair per AI call; the decision rule, the reseller and own-use checks and
    the customer comparison in code. The lawyer sets a view on each label ("Likely", "Unlikely", "Ask the company",
    "Dismiss"), adds labels and rewrites the wording. Labels that are less likely (a horizontal label across different
-   levels of trade without the same direct customers, or an input for a shop or wholesaler, which resells) are shown
+   levels of trade without fully the same direct customers, or an input for a shop or wholesaler, which resells) are shown
    folded in their row; rows whose only labels are such horizontal ones are folded under "Less likely". Display
    only: the labels, step ④ and the tables of the Word document stay as they are.
 4. **Market definitions**: one search per target activity in the database of Commission decisions (hybrid retrieval,
    one reflection per type of product, at most one rewrite); every quotation of the Commission is checked word for
-   word. Each result stands beside the label it belongs to.
-5. **Summary**: the result per portfolio company and the Word document (the lawyer's final choices in the main part,
-   how the tool prepared them in an Annex). The summary joins labels that are the same relationship (same direction,
-   levels of trade, Commission result and view: "A1; A2 → B") and counts the less likely labels on one line; the
-   full rows are in the tables.
+   word. Each result stands beside the label it belongs to. The lawyer can add a decision the database does not hold
+   ("Adding a Commission decision" above).
+5. **Summary**: the result of the screen, and the Word document (the lawyer's final choices in the main part, how
+   the tool prepared them in an Annex). A short result first (which portfolio companies have potential overlaps, and
+   any existing relationship); then, per portfolio company, the activities it meets listed under the target activity
+   they meet, strongest first (the lawyer's view, then the Commission's result), each with one or two short lines on
+   which products meet and what the Commission's decisions say about them. Target activities with exactly the same
+   entries are joined ("A1; A2"); the less likely labels are counted on one line; the full rows are in the tables.
+
+**Why the summary is the result.** Steps ① to ④ are deliberately generous, because a missed relationship costs more
+than a dismissed one: every activity is compared with every activity, one pair at a time, and every finding is shown
+with its sources so that it can be checked, changed or dismissed. Step ⑤ and page 1 of the Word document are the
+result: short enough to be read on their own, for instance by a supervising lawyer, while every line can be traced
+back to the step where it was found and checked.
 
 "Save progress" in the sidebar downloads the screen so far as a Word document that also holds the screen's data
 (invisible in Word, as Custom XML), so that "Open saved progress" can continue it later without any AI call; changes made
@@ -168,7 +207,8 @@ audit log (every AI call with what it was sent and returned, the sources, the ch
 **AI calls.** A test case makes about 70 to 130 AI calls: per company two web searches and one extraction (one
 extraction only with "my description"); one comparison per pair of activities; in step ④ one call that sorts the
 products into types and one reflection per type and attempt. The embedding requests that turn search questions into
-vectors for the database are counted separately; they are not AI answers.
+vectors for the database (and the one that prepares a decision the lawyer adds) are counted separately; they are not
+AI answers.
 
 ## Class techniques used
 
@@ -207,6 +247,10 @@ pip install -r requirements.txt      # do NOT overwrite requirements.txt with `p
 streamlit run app.py
 ```
 
+Adding a decision as a PDF uses `pdftotext` (poppler), which `packages.txt` installs on Streamlit Cloud; locally
+`sudo apt-get install -y poppler-utils`. Without it the app falls back to pypdf, which reads some decisions less well
+(pasting the text always works).
+
 Without any settings the app runs as submitted: the key is entered in the sidebar module. For development, a `.env`
 file (never committed; it is in `.gitignore`) or the Secrets on Streamlit Cloud (TOML: `KEY = "value"`) can hold:
 
@@ -240,4 +284,5 @@ After a push that changes any file other than `app.py`, reboot the app on Stream
 | `examples.py` | the inputs of the example buttons, including the two typed descriptions of TC2 and TC3 |
 | `ingest.py`, `build_corpus.py`, `build_index.py`, `retrieval.py`, `corpus/` | the decision corpus: `corpus/paragraphs.json` (the 265 paragraphs with footnotes), `corpus/chroma/` (the ChromaDB index with the 266 chunks and their embeddings, used by step ④), `corpus/chunks.json` (the same chunks, readable, without vectors) and `corpus/corpus_report.md`. The decision PDFs that `build_corpus.py` reads (`corpus_src/`) are not in the repository; `build_corpus.py` lists where to download them |
 | `static/decisions/` | the same official PDFs (© European Union; reuse authorised under Commission Decision 2011/833/EU), shown in the app's reader of a decision (sidebar of step ④, tab "Original Document") next to the paragraphs from the database |
+| `uploads.py`, `packages.txt` | a decision added by the lawyer for one screen: reading the PDF or pasted text, the case details, the paragraphs (with `ingest.py`, unchanged), the embeddings; `packages.txt` installs `pdftotext` on Streamlit Cloud |
 | `retrieval_check.py`, `no_rag_check.py`, `test_results/` | development checks of the retrieval (with and without context headers, query forms) and of the model without the corpus; `test_results/` holds the reports of the retrieval checks (`no_rag_check.py` writes its report there when it is run); not part of the app |

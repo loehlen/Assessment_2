@@ -803,7 +803,9 @@ def _para_view(p, paras, corpus):
             "section": p.get("section"), "headings": p.get("headings") or [],      # shown in the hover
             "decision": p.get("decision"), "url": p.get("url"), "text": p["text"],
             "footnotes": p.get("footnotes") or [],
-            "neighbours": [x for x in (neighbour(p["para"] - 1), neighbour(p["para"] + 1)) if x]}
+            "neighbours": [x for x in (neighbour(p["para"] - 1), neighbour(p["para"] + 1)) if x],
+            # a decision the lawyer added for this screen (uploads.py); the key is absent for the built-in corpus
+            **({"user_provided": True} if p.get("user_provided") else {})}
 
 
 # =============================================================== what one row shows (code)
