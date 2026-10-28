@@ -162,7 +162,10 @@ out of the database on purpose (a hold-out). Uploading it adds only the paragrap
 coffee-bean paragraphs to search.
 
 Limits: Commission merger decisions only (case numbers "M.1234"); a scanned PDF has no text to read (paste the text
-instead); an extract is only as complete as the lawyer's selection (it should include the Commission's own conclusion,
+instead); a retail or wholesale market counts for a shop or wholesaler only if its name says so ("retail distribution of
+decorative coatings"): one named differently (e.g. "DIY stores") is still shown as "No precedent", and a
+manufacturers' market named "wholesale supply" counts for a wholesaler; an extract is only as complete as the lawyer's
+selection (it should include the Commission's own conclusion,
 not only the parties' submissions or a reference to an earlier decision); the decision is not tagged with levels of trade, so the level filter of the first search attempt never
 excludes it.
 
@@ -183,8 +186,11 @@ excludes it.
    only: the labels, step ④ and the tables of the Word document stay as they are.
 4. **Market definitions**: one search per target activity in the database of Commission decisions (hybrid retrieval,
    one reflection per type of product, at most one rewrite); every quotation of the Commission is checked word for
-   word. Each result stands beside the label it belongs to. The lawyer can add a decision the database does not hold
-   ("Adding a Commission decision" above).
+   word. Each result stands beside the label it belongs to. A shop's or wholesaler's own market is the retail or
+   wholesale of the products it sells; the decisions usually define markets for making and supplying the products,
+   so such a side counts as "No precedent", unless a decision defines a market at its own level (the AI placed its
+   products there as a precedent, and the market's name is a retail or wholesale market, checked in code). The lawyer
+   can add a decision the database does not hold ("Adding a Commission decision" above).
 5. **Summary**: the result of the screen, and the Word document (the lawyer's final choices in the main part, how
    the tool prepared them in an Annex). A short result first (which portfolio companies have potential overlaps, and
    any existing relationship); then, per portfolio company, the activities it meets listed under the target activity

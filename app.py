@@ -2928,7 +2928,7 @@ def summary_reasons_h(r, rec, target, portco):
     if not parts or parts[1] is None or parts[1].get("error"):
         return []
     _, view, entries, _, _, verdict = parts
-    rs = reseller_flags(r)
+    rs = reseller_flags(r, entries)
 
     def items(es, s):
         return word_list(list(dict.fromkeys(i for e in es if e.get(s) for i in e[s].get("items") or [])), 3)
@@ -4596,7 +4596,8 @@ def horizontal_outcome(entries, verdict, rs=None):
     No precedent. The strongest result of the row counts.
     A category the Commission divided into separate markets is not a market: both products in it is
     "Possible" (which segment is to be checked). A shop or wholesaler on either side: "No precedent" (its own market
-    is the retail or wholesale of the products, which the decisions found do not define)."""
+    is the retail or wholesale of the products, which the decisions found do not define), unless a decision defines a
+    market at its level (reseller_flags)."""
     if rs and (rs.get("a") or rs.get("b")):
         return "No precedent"
     if verdict and verdict.get("different"):
@@ -4616,7 +4617,8 @@ def horizontal_outcome(entries, verdict, rs=None):
 
 
 def vertical_outcome(entries, up, rs=None):
-    """The same for a vertical relationship; a shop's or wholesaler's side counts as no precedent (see is_reseller)."""
+    """The same for a vertical relationship; a shop's or wholesaler's side counts as no precedent unless a decision
+    defines a market at its level (see reseller_flags)."""
     down = "b" if up == "a" else "a"
     sides = sum(1 for s in (up, down) if any(e[s] for e in entries) and not (rs and rs.get(s)))
     return {2: "Markets defined", 1: "One side defined", 0: "No precedent"}[sides]
@@ -5008,8 +5010,40 @@ def market_overview_cited(ov):
     return cited
 
 
-def reseller_flags(r):
-    return {"a": is_reseller(r["a"]), "b": is_reseller(r["b"])}
+# A shop's or wholesaler's own market is the retail or wholesale of the products it sells. The decisions usually define
+# markets for making and supplying the products, so such a side counts as "No precedent" (decided 21 October, 31(f)),
+# unless a decision defines a market at its own level of trade (since 28 October; e.g. "retail distribution of
+# decorative coatings" in a decision the lawyer added). Both conditions, so that a manufacturers' market is never taken
+# for a retail one (TC1: Ritter Sport's shops placed in "Tablets"; "travel retail" in M.5644 (39) means sales TO travel
+# retailers): (1) the AI placed the side's products there as a precedent, i.e. a market defined at this level of trade;
+# (2) the market's name in the Commission's words is a retail or wholesale market, checked in code. Legal vocabulary
+# only, no sector knowledge.
+LEVEL_MARKET = {"retail": re.compile(r"\bretail(?:ing)?\b", re.IGNORECASE),
+                "wholesale": re.compile(r"\bwholesal(?:e|ing)\b", re.IGNORECASE)}
+CHANNEL_ONLY = re.compile(r"\b(?:to|for|through|via)\s+(?:the\s+)?(?:travel\s+)?(?:retail|wholesal)\w*|\btravel\s+retail",
+                          re.IGNORECASE)
+
+
+def level_market(market, level):
+    """Whether a market's name (as the AI found it, or as shown) names a market at this level of trade, not a sales
+    channel of the manufacturers ("supply to retailers", "travel retail")."""
+    names = [n for n in ((market or {}).get("name_as_found"), (market or {}).get("name")) if n]
+    return any(LEVEL_MARKET[level].search(n) and not CHANNEL_ONLY.search(n) for n in names)
+
+
+def reseller_flags(r, entries=None):
+    """{"a": bool, "b": bool}: the side is a shop or wholesaler without a market defined at its own level among the
+    row's markets (entries of row_markets)."""
+    out = {}
+    for s in ("a", "b"):
+        flag = is_reseller(r[s])
+        if flag and entries:
+            lw = level_word(r[s])
+            if any(e.get(s) and e[s].get("basis") == "precedent" and level_market(e.get("market"), lw)
+                   for e in entries):
+                flag = False
+        out[s] = flag
+    return out
 
 
 # One Commission box per row, with one part per label of the row: its result and what the decisions give for it (the
@@ -5099,7 +5133,7 @@ def commission_sentences(r, target, portco, html_out=True):
         return []
     rec, view, entries, h_on, ups, verdict = parts
     paras = (rec or {}).get("paragraphs") or {}
-    rs, acts = reseller_flags(r), {"a": r["a"], "b": r["b"]}
+    rs, acts = reseller_flags(r, entries), {"a": r["a"], "b": r["b"]}
     out = []
     if h_on:
         outcome = horizontal_outcome(entries, verdict, rs)
