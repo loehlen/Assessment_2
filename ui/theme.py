@@ -53,6 +53,16 @@ details.lfold ul{margin-top:.2rem}
 .it{padding:.12rem 0 .12rem .6rem;border-left:2px solid #5B7089;margin:.1rem 0}
 .it.one{border-left-color:#E2DDD2}
 .or{color:#55514A;font-style:italic}
+[data-testid="stSelectboxVirtualDropdown"]{min-width:11.5rem !important}
+/* messages: slate blue = done or for information, sand = to check, ink frame = blocking (red, yellow and green
+   stay reserved for the labels and results) */
+[data-testid="stAlertContainer"]{background:#E9EEF4 !important}
+[data-testid^="stAlertContent"],[data-testid^="stAlertContent"] p{color:#22313F !important}
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentWarning"]){background:#F2EFE8 !important;
+ border:1px solid #C9C2B4}
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentError"]){background:#FBFAF7 !important;
+ border:1.5px solid #22313F}
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentError"]) p{font-weight:600}
 .st-key-stepnav{border-bottom:1px solid #E2DDD2;margin-bottom:.4rem}
 .st-key-stepnav button{background:transparent !important;border:none !important;border-bottom:2px solid transparent !important;
  border-radius:0 !important;box-shadow:none !important;color:#1F1D1A !important;padding-left:0;padding-right:0}
@@ -202,7 +212,8 @@ PREF_CSS = """<style>
 .pref .pbox{display:block;visibility:hidden;opacity:0;position:absolute;z-index:1000;left:0;right:0;margin-top:1.5em;
  width:auto;max-width:44em;max-height:26em;overscroll-behavior:contain;
  overflow:auto;background:#fff;color:#1f2328;border:1px solid #c8c8c8;border-radius:6px;padding:.6em .8em;
- box-shadow:0 4px 14px rgba(0,0,0,.18);font-size:.86rem;line-height:1.45;white-space:normal;text-align:left;
+ box-shadow:0 4px 14px rgba(0,0,0,.18);font-size:.86rem;line-height:1.45;white-space:normal;text-align:justify;
+ hyphens:auto;-webkit-hyphens:auto;
  font-weight:normal;font-style:normal;transition:visibility 0s linear .35s,opacity .12s linear .25s}
 .pref .pbox::before{content:"";position:absolute;left:0;right:0;top:-1.6em;height:1.6em}
 .pref:hover .pbox{visibility:visible;opacity:1;transition-delay:0s}

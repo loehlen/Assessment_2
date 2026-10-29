@@ -70,7 +70,7 @@ def run_precedents(ai):
                     "the products only, never company names. This usually takes one to four minutes.")
     kept = [u for u in units if u not in todo]
     if kept:
-        card.log(f"✔ {plural(len(kept), 'search', 'searches')} kept from before (their rows did not change)")
+        card.log("✔ Rows that did not change keep their earlier result")
     added = ss.get("uploads") or []
     for u in added:                # after "Open saved progress" the added decisions come without their embeddings
         if u.get("vectors") is None:
@@ -192,9 +192,7 @@ def precedent_button(units, todo, step=4):
     # changed or a search failed, the update first
     with st.container(horizontal=True, vertical_alignment="center"):
         if todo:
-            label = (f"Update the market definitions ({plural(len(todo), 'search', 'searches')} for new or changed "
-                     f"rows, {len(units) - len(todo)} kept)")
-            if st.button(label, type="primary"):
+            if st.button("Update the market definitions", type="primary"):
                 for u in failed:          # a failed search is never "reusable": drop it so that it runs again
                     ss.precedents.pop(u["target_aid"], None)
                 start_work("precedents")

@@ -97,15 +97,11 @@ GUIDES = {
 
 
 def database_text():
-    """'The database holds a limited set of decisions (2010–2015) and the Market Definition Notice', from the corpus."""
+    """'The database holds a limited set of decisions and the Market Definition Notice', from the corpus."""
     paras = builtin_paragraphs().values()
-    years = sorted({str(p.get("date") or "")[:4] for p in paras if p.get("source_type") == "Commission decision"}
-                   - {""})
-    span = f" ({years[0]}–{years[-1]})" if len(years) > 1 else (f" ({years[0]})" if years else "")
     notice = any(p.get("source_type") == "Commission notice" for p in paras)
     added = [u["case"] for u in ss.get("uploads") or []]
-    return (f"The database holds a limited set of decisions{span}" + (" and the Market Definition Notice" if notice
-                                                                      else "")
+    return ("The database holds a limited set of decisions" + (" and the Market Definition Notice" if notice else "")
             + (f", plus {plural(len(added), 'decision')} you added ({', '.join(added)})" if added else ""))
 
 

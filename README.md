@@ -182,8 +182,9 @@ excludes it.
    the customer comparison in code. The lawyer sets a view on each label ("Likely", "Unlikely", "Ask the company",
    "Dismiss"), adds labels and rewrites the wording. Labels that are less likely (a horizontal label across different
    levels of trade without fully the same direct customers, or an input for a shop or wholesaler, which resells) are shown
-   folded in their row; rows whose only labels are such horizontal ones are folded under "Less likely". Display
-   only: the labels, step ④ and the tables of the Word document stay as they are.
+   with their details folded, but every row stays in the table, so that none is overlooked; the Word document lists
+   rows with only such a horizontal label in a table of their own. Display only: the labels, step ④ and the tables of
+   the Word document stay as they are.
 4. **Market definitions**: one search per target activity in the database of Commission decisions (hybrid retrieval,
    one reflection per type of product, at most one rewrite); every quotation of the Commission is checked word for
    word. Each result stands beside the label it belongs to. A shop's or wholesaler's own market is the retail or

@@ -72,8 +72,8 @@ def para_ref(pid, paras, seen=True):
               + ("The paragraph exactly as the AI saw it." if seen else "The paragraph this rule of the app rests on.")
               + (" Click to open the decision." if url else "") + "</span>"))
     if url:
-        return f"<a class='pref' href='{h(url)}' target='_blank'>{h(label)}<span class='pbox'>{box}</span></a>"
-    return f"<span class='pref'>{h(label)}<span class='pbox'>{box}</span></span>"
+        return f"<a class='pref' href='{h(url)}' target='_blank'>{h(label)}<span class='pbox' lang='en'>{box}</span></a>"
+    return f"<span class='pref'>{h(label)}<span class='pbox' lang='en'>{box}</span></span>"
 
 
 def para_refs(pids, paras):

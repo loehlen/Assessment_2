@@ -107,8 +107,7 @@ def legend_html(step):
                      "whether both compete for the same customers is to be checked. A vertical input link to a shop "
                      "or wholesaler: such a company resells, so the input could only serve its own minor use. Such "
                      "a label is shown folded (open “Details”) and counted on one line in the summary; setting a "
-                     "view or a note shows it in full. Rows with only less likely horizontal labels are folded "
-                     "under “Less likely”."))
+                     "view or a note shows it in full."))
     dots = line(dots_html("●●○"), "direct customers (hover over the dots)",
                 "Three filled dots: the same direct customers; two: partly the same; one: different; “customers not stated”: one "
                 "side's sources do not say. Compares only who each company sells "

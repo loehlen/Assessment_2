@@ -18,7 +18,7 @@ from ui.activity_display import (activity_line, CUSTOMER_TEXT, display_order, ot
 from ui.guides import guide_box
 from ui.upload_box import upload_box
 from steps.step3_assessment import (_entry, _store_override, _store_views, assessment_plain, current_overrides,
-                                    direction, failed_pairs, FOUND_BY_WORDS, is_less_likely, is_own_use,
+                                    direction, failed_pairs, FOUND_BY_WORDS, is_own_use,
                                     joint_link_sentence, kept, label_groups, label_html, label_parts,
                                     less_likely_part, less_tag, name_ab, own_use_flag, part_detail, portco_sentence,
                                     relationship_html, row_status, RULE_WORDS, set_aside_text, side_items, view_of,
@@ -410,38 +410,30 @@ def portco_section(i, p, target, pairs, status, rv):
 
 def section_body(t_acts, rows_of, is_out, pairs, status, rv, target, p, n_portco, nested):
     """The table of one portfolio company's box: every target activity (side lines included), then the rows
-    that involve only own use, collapsed. Inside the collapsed box (nested) Streamlit allows no second expander, so
-    "Own use" is a plain sub-heading there."""
+    that involve only own use, collapsed. Rows with only a "less likely" label stay in the table, marked as such with
+    their details folded, so that the lawyer sees every row once. Inside the collapsed box (nested) Streamlit allows no
+    second expander, so "Own use" is a plain sub-heading there."""
     table_header(target, p)
     for ta in t_acts:
         rs = rows_of(ta)
-        main_rows = [r for r in rs if not is_out(r) and not is_own_use(r) and not is_less_likely(r)]
+        main_rows = [r for r in rs if not is_out(r) and not is_own_use(r)]
         screened = [r for r in rs if is_out(r)]
         if main_rows or screened:
             target_block(ta, main_rows, screened, status, rv, target, p, n_portco)
-    less_rows = [r for r in pairs if not is_out(r) and is_less_likely(r)]
     own_rows = [r for r in pairs if not is_out(r) and is_own_use(r)]
-    less_title = (f"Less Likely: {plural(len(less_rows), 'horizontal label')} across different levels of trade, "
-                  "without fully the same direct customers")
-    for rows, title in ((less_rows, less_title),
-                        (own_rows, f"Own Use: {plural(len(own_rows), 'potential link')} (production for the group "
-                                   "itself, which can only be the customer side)")):
-        if not rows:
-            continue
+    if own_rows:
+        title = (f"Own Use: {plural(len(own_rows), 'potential link')} (production for the group itself, which can only "
+                 "be the customer side)")
         if nested:
             st.markdown(f"**{title}**")
-            own_table(t_acts, rows_of, rows, status, rv, target, p, n_portco)
+            own_table(t_acts, rows_of, own_rows, status, rv, target, p, n_portco)
         else:
             with st.expander(title):
-                if rows is less_rows:
-                    st.caption("Different levels of trade are often different markets; where the two companies "
-                               "also have different direct customers, a horizontal overlap is less likely. Set a view "
-                               "or add a note to move a row back into the table.")
-                own_table(t_acts, rows_of, rows, status, rv, target, p, n_portco)
+                own_table(t_acts, rows_of, own_rows, status, rv, target, p, n_portco)
 
 
 def own_table(t_acts, rows_of, own_rows, status, rv, target, p, n_portco):
-    """The rows of a folded section ("Less likely", "Own use"), in the target's order."""
+    """The rows of the folded section "Own use", in the target's order."""
     table_header(target, p)
     ids = {cmp.pair_id(r) for r in own_rows}
     for ta in t_acts:

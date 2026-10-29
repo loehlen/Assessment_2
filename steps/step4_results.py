@@ -139,7 +139,7 @@ def market_hover(m, paras, category=None):
         # no passage of the Commission verified word for word: the AI's summary, marked as such
         box += f"<br><i>AI summary (not a quotation):</i> {h(m['summary'])}"
     box += "<br><span style='opacity:.7'>The decision is listed in the sidebar, under “Commission decisions”.</span>"
-    return f"<span class='pref mk'>{h(mname(m['name']))}<span class='pbox'>{box}</span></span>"
+    return f"<span class='pref mk'>{h(mname(m['name']))}<span class='pbox' lang='en'>{box}</span></span>"
 
 
 def _items_html(g, market_name=""):
@@ -839,6 +839,13 @@ def commission_htmls(r, target, portco, parts, folded=None):
         out[0] = f"<div class='ccell'>{failed}{he_lines(edited)} <span class='ed'>edited by you</span></div>"
         return out
     groups = assign_commission(commission_sentences(r, target, portco), parts, target)
+    # a line for the whole row (e.g. "no decision covers these products" for all labels, or a failed search) sits on
+    # the first label; if that label is folded ("less likely"), it is repeated, open, on the first label shown in full
+    if groups and folded and folded[0]:
+        whole = [e for e in groups[0] if not e[0]]
+        j = next((i for i, p in enumerate(parts) if i and not folded[i] and not p.get("off")), None)
+        if whole and j is not None and j < len(groups):
+            groups[j] = whole + groups[j]
     for i, p in enumerate(parts):      # a second vertical label in the same direction (input and resale): same markets
         if (p.get("kind") == "v" and not p.get("off") and not groups[i] and any(
                 q.get("kind") == "v" and not q.get("off") and q.get("up") == p.get("up") and groups[j]

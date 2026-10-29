@@ -627,28 +627,33 @@ def assign_commission(entries, parts, target):
     return out
 
 
-def portco_sentence(target, portco, pairs, status, own_where="in the collapsed section below",
-                    less_where="in the collapsed section “Less likely” below"):
+def portco_sentence(target, portco, pairs, status, own_where="in the collapsed section below", less_where=None):
     """One sentence per portfolio company, counted by business area (not by pairs), assembled in code. Rows that
     involve only own use are counted separately: they sit in their own section (on screen collapsed, in the Word
-    document the table "Own Use"; side lines count with the main activities)."""
+    document the table "Own Use"; side lines count with the main activities). Rows with only less likely labels stay
+    in the table on screen (less_where None: counted with the others and named); the Word document lists them in a
+    table of their own (less_where says where)."""
     n = len(dict.fromkeys(r["label_b"] for r in pairs))
     live = [r for r in pairs if kept(status[cmp.pair_id(r)])]
     P, T = esc(portco), esc(target)
     if not live:
         return (f"{poss(P)} only activity does not meet any activity of {T}." if n == 1 else
                 f"None of {poss(P)} {n} activities meets an activity of {T}.")
-    main_live = [r for r in live if not is_own_use(r) and not is_less_likely(r)]
+    in_table = less_where is None
+    main_live = [r for r in live if not is_own_use(r) and (in_table or not is_less_likely(r))]
     own_live = [r for r in live if is_own_use(r)]
     less_live = [r for r in live if is_less_likely(r)]
     notes = ([f"{plural(len(less_live), 'less likely horizontal label')} (different levels of trade, not fully the same "
-              f"direct customers), {less_where}"] if less_live else []) + \
+              f"direct customers), {less_where}"] if less_live and not in_table else []) + \
             ([f"{plural(len(own_live), 'potential link')} involving own use, {own_where}"] if own_live else [])
     if not main_live:
         return f"No overlap with {poss(T)} activities except {' and '.join(notes)}."
     k = len({r["label_b"] for r in main_live})
     text = (f"{poss(P)} only activity meets activities of {T}." if n == 1 else
             f"{k} of {poss(P)} {n} activities {'meets' if k == 1 else 'meet'} activities of {T}.")
+    if in_table and less_live:
+        text = (text[:-1] + f"; {plural(len(less_live), 'row has', 'rows have')} only a less likely horizontal label "
+                "(different levels of trade, not fully the same direct customers), marked “less likely”.")
     return text + "".join(f" Also {x}." for x in notes)
 
 
