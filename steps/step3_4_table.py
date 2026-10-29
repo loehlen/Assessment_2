@@ -454,6 +454,15 @@ def stage_overview(ai, step=3):
     st.write(STEP4_TEXT if step == 4 else STEP3_TEXT)
     st.html(PREF_CSS)                  # the hover boxes (sources, paragraphs, markets); style only, no space
     guide_box(4 if step == 4 else 3)
+    ov = market_overview() if step == 4 and ss.get("precedents") else None
+    if ov and ov["none"] and not ov["lines"]:
+        # nothing at all was found: the database holds no decision for this screen (a partial result is explained in
+        # the limits of the guide above)
+        st.warning("None of the products in this screen is covered by a decision in the app's database. This does not "
+                   "mean that the Commission has never defined these markets: the database holds only a limited set "
+                   "of decisions. If you know or find a relevant decision (for example in the Commission's case search "
+                   "or a legal database), add it under “Add a Commission Decision or Extract” at the end of this step, "
+                   "then press “Update the market definitions”.")
     if ss.get("loaded_from"):
         lf = ss.loaded_from
         st.caption(f"Continued from a saved progress file ({esc((lf.get('created') or 'unknown date').replace('T', ' '))}); "
@@ -475,7 +484,6 @@ def stage_overview(ai, step=3):
                    "marked “Unclear”; see “Why?”). Go back to step ② and press “Update the comparison” to send "
                    f"{'it' if len(failed) == 1 else 'them'} again.")
     if step == 4 and ss.get("precedents"):
-        ov = market_overview()
         if ov and (ov["lines"] or ov["none"] or ov["failed"]):
             with st.expander("Markets in the Commission's Decisions"):
                 st.caption("Every market a product of the rows below falls in, once, with the products of each company "

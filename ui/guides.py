@@ -87,7 +87,9 @@ GUIDES = {
             f"{_chips('Markets defined', 'One side defined')} vertical rows: the two markets whose shares decide the "
             "30 % tests; not proof that one company supplies the other."]),
         ("Limits", [
-            "{database}; a decision outside the database is not found.",
+            "{database}; a decision outside the database is not found. “No precedent” therefore means: not in this "
+            "database, not: never defined by the Commission. A decision you find yourself can be added at the end of "
+            "this step.",
             "Each decision describes the market at its time; the Commission is not bound by it (Notice (14)).",
             "Shops and wholesalers: the decisions describe the products they sell, not their own retail or wholesale "
             "market.",
