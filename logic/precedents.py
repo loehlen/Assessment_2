@@ -1058,6 +1058,31 @@ def unify_names(records):
             m["name_as_found"], m["name"] = name, best
 
 
+def _level_key(m):
+    cases = tuple(sorted({case_of(pid) for pid in m.get("product_paragraphs") or [] if not pid.startswith("Notice")}))
+    return cases, _market_key(m.get("name"))
+
+
+def complete_levels(records):
+    """A market whose level no passage of its own call showed takes the level verified for the SAME market (same
+    decision, same name) in another call, if the calls that verified one agree: the level is a property of the market
+    in the decision, so a passage verified once shows it for every call (without this, one market could count as known
+    in one row and as unknown in the next). The passage is copied with its paragraph, and "level_from" names where it
+    was found. Code, no AI call; changes the markets in place; idempotent."""
+    markets = [m for rec in records if isinstance(rec, dict) for m in (rec.get("markets") or {}).values()]
+    known = {}
+    for m in markets:
+        if m.get("level_quote_found") and m.get("level") not in (None, NOT_LEVEL):
+            known.setdefault(_level_key(m), []).append(m)
+    for m in markets:
+        donors = known.get(_level_key(m)) or []
+        if m.get("level_quote_found") or len({d["level"] for d in donors}) != 1:
+            continue
+        d = donors[0]
+        m.update(level=d["level"], level_quote=d.get("level_quote", ""), level_paragraph=d.get("level_paragraph", ""),
+                 level_quote_found=True, level_from=d.get("market_id", ""))
+
+
 def _same_call(record, r, items):
     """Whether at least one product of each side of the row was placed in the same reflection call. Older records had
     one call for all products."""

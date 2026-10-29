@@ -4,10 +4,11 @@ logic/examples.py - the ready-made examples behind "Try an example": the three t
 Only the inputs a user would type: names, websites, other names and, where a test case uses one, the description a
 lawyer would type in step ① (source mode "my description" or "both"). The run itself is live.
 TC1: markets the Commission has defined; every company researched on the web.
-TC2: a precedent for only one side; one portfolio company researched on the web AND described by the lawyer ("both").
-TC3: no precedent; one portfolio company described by the lawyer only ("my description", no web search).
-Other sector (not one of the three test cases): paints, facade systems, DIY retail and adhesives, to show that the
-design contains no sector knowledge. No decision of this sector is in the corpus.
+TC2: a precedent for only one side, and products with none; the three ways of finding a company's activities side by
+     side: web search, web search AND the lawyer's description ("both"), the lawyer's description only.
+TC3: another sector (paints, facade systems, DIY retail and adhesives), to show that the design contains no sector
+     knowledge. No decision of this sector is in the database until the lawyer adds one (test_files/).
+Koa (not one of the three test cases): cocoa fruit products, with no precedent.
 
 The real companies form a hypothetical portfolio; no real transaction is implied. The typed descriptions state only
 facts from public sources.
@@ -39,7 +40,7 @@ BARRY_CALLEBAUT_ADDED = (
     "snacks, bakery products and confectionery. Barry Callebaut also processes cocoa beans into cocoa liquor, cocoa "
     "butter and cocoa powder, which it sells to food manufacturers.")
 
-# TC3, "my description": how the client would describe its own portfolio company; no web search for this company.
+# TC2 and Koa, "my description": how the client would describe its own portfolio company; no web search for it.
 RITTER_SPORT_DESCRIBED = (
     "Alfred Ritter GmbH & Co. KG (Ritter Sport) is a family-owned chocolate manufacturer based in Waldenbuch, Germany. "
     "It makes square chocolate bars (100 g bars, large bars and minis) in many varieties, including organic and vegan "
@@ -53,13 +54,15 @@ EXAMPLES = {
     "TC1": {"button": "TC1 · Lindt & Sprüngli", "target": "Lindt & Sprüngli", "portfolio": PORTFOLIO,
             "what": "Markets the Commission has defined in earlier decisions; every company researched on the web"},
     "TC2": {"button": "TC2 · Planet A Foods", "target": "Planet A Foods", "portfolio": PORTFOLIO,
-            "sources": {"Barry Callebaut": ("both", BARRY_CALLEBAUT_ADDED)},
+            "sources": {"Barry Callebaut": ("both", BARRY_CALLEBAUT_ADDED),
+                        "Ritter Sport": ("my description", RITTER_SPORT_DESCRIBED)},
             "what": "A new product with a precedent for only one side; Barry Callebaut researched on the web and "
-                    "described by you (“both”)"},
-    "TC3": {"button": "TC3 · Koa", "target": "Koa", "portfolio": PORTFOLIO,
+                    "described by you (“both”), Ritter Sport described by you only (“my description”, no web search)"},
+    "TC3": {"button": "TC3 · Brillux", "target": "Brillux", "portfolio": ["Hornbach", "Sto", "Henkel"],
+            "what": "Paints, facade systems, DIY retail and adhesives: the same tool in a sector it was not built "
+                    "around, with a Commission decision you add"},
+    "Koa": {"button": "More · Koa", "target": "Koa", "portfolio": PORTFOLIO,
             "sources": {"Ritter Sport": ("my description", RITTER_SPORT_DESCRIBED)},
             "what": "Cocoa fruit products, with no precedent; Ritter Sport described by you only (“my description”, no "
                     "web search)"},
-    "OS": {"button": "Other sector · Brillux", "target": "Brillux", "portfolio": ["Hornbach", "Sto", "Henkel"],
-           "what": "Paints, facade systems, DIY retail and adhesives: the same tool in a sector it was not built around"},
 }

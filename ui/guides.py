@@ -7,7 +7,7 @@ import streamlit as st
 
 from ui.common import plural, ss
 from ui.labels import dots_html, OUTCOME_CLASS
-from ui.decisions import builtin_paragraphs
+from ui.decisions import builtin_paragraphs, para_ref
 
 
 # A short guide at the start of steps ②–④, always open (the lawyer can fold it), in the same three columns on every
@@ -90,12 +90,10 @@ GUIDES = {
             "{database}; a decision outside the database is not found. “No precedent” therefore means: not in this "
             "database, not: never defined by the Commission. A decision you find yourself can be added at the end of "
             "this step.",
-            "Each decision describes the market at its time; the Commission is not bound by it (Notice (14)).",
+            "Each decision describes the market at its time; the Commission is not bound by it {ref:Notice-14}.",
             "Levels of trade: a market counts for a company only at its own level (for a shop: the retail of the "
             "products it sells; for a manufacturer: the supply of its products). A market at another level is named "
-            "as such, never counted as the company's own (Notice (14)). The level comes from our notes on the "
-            "decisions in the database, or, for a decision you add, from a passage of the decision checked word for "
-            "word; where neither shows it, the market is never an exact match.",
+            "as such, never counted as the company's own {ref:Notice-14}.",
             "Product markets only: geography and market shares, which decide whether a market is “affected”, are not "
             "assessed."])]),
 }
@@ -110,13 +108,19 @@ def database_text():
             + (f", plus {plural(len(added), 'decision')} you added ({', '.join(added)})" if added else ""))
 
 
+def _refs(text):
+    """{ref:Notice-14}: the paragraph with its text on hover, as everywhere in steps ③ and ④."""
+    return re.sub(r"\{ref:([^}]+)\}", lambda m: para_ref(m.group(1), {}, seen=False), text)
+
+
 def guide_html(step):
     title, cols = GUIDES[step]
     out = []
     for head, items in cols:
-        lis = "".join("<li>" + re.sub(r"\{chip:([^}]+)\}", lambda m: f"<span class='oc {OUTCOME_CLASS[m.group(1)]}' "
-                                      f"style='margin:0'>{m.group(1)}</span>",
-                                      t.replace("{database}", database_text())) + "</li>" for t in items)
+        def chip(m):
+            return f"<span class='oc {OUTCOME_CLASS[m.group(1)]}' style='margin:0'>{m.group(1)}</span>"
+        lis = "".join("<li>" + _refs(re.sub(r"\{chip:([^}]+)\}", chip, t.replace("{database}", database_text())))
+                      + "</li>" for t in items)
         out.append(f"<div><div class='gh'>{head}</div><ul>{lis}</ul></div>")
     return f"<div class='guide'>{''.join(out)}</div>"
 

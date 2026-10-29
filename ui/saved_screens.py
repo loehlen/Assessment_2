@@ -140,6 +140,7 @@ def load_audit(data):
         if isinstance(rec, dict):
             prec.verify_labels(rec)
     prec.unify_names(ss.precedents.values())
+    prec.complete_levels(ss.precedents.values())
     before = list(data.get("call_log_before_loading") or []) + list(data.get("call_log") or [])
     ss.loaded_calls = before
     ss.loaded_from = {"created": data.get("created"), "loaded": now_local().isoformat(timespec="seconds"),

@@ -76,11 +76,14 @@ def _start():
 def landing_page():
     """The start page: the explanation, then the call to action below it, then the small print. The sidebar holds only
     the API key module (submitted version); "Open saved progress" sits next to "Start now"."""
+    # the start page fits one screen: less space above the title (on this page only)
+    st.html("<style>[data-testid='stMainBlockContainer']{padding-top:3.9rem !important;padding-left:3rem !important;"
+            "padding-right:3rem !important}</style>")
     st.markdown(landing_html(title=True), unsafe_allow_html=True)
     with st.container(key="ctaband"):
         c1, c2 = st.columns([3, 2], vertical_alignment="center")
         c1.markdown("<div class='lp-cta-t'>Ready to Screen a Deal?</div><div class='lp-cta-x'>Enter the target and up "
-                    "to five portfolio companies, or try one of the examples.</div>", unsafe_allow_html=True)
+                    "to five portfolio companies, or try an example.</div>", unsafe_allow_html=True)
         with c2, st.container(horizontal=True, gap="small", vertical_alignment="center", horizontal_alignment="right"):
             st.button("Start now →", key="cta_start", on_click=_start)
             with st.popover("Open Saved Progress"):

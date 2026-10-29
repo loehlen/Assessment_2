@@ -88,38 +88,39 @@ details.lfold ul{margin-top:.2rem}
 .lgh{grid-column:1/-1;font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:.92rem;
  margin:.45rem 0 0 0}
 .lgh:first-child{margin-top:0}
-.lp-title{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:2.3rem;line-height:1.2;color:#22313F;
- margin:0 0 .9rem 0}
-.lp-lead{font-size:1.2rem;line-height:1.5;color:#3D3A35;margin:0 0 1.6rem 0}
+.lp-title{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:2.1rem;line-height:1.15;color:#22313F;
+ margin:0 0 .55rem 0}
+.lp-lead{font-size:1.02rem;line-height:1.4;color:#3D3A35;margin:0 0 .6rem 0}
 .lp-lead,.lp-why p,.lp-item>div{text-align:justify;hyphens:auto;-webkit-hyphens:auto}
 .lp-lead{hyphens:manual;-webkit-hyphens:manual}
-.lp-split{display:flex;flex-wrap:wrap;gap:2.8rem;align-items:flex-start;margin:.4rem 0 2.4rem 0}
+.lp-split{display:flex;flex-wrap:wrap;gap:2rem;align-items:flex-start;margin:0 0 .8rem 0}
 .lp-main{flex:3 1 28rem;min-width:0}
-.lp-h2{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:1.35rem;margin:0 0 .7rem 0;color:#22313F}
-.lp-why p{margin:0 0 .75rem 0;color:#3D3A35;line-height:1.6}
+.lp-h2{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:1.25rem;margin:0 0 .45rem 0;color:#22313F}
+.lp-why p{margin:0 0 .3rem 0;color:#3D3A35;line-height:1.38;font-size:.9rem}
 .lp-why b{color:#1F1D1A}
-.lp-panel{flex:2 1 22rem;min-width:0;background:#F2EFE8;border-radius:8px;padding:1.6rem 1.7rem .6rem 1.7rem}
-.lp-item{display:flex;gap:.85rem;align-items:flex-start;margin:0 0 1rem 0;line-height:1.55}
+.lp-panel{flex:2 1 22rem;min-width:0;background:#F2EFE8;border-radius:8px;padding:1.1rem 1.5rem .35rem 1.5rem}
+.lp-item{display:flex;gap:.8rem;align-items:flex-start;margin:0 0 .5rem 0;line-height:1.38;font-size:.9rem}
 .lp-item svg{flex:none;margin-top:.15rem}
 .lp-item span{color:#3D3A35}
-.lp-steps-sec{border-top:1px solid #E2DDD2;padding-top:1.9rem;margin-bottom:2.4rem}
-.lp-steps{list-style:none;margin:1.7rem 0 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));
- gap:1.7rem 1.5rem}
-.lp-steps li{border-top:2px solid #E2DDD2;display:flex;flex-direction:column;gap:.45rem;margin:0;padding:0}
+.lp-steps-sec{border-top:1px solid #E2DDD2;padding-top:.55rem;margin-bottom:.9rem}
+.lp-steps{list-style:none;margin:1.05rem 0 0 0;padding:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));
+ gap:1.4rem 1.2rem}
+@media (max-width:900px){.lp-steps{grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))}}
+.lp-steps li{border-top:2px solid #E2DDD2;display:flex;flex-direction:column;gap:.2rem;margin:0;padding:0}
 .lp-num{display:inline-flex;align-items:center;justify-content:center;width:1.9rem;height:1.9rem;margin-top:-1rem;
  border-radius:50%;background:#22313F;color:#fff;font-size:.88rem;font-weight:600}
-.lp-st{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:1.12rem}
-.lp-sx{font-size:.9rem;color:#3D3A35}
-.lp-foot{font-size:.82rem;color:#55514A;border-top:1px solid #E2DDD2;padding-top:1rem;margin-top:1.8rem}
-.st-key-ctaband{background:#22313F;border-radius:8px;padding:1.9rem 2.3rem}
-.lp-cta-t{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:1.75rem;line-height:1.2;color:#fff;
- margin:0 0 .3rem 0}
-.lp-cta-x{color:#D9DEE4;font-size:1rem}
+.lp-st{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:1.08rem}
+.lp-sx{font-size:.86rem;line-height:1.35;color:#3D3A35}
+.lp-foot{font-size:.78rem;line-height:1.4;color:#55514A;border-top:1px solid #E2DDD2;padding-top:.5rem;margin-top:.7rem}
+.st-key-ctaband{background:#22313F;border-radius:8px;padding:.85rem 1.8rem}
+.lp-cta-t{font-family:"Times New Roman",Tinos,serif;font-weight:700;font-size:1.45rem;line-height:1.2;color:#fff;
+ margin:0 0 .2rem 0}
+.lp-cta-x{color:#D9DEE4;font-size:.95rem}
 .st-key-cta_start button{background:#fff !important;color:#22313F !important;border:1px solid #fff !important;
- min-height:3.2rem;padding:0 1.8rem}
+ min-height:2.8rem;padding:0 1.8rem}
 .st-key-cta_start button p{font-weight:700;font-size:1.05rem;color:#22313F !important}
 .st-key-ctaband [data-testid="stPopover"] button{background:transparent !important;border:1px solid #8C9AAA !important;
- min-height:3.2rem}
+ min-height:2.8rem}
 .st-key-ctaband [data-testid="stPopover"] button p,.st-key-ctaband [data-testid="stPopover"] button svg{color:#fff !important}
 .chip{display:inline-block;font-size:.76rem;padding:.02rem .5rem;border-radius:10px;background:#ECEAE5;color:#4A463F;
  margin:0 .2rem;white-space:nowrap}

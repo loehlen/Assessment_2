@@ -118,6 +118,7 @@ def run_precedents(ai):
     card.log(f"Market definitions looked up for {plural(len(todo), 'activity', 'activities')} of the target in "
              f"{time.time() - t0:.0f} s")
     prec.unify_names(store.values())
+    prec.complete_levels(store.values())
     ss.precedents = store
     log_stage("precedents", first, time.time() - t0)
     ss.step = 4
