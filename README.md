@@ -147,7 +147,8 @@ Commission, or pasted text, either the whole decision or only the paragraphs on 
 copy them from a legal database (each paragraph with its number, e.g. "(42) …"; an extract may start at any paragraph).
 The app reads the case number, title and date from the first page of a whole decision (an extract needs the case
 number typed in), finds the numbered paragraphs with the same parser as the built-in database (`logic/ingest.py`) and
-proposes the parts on market definition (editable ranges, e.g. "12–49, 92"). One embedding request prepares the
+proposes the parts on market definition, from the headings and the Commission's usual wording for a market
+definition (for an extract: every paragraph; editable ranges, e.g. "12–49, 92"). One embedding request prepares the
 paragraphs for the search; there is no AI call. The added text is never sent to the AI as a whole: it is chunked and
 embedded like the built-in database, and step ④ retrieves only the paragraphs relevant to each type of product (at
 most 14 per reflection call, as for the built-in decisions). Quotations are checked word for word against the added
@@ -162,8 +163,10 @@ out of the database on purpose (a hold-out). Uploading it adds only the paragrap
 coffee-bean paragraphs to search.
 
 Limits: Commission merger decisions only (case numbers "M.1234"); a scanned PDF has no text to read (paste the text
-instead); the proposed paragraphs follow the decision's headings, so the market definition of a further product under a
-heading that names only the product (e.g. "2. Fillers" in M.4779) is not proposed: check the ranges before adding; a retail or wholesale market counts for a shop or wholesaler only if its name says so ("retail distribution of
+instead); the proposed paragraphs follow the decision's headings and the Commission's standard wording for a market definition
+("the market definition can be left open", "constitutes a separate market", "forms part of a larger market"): a part
+on a further product that uses neither (e.g. under a heading that names only the product) is not proposed, so the
+ranges are worth a look before adding; a retail or wholesale market counts for a shop or wholesaler only if its name says so ("retail distribution of
 decorative coatings"): one named differently (e.g. "DIY stores") is still shown as "No precedent", and a
 manufacturers' market named "wholesale supply" counts for a wholesaler; an extract is only as complete as the lawyer's
 selection (it should include the Commission's own conclusion,

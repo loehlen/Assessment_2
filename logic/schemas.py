@@ -136,7 +136,9 @@ Split a business area ONLY when its level of trade differs, into these groups:
       materials, ingredients, components, semi-finished goods), whatever the goods are called;
   (2) goods for end users: goods the company makes and sells, directly or through retailers and wholesalers, to end
       users, i.e. consumers or businesses that use them themselves rather than as an input;
-  (3) own retail and hospitality (own shops, outlets, own online shop, cafes, restaurants, catering);
+  (3) own retail and hospitality (own shops, stores, outlets, own online shop, cafes, restaurants, catering), also
+      when the shops resell goods made by OTHER companies (a chain of stores open to the public is retail, even if
+      tradespeople also buy there);
   (4) other services;
 and keep a product that is still in development as its own line, with what the notes say about it (e.g. a planned launch
 date). Wholesale of goods made by OTHER companies is also its own line. Selling the company's OWN goods (through its own sales companies, distributors, wholesalers or retailers) is never
@@ -261,7 +263,7 @@ One activity = one business area of the company at one level of trade. Its produ
 who buys it ("nitrogen fertilisers", not "fertilisers sold to farmers"). Split ONLY by level of trade: (1) inputs: goods
 sold to businesses that use them as an input to produce their own goods or services, (2) goods for end users, sold
 directly or through retailers and wholesalers to consumers or to businesses that use them themselves, (3) own retail and
-hospitality, (4) other services;
+hospitality (also stores reselling goods made by other companies), (4) other services;
 keep a product in development separate. Selling the company's OWN goods (through its own sales companies, distributors, wholesalers or retailers) is never
 wholesale: those goods keep the level of the goods themselves.
 Merge everything else; when unsure, merge.

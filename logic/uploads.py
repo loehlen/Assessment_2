@@ -193,10 +193,39 @@ def parse_ranges(text):
     return out
 
 
-def default_ranges(records):
-    """The paragraphs in the parts on market definition; all paragraphs if no such part was recognised."""
+# The market definition of a further product often sits under a heading that names only the product ("2. Fillers"),
+# so the headings alone miss it. Such a part is added when one of its paragraphs uses the Commission's wording for a
+# market definition; then the whole part (every paragraph under the same headings) is added, not the sentence alone.
+# The phrases are the Commission's standard formulas, deliberately narrow: "under all possible market definitions" (a
+# market-share sentence) does not count.
+DEFINING = re.compile(r"(?:market definition (?:can|could|may) (?:therefore )?be left open"
+                      r"|relevant (?:product )?market (?:is|to be|comprises|consists|includes)\b"
+                      r"|constitut\w* (?:a |one )?(?:separate|distinct|single) (?:relevant )?(?:product )?market"
+                      r"|distinct (?:product )?market from"
+                      r"|forms? part of a (?:larger|wider|broader) (?:product )?market"
+                      r"|(?:product|relevant) market (?:can|could|may) (?:therefore )?be left open)", re.IGNORECASE)
+LEAVE_OUT = ("remed", "commitment", "conclusion", "conditions and obligations")
+
+
+def default_ranges(records, extract=False):
+    """The paragraphs in the parts on market definition (by the decision's headings), plus any later part whose
+    paragraphs define a market in the Commission's words (see DEFINING); all paragraphs if no part on market definition
+    was recognised, or if the text is an extract (pasted, not starting at paragraph (1)): an extract is already the
+    lawyer's selection. The lawyer can change the ranges."""
     nums = [r["para"] for r in records if r.get("section") in MARKET_SECTIONS]
-    return ranges_text(nums or [r["para"] for r in records])
+    if extract or not nums:
+        return ranges_text([r["para"] for r in records])
+    start = next(k for k, r in enumerate(records) if r.get("section") in MARKET_SECTIONS)
+
+    def left_out(r):
+        return any(k in h.lower() for h in r.get("headings") or [] for k in LEAVE_OUT)
+    later = [r for r in records[start:] if r["para"] not in nums and not left_out(r)]
+    hits = [r for r in later if DEFINING.search(r.get("text") or "")]
+    # a whole part only where the part has a heading; without headings (e.g. a PDF read without its layout) only the
+    # paragraph itself, so that one sentence never pulls in the rest of the decision
+    parts = {tuple(r["headings"]) for r in hits if r.get("headings")}
+    extra = [r["para"] for r in later if r in hits or (r.get("headings") and tuple(r["headings"]) in parts)]
+    return ranges_text(nums + extra)
 
 
 def select(records, ranges):

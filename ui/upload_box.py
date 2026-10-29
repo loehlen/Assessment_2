@@ -120,10 +120,12 @@ def upload_box(ai):
         if not records:
             st.warning("Every paragraph found is already in the app's database: nothing to add.")
             return
+        extract = origin == "pasted text" and min([r["para"] for r in records] + skipped) > 1
         ranges_in = st.text_input(
-            "Paragraphs to use", value=uploads.default_ranges(records), key=f"up_ranges_{key}",
-            help="Proposed: the parts on market definition, as found from the decision's headings. Change the ranges "
-                 "if the decision defines markets elsewhere too (e.g. in the competitive assessment).")
+            "Paragraphs to use", value=uploads.default_ranges(records, extract=extract), key=f"up_ranges_{key}",
+            help="Proposed: the parts on market definition, found from the decision's headings and from the "
+                 "Commission's usual wording for a market definition; for an extract, every paragraph. Change the "
+                 "ranges if the decision defines markets elsewhere too (e.g. in the competitive assessment).")
         chosen = uploads.select(records, ranges_in)
         if chosen is None:
             st.error("Write the paragraphs as numbers and ranges, e.g. “12-49, 92, 117”.")

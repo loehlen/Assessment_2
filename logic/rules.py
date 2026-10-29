@@ -29,12 +29,18 @@ VALUE_CHAIN_LEVELS = {
     "intermediate products": "processed goods sold to businesses that use them as an input to produce their own goods "
                              "or services (processed, built in or used up; usually no longer recognisable in the "
                              "result), whatever the goods are called",
-    "finished products": "goods the company makes and sells, directly or through distributors, to end users: "
-                         "consumers, or businesses that use them themselves rather than as an input",
+    "finished products": "goods the company itself makes and sells, directly (also through its own branches or sales "
+                         "offices) or through distributors, to end users: consumers, or businesses that use them "
+                         "themselves rather than as an input (goods made by other companies that it resells are retail "
+                         "or wholesale, not finished products)",
     # Selling one's own goods through distributors is not wholesale (otherwise the AI tends to call it wholesale)
     "wholesale / distribution": "reselling goods made by OTHER companies to businesses (selling the company's own goods "
                                 "through its own sales companies or distributors is not wholesale)",
-    "retail": "selling to consumers through own shops, outlets or an own online shop",
+    # A store chain reselling other companies' goods was taken for a maker of "finished products" because its buyers
+    # include tradespeople; the definition therefore says what the company does, not only who buys
+    "retail": "selling to consumers through own shops, stores, outlets or an own online shop, whether the goods are the "
+              "company's own or made by other companies (a store open to the public stays retail even if tradespeople "
+              "also buy there)",
     "services": "services rather than goods",
     "other": "fits none of the above",
 }
