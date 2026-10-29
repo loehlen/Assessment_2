@@ -8,7 +8,7 @@ import streamlit as st
 from logic import ai_client
 from ui import api_key
 
-from ui.common import DEV_MODE, PROFILE, ss, USE_CACHE
+from ui.common import PROFILE, ss, USE_CACHE, USES_PASSWORD
 
 
 def key_problem(key):
@@ -38,9 +38,10 @@ def credentials():
     Submitted version (DEV_MODE off): the user's own key, entered in the course's API Credentials sidebar module
     (ui/api_key.py); until then the page only says where to enter it. Afterwards the module stays at the end of the
     sidebar, folded, so the key can be changed.
-    Development: an app password on the first screen, then the developer's key from .env or Secrets.
+    Development (DEV_MODE), or PASSWORD_ONLY (the submitted version, but with the password): an app password on the
+    first screen, then the developer's key from .env or Secrets.
     The key is kept for the session only (never stored)."""
-    if not DEV_MODE:
+    if not USES_PASSWORD:
         if ss.get("openai_api_key"):
             return ss.openai_api_key
         if api_key.api_key_input(check=key_problem):          # entered just now: start with the module folded
@@ -73,8 +74,9 @@ def credentials():
 
 
 def key_sidebar():
-    """After the key is entered: the course module at the end of the sidebar, folded (submitted version only)."""
-    if not DEV_MODE:
+    """After the key is entered: the course module at the end of the sidebar, folded (submitted version only; with the
+    password, the key comes from .env or Secrets)."""
+    if not USES_PASSWORD:
         old = ss.get("openai_api_key")
         with st.sidebar.expander("API Key Input"):
             new = api_key.api_key_input(check=key_problem, box=st.container(), title=False)

@@ -266,6 +266,7 @@ file (never committed; it is in `.gitignore`) or the Secrets on Streamlit Cloud 
 | Setting | Effect |
 |---|---|
 | `DEV_MODE=1` with `APP_PASSWORD` and `OPENAI_API_KEY` | development: an app password instead of the user's key, the developer's key, cost counter, development tools |
+| `PASSWORD_ONLY=1` with `APP_PASSWORD` and `OPENAI_API_KEY` (and `DEV_MODE` off) | the app password and the developer's key, but otherwise exactly the submitted version: no development details, the final models, no cache |
 | `MODEL_PROFILE=dev` or `final` | the models per step (`logic/ai_client.py`); default: `dev` with DEV_MODE on, `final` otherwise |
 | `USE_CACHE=1` | development only: reuse AI answers already paid for |
 | `CHECK_SOURCES=0` | skip opening the cited pages (default 1: every page is opened and checked) |

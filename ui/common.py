@@ -17,6 +17,10 @@ from logic import export
 
 
 DEV_MODE = ai_client.flag("DEV_MODE")
+# the app password and the developer's key, but otherwise exactly the submitted version (no development details,
+# the final models, no cache): for a run as the teacher sees it without typing in a key
+PASSWORD_ONLY = not DEV_MODE and ai_client.flag("PASSWORD_ONLY")
+USES_PASSWORD = DEV_MODE or PASSWORD_ONLY
 PROFILE = ai_client.setting("MODEL_PROFILE", "dev" if DEV_MODE else "final")   # the submitted version never runs on dev
 USE_CACHE = DEV_MODE and ai_client.flag("USE_CACHE", default=True)
 MAX_PORTCOS = 5

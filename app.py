@@ -21,6 +21,8 @@ their pair.
 
 Settings (.env locally, Secrets on Streamlit Cloud):
     DEV_MODE=1, APP_PASSWORD, OPENAI_API_KEY      development: password gate, cost counter, development tools
+    PASSWORD_ONLY=1, APP_PASSWORD, OPENAI_API_KEY the password gate and the developer's key, otherwise exactly the
+                                                   submitted version (no development details, final models, no cache)
     MODEL_PROFILE=dev | final                      the models per step (logic/ai_client.py); default: dev with
                                                    DEV_MODE on, final with DEV_MODE off (the submitted version)
     USE_CACHE=1                                    development only: reuse calls already paid for
