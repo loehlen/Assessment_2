@@ -296,6 +296,11 @@ def _company_table(doc, model, company, blocks):
             # and the notes span the sub-rows
             groups = r.get("commission_by_label") or [r["commission"]]
             n = len(r["labels"]) if step4 and len(r["labels"]) > 1 and len(groups) == len(r["labels"]) else 1
+            if n > 1:
+                # a line for the whole row (e.g. "no decision covers these products" for all labels) sits on the first
+                # label; a label without a Commission part of its own repeats it, so that no Commission cell is empty
+                whole = [e for e in groups[0] if not e[0]]
+                groups = [g if g or not k else whole for k, g in enumerate(groups)]
             first = len(t.rows)
             for k in range(n):
                 row = t.add_row()

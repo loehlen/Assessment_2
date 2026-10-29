@@ -42,6 +42,9 @@ NOISE = [
 ]
 HEADING = re.compile(r"^\s{0,10}((?:\d+\.)+\d*\.?|[A-Z]\.|[IVX]+\.|[a-z]\)|\((?:[a-z]|[ivx]+)\))\s{1,12}"
                      r"([A-Z‘'\"].{1,90})$")
+# A numbered sub-heading set deeper into the page ("               1.2. Geographic market"): only with at least two
+# numbers, so that an indented list item such as "(a)" or "1." inside a paragraph is never taken for a heading
+DEEP_HEADING = re.compile(r"^\s{11,20}((?:\d+\.)+\d+\.?)\s{1,12}([A-Z‘'\"].{1,90})$")
 CAPTION = re.compile(r"^\s*(Figure|Table|Chart|Graph)\s+\d+\b")
 PLAIN_HEADING = re.compile(r"^\s{0,10}[A-Z][^.;:,]{2,98}$")
 
@@ -181,7 +184,7 @@ def _parse(text, style, first=1):
             blank_before = i == 0 or not body[i - 1].strip()
             blank_after = i + 1 >= len(body) or not body[i + 1].strip()
             finished = current is None or re.search(r"[.:;)\]’”\"](\s?\d{1,3})?\s*$", current["text"]) is not None
-            h = HEADING.match(line)
+            h = HEADING.match(line) or DEEP_HEADING.match(line)
             heading = None
             spaced = bool(h) and re.match(r"^\s*(?:\d+\.)+\s{3,}", line) is not None   # "6.1.      Title"
             if h and len(stripped) < 100 and not stripped.endswith((",", ";", ".")) and (blank_before or finished or spaced):

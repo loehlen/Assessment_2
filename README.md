@@ -162,7 +162,8 @@ out of the database on purpose (a hold-out). Uploading it adds only the paragrap
 coffee-bean paragraphs to search.
 
 Limits: Commission merger decisions only (case numbers "M.1234"); a scanned PDF has no text to read (paste the text
-instead); a retail or wholesale market counts for a shop or wholesaler only if its name says so ("retail distribution of
+instead); the proposed paragraphs follow the decision's headings, so the market definition of a further product under a
+heading that names only the product (e.g. "2. Fillers" in M.4779) is not proposed: check the ranges before adding; a retail or wholesale market counts for a shop or wholesaler only if its name says so ("retail distribution of
 decorative coatings"): one named differently (e.g. "DIY stores") is still shown as "No precedent", and a
 manufacturers' market named "wholesale supply" counts for a wholesaler; an extract is only as complete as the lawyer's
 selection (it should include the Commission's own conclusion,
