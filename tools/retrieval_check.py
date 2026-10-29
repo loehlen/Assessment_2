@@ -1,7 +1,7 @@
 """
-retrieval_check.py - development tool: checks that the retrieval finds the right Commission paragraphs.
+tools/retrieval_check.py - development tool: checks that the retrieval finds the right Commission paragraphs.
 
-Run after build_index.py:   python retrieval_check.py
+Run after tools/build_index.py:   python -m tools.retrieval_check
 Compares three configurations on test queries whose correct paragraphs were identified by reading the decisions,
 by how often a correct paragraph is in the top 3:
   A  paragraph chunks without context headers, vector search only
@@ -11,17 +11,17 @@ The queries are worded the way the app will generate them: generic product descr
 terminology, without company names. Cost: a few query embeddings, well under USD 0.01.
 Output: test_results/retrieval_check_<time>.md.
 
-    python retrieval_check.py --forms      the step ④ question: for 11 markets of the test cases, does a paragraph
-                                           that DEFINES the market reach the top 5 of the decisions, with (A) product
-                                           words, (B) the Commission's question, (C) both, top 3 each, as the app does
-                                           (precedents.QUERY_FORMS)? Hybrid search, as in the app.
-                                           Output: test_results/query_forms_<time>.md. Cost: about 22 embeddings.
+    python -m tools.retrieval_check --forms      the step ④ question: for 11 markets of the test cases, does a paragraph
+                                                 that DEFINES the market reach the top 5 of the decisions, with (A) product
+                                                 words, (B) the Commission's question, (C) both, top 3 each, as the app does
+                                                 (precedents.QUERY_FORMS)? Hybrid search, as in the app.
+                                                 Output: test_results/query_forms_<time>.md. Cost: about 22 embeddings.
 """
 from datetime import datetime
 from pathlib import Path
 
-import retrieval
-from build_index import USAGE, openai_embed
+from logic import retrieval
+from tools.build_index import USAGE, openai_embed
 
 # (query, value-chain level of the activity, correct paragraphs: any of them in the top 3 counts as a hit)
 QUERIES = [
@@ -123,7 +123,7 @@ FORM_CASES = [
 
 
 def run_forms():
-    import precedents
+    from logic import precedents
     r = retrieval.Retriever(openai_embed)
 
     def top(question, level, k):

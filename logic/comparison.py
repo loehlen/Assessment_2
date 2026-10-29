@@ -1,5 +1,5 @@
 """
-comparison.py - step ③: anonymisation and the factual comparison.
+logic/comparison.py - step ③: anonymisation and the factual comparison.
 
     collect_names(companies, activities, group_companies)   every name that must never reach a comparison
     anonymise(activities, names)                            the abstracts, with the name check
@@ -15,9 +15,8 @@ import json
 import re
 import uuid
 
-import rules
-import schemas
-from ai_client import EMBED_MODEL
+from logic import rules, schemas
+from logic.ai_client import EMBED_MODEL
 
 
 # =============================================================== stable activity IDs and content keys

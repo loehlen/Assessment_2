@@ -1,5 +1,5 @@
 """
-uploads.py - a Commission merger decision that the lawyer adds to the database of step ④ for one screen.
+logic/uploads.py - a Commission merger decision that the lawyer adds to the database of step ④ for one screen.
 
     read_pdf(data)                      the text of an uploaded PDF (pdftotext if installed, else pypdf)
     detect(text)                        case number, title, date and legal basis, read from the first pages
@@ -27,8 +27,8 @@ import shutil
 import subprocess
 import tempfile
 
-from build_corpus import context_header
-from ingest import ingest_text
+from logic.build_corpus import context_header
+from logic.ingest import ingest_text
 
 SOURCE_DECISION = "Commission decision"
 CASE = re.compile(r"\bM\s?\.\s?(\d{3,5})\b")
@@ -221,7 +221,7 @@ def embed_upload(upload, embed):
     ones split, with the context header) and embeds them. Changes the upload in place."""
     import numpy as np
 
-    from retrieval import chunk_corpus
+    from logic.retrieval import chunk_corpus
     chunks = chunk_corpus(upload["paragraphs"])
     vectors = []
     for i in range(0, len(chunks), EMBED_BATCH):

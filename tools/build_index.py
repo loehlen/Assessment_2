@@ -1,17 +1,17 @@
 """
-build_index.py - builds the ChromaDB index of the decision corpus, once, before deployment.
+tools/build_index.py - builds the ChromaDB index of the decision corpus, once, before deployment.
 
-    python build_index.py        embeds every chunk of corpus/paragraphs.json into corpus/chroma (two collections:
-                                 "decisions" with context headers, used by the app, and "decisions_no_header", used
-                                 only by retrieval_check.py) and prints the number of calls, tokens and the cost;
-                                 then writes corpus/chunks.json (below)
-    python build_index.py --export-chunks
-                                 only writes corpus/chunks.json from the existing index (no API call)
+    python -m tools.build_index        embeds every chunk of corpus/paragraphs.json into corpus/chroma (two collections:
+                                       "decisions" with context headers, used by the app, and "decisions_no_header", used
+                                       only by retrieval_check.py) and prints the number of calls, tokens and the cost;
+                                       then writes corpus/chunks.json (below)
+    python -m tools.build_index --export-chunks
+                                       only writes corpus/chunks.json from the existing index (no API call)
 
 corpus/chunks.json: the chunks as stored in ChromaDB, readable without a database: id, case, paragraph, part,
 section, value-chain levels, the context header that was embedded with the text, and the text. No vectors.
 
-Run in the Codespace after build_corpus.py; then commit corpus/ including corpus/chroma (never cache/ or .env).
+Run in the Codespace after logic/build_corpus.py; then commit corpus/ including corpus/chroma (never cache/ or .env).
 The chunking and the storage are in retrieval.build_index; this script supplies the embedding function.
 
 Also imported by retrieval_check.py:
@@ -24,8 +24,8 @@ import json
 import threading
 from pathlib import Path
 
-import retrieval
-from ai_client import PRICES, setting
+from logic import retrieval
+from logic.ai_client import PRICES, setting
 
 EMBED_MODEL = retrieval.EMBED_MODEL
 CACHE_DIR = Path("cache") / "embed_corpus"

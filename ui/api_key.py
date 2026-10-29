@@ -1,5 +1,5 @@
 """
-api_key.py - the API Credentials sidebar module of the course (github.com/stoneman-mls/openai_credentials).
+ui/api_key.py - the API Credentials sidebar module of the course (github.com/stoneman-mls/openai_credentials).
 
 The user enters their own OpenAI API key in the sidebar ("API Key Input"); it is kept in
 st.session_state.openai_api_key for this session only and never stored.

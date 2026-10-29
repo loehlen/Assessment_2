@@ -1,5 +1,5 @@
 """
-sources.py - checks the sources the web search cites, and the quotations taken from them.
+logic/sources.py - checks the sources the web search cites, and the quotations taken from them.
 
 Why: the search notes cite pages, but an AI summary is not a passage the lawyer can find on the page (in testing,
 almost none of the summaries appeared word for word on their pages). The search therefore quotes the page word for
@@ -40,7 +40,7 @@ import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
 
-from ai_client import setting
+from logic.ai_client import setting
 
 CHECK_SOURCES = setting("CHECK_SOURCES", "1").strip().lower() not in {"0", "false", "no", "off"}
 USER_AGENT = "EU-Overlap-Screen/0.1 (research tool; checks the public sources it cites)"

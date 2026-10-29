@@ -1,5 +1,5 @@
 """
-schemas.py - the data schemas and prompts of the generic overlap screen.
+logic/schemas.py - the data schemas and prompts of the generic overlap screen.
 
 The legal concepts of the screen live in these schemas (field descriptions and fixed answer lists):
 what counts as an activity, a level of trade, a direct customer, a vertical link. They are
@@ -15,8 +15,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from rules import (CATEGORIES, DIRECT_CUSTOMER_TYPES, END_USERS, MAX_MAIN, PRODUCT_RELATIONS, STATUS,
-                   VALUE_CHAIN_LEVELS, VERTICAL_LINKS)
+from logic.rules import (CATEGORIES, DIRECT_CUSTOMER_TYPES, END_USERS, MAX_MAIN, PRODUCT_RELATIONS, STATUS,
+                         VALUE_CHAIN_LEVELS, VERTICAL_LINKS)
 
 Level = Literal[tuple(VALUE_CHAIN_LEVELS)]
 CustomerType = Literal[tuple(DIRECT_CUSTOMER_TYPES)]

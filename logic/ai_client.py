@@ -1,5 +1,5 @@
 """
-ai_client.py - the one wrapper every AI call goes through.
+logic/ai_client.py - the one wrapper every AI call goes through.
 
     ai = AI(profile="dev", api_key=..., use_cache=True, log=CallLog())   one per run
     ai.respond(step, input, ...)     Responses API call: the model for this step comes from the profile,

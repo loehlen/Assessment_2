@@ -1,5 +1,5 @@
 """
-retrieval.py - the decision corpus in ChromaDB and the hybrid search of step ④.
+logic/retrieval.py - the decision corpus in ChromaDB and the hybrid search of step ④.
 
     build_index(embed)          once, before deployment: chunks, embeds and stores the corpus in corpus/chroma
     Retriever(embed).search()   in the app: vector search + keyword search (BM25), combined by reciprocal rank

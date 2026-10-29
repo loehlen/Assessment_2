@@ -1,5 +1,5 @@
 """
-activity_mapping.py - steps ① and ②: the activity overview, ONE company per call.
+logic/activity_mapping.py - steps ① and ②: the activity overview, ONE company per call.
 
     map_company(ai, company, companies)     web search + extraction for one company (isolated calls: two searches in
                                             parallel, main business and beyond it, then one extraction)
@@ -18,10 +18,9 @@ import concurrent.futures as cf
 import re
 from urllib.parse import urlparse
 
-import rules
-import schemas
-import sources as source_check      # opens the cited pages and checks the quotations
-from ai_client import setting
+from logic import rules, schemas
+from logic import sources as source_check      # opens the cited pages and checks the quotations
+from logic.ai_client import setting
 
 # The second, complementary search per company: on by default; SECOND_SEARCH=0 switches it off. Read here, at
 # import, because the searches run in worker threads, which cannot read Streamlit's Secrets.

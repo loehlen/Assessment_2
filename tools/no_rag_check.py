@@ -1,9 +1,9 @@
 """
-no_rag_check.py - development tool, the "comparison without RAG": what does the model know about the
+tools/no_rag_check.py - development tool, the "comparison without RAG": what does the model know about the
 Commission's market definitions WITHOUT the decision corpus? Does it know M.5644? Does it invent paragraph numbers?
 
-    python no_rag_check.py                               Luna and Sol, three questions, no web search
-    python no_rag_check.py --models gpt-6-luna           one model only
+    python -m tools.no_rag_check                         Luna and Sol, three questions, no web search
+    python -m tools.no_rag_check --models gpt-6-luna     one model only
 
 Each answer is checked in code: every case number and paragraph number the model cites is looked up in
 corpus/paragraphs.json and compared with the paragraphs the retrieval check verified for the same question.
@@ -19,7 +19,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-import ai_client
+from logic import ai_client
 
 QUESTIONS = [
     {"q": "Under EU merger control, how has the European Commission defined the relevant product market for "

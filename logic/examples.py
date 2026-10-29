@@ -1,5 +1,5 @@
 """
-examples.py - the ready-made examples behind "Try an example": the three test cases of the README, and one more.
+logic/examples.py - the ready-made examples behind "Try an example": the three test cases of the README, and one more.
 
 Only the inputs a user would type: names, websites, other names and, where a test case uses one, the description a
 lawyer would type in step ① (source mode "my description" or "both"). The run itself is live.

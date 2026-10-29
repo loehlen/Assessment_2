@@ -1,5 +1,5 @@
 """
-ingest.py - turns a Commission decision (or the Market Definition Notice) into numbered paragraphs.
+logic/ingest.py - turns a Commission decision (or the Market Definition Notice) into numbered paragraphs.
 
 One function for the built-in corpus (and, unchanged, for user uploads, should that feature be added):
     ingest_text(text, source)  ->  list of paragraph records
@@ -12,7 +12,7 @@ What it does:
   4. attaches to each paragraph the footnotes it refers to (the case references are often in the footnotes);
   5. records the nearest section headings, for the context header that is embedded with the text.
 
-No API calls. Run on its own to check a PDF:   python ingest.py corpus_src/M7408.pdf
+No API calls. Run on its own to check a PDF:   python -m logic.ingest corpus_src/M7408.pdf
 """
 import re
 import sys

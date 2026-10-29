@@ -1,5 +1,5 @@
 """
-rules.py - the sector-neutral rules of the overlap screen.
+logic/rules.py - the sector-neutral rules of the overlap screen.
 
 Only rules that hold in every sector live here:
   - the fixed answer lists for the activity overview (value-chain levels, direct-customer types, ...)
@@ -13,7 +13,7 @@ No sector knowledge lives here: which products are related, or which inputs go i
 outputs, is judged by the AI on anonymised pairs of activities (step ③), and what the
 Commission found comes from the decisions in the corpus (step ④).
 
-Pure Python, no API calls, so it can be tested for free:  python rules.py
+Pure Python, no API calls, so it can be tested for free:  python -m logic.rules
 """
 import math
 import re
@@ -60,7 +60,7 @@ CATEGORIES = ["main", "other"]
 MAX_MAIN = 5
 # Fields of an activity that record what the lawyer did with it (saved in the edit form, edited, names confirmed), not
 # what the activity is: they never make an activity count as changed, so they never send its pairs to the AI again or
-# make its step ④ search out of date (the content keys in comparison.py, app.py and precedents.py leave them out).
+# make its step ④ search out of date (the content keys in comparison.py, precedents.py and steps/step3_assessment.py leave them out).
 STATE_FIELDS = ("level_checked", "edited_by_user", "typed_names_confirmed")
 STATUS = ["on the market", "in development", "not stated"]
 

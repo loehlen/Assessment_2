@@ -1,7 +1,7 @@
 """
-build_corpus.py - builds the built-in decision corpus from the official PDFs.
+logic/build_corpus.py - builds the built-in decision corpus from the official PDFs.
 
-Run once:   python build_corpus.py
+Run once:   python -m logic.build_corpus
 Reads:      corpus_src/*.pdf   (the four Commission decisions and the Market Definition Notice; not in the
                                 repository: download them from the addresses in SOURCES below, under the file names
                                 given there)
@@ -9,14 +9,14 @@ Writes:     corpus/paragraphs.json   one record per numbered paragraph in the co
                                      section headings and the context header that will be embedded
             corpus/corpus_report.md  a readable overview to check the result by eye
 
-No API calls and no cost. The embeddings are a separate step (build_index.py), so this file can be re-run and
+No API calls and no cost. The embeddings are a separate step (tools/build_index.py), so this file can be re-run and
 checked freely. Needs pdftotext (Codespace: sudo apt-get install -y poppler-utils); pypdf is not used, because it loses
 the paragraph layout of several of the documents (see ingest.pdf_text).
 """
 import json
 from pathlib import Path
 
-from ingest import ingest_text, pdf_text
+from logic.ingest import ingest_text, pdf_text
 
 SRC, OUT = Path("corpus_src"), Path("corpus")
 

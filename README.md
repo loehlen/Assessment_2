@@ -14,7 +14,7 @@ to verify, not a legal conclusion. Product markets only: geography and market sh
 ## Your API key
 
 Enter your own OpenAI API key in the sidebar under **API Key Input** (the course's API Credentials sidebar module,
-`api_key.py`) and click **Update API Key**. The key is used only for the calls of your session and is not stored.
+`ui/api_key.py`) and click **Update API Key**. The key is used only for the calls of your session and is not stored.
 Each test case below costs about USD 0.40–0.70 in API fees, most of it for the web searches, and takes about
 4–5 minutes of processing, plus the time for reading and checking.
 
@@ -28,7 +28,7 @@ both.
 
 **Entering the inputs.** On the start page click **Start now**. In step ① either type the inputs below into the fields,
 or click the test case's button under **Try an Example**, which fills in the same fields for you (they stay editable).
-The two descriptions are in `examples.py` (`BARRY_CALLEBAUT_ADDED`, `RITTER_SPORT_DESCRIBED`) and appear in the
+The two descriptions are in `logic/examples.py` (`BARRY_CALLEBAUT_ADDED`, `RITTER_SPORT_DESCRIBED`) and appear in the
 description fields when the button is clicked.
 
 | Company | Website | Other names | Used in |
@@ -146,7 +146,7 @@ For products the database does not cover, the lawyer can add a Commission merger
 Commission, or pasted text, either the whole decision or only the paragraphs on market definition as a lawyer would
 copy them from a legal database (each paragraph with its number, e.g. "(42) …"; an extract may start at any paragraph).
 The app reads the case number, title and date from the first page of a whole decision (an extract needs the case
-number typed in), finds the numbered paragraphs with the same parser as the built-in database (`ingest.py`) and
+number typed in), finds the numbered paragraphs with the same parser as the built-in database (`logic/ingest.py`) and
 proposes the parts on market definition (editable ranges, e.g. "12–49, 92"). One embedding request prepares the
 paragraphs for the search; there is no AI call. The added text is never sent to the AI as a whole: it is chunked and
 embedded like the built-in database, and step ④ retrieves only the paragraphs relevant to each type of product (at
@@ -218,11 +218,13 @@ AI answers.
 
 ## Class techniques used
 
+File names in these tables are in `logic/` unless they name a folder (see "Where to find what" below).
+
 **Lab 1 (problem decomposition, fixed questions, if/then logic)**
 
 | Lab 1 | In this app |
 |---|---|
-| The legal task broken into elements, each with its requirements (`prompts.py`) | Five steps (`app.py`); within them fixed questions with fixed answer lists: per activity the level of trade, direct customers, end users and status (`rules.py`, used by `schemas.Activity`); per pair of activities the product relation and the vertical links (`schemas.Comparison`). The answer lists carry their definitions (e.g. the levels of trade defined by the buyer's use, Vertical Guidelines para 287). |
+| The legal task broken into elements, each with its requirements (`prompts.py`) | Five steps (`steps/`, one file per step); within them fixed questions with fixed answer lists: per activity the level of trade, direct customers, end users and status (`rules.py`, used by `schemas.Activity`); per pair of activities the product relation and the vertical links (`schemas.Comparison`). The answer lists carry their definitions (e.g. the levels of trade defined by the buyer's use, Vertical Guidelines para 287). |
 | One AI call per element, in a loop | One AI call per anonymised pair of activities (`comparison.compare`); two web searches and one extraction per company, each company in its own calls (`activity_mapping.py`). |
 | A constrained answer that code can branch on (`ask_ai_yes_no`) | Structured Outputs: every AI answer fills a fixed Pydantic form (`ai_client.AI.respond` → `responses.parse`), with fixed answer lists as `Literal` types (`schemas.py`). |
 | if/then control of the result | `rules.decide()`: combines the AI's answer with checks in code (input and resale signals from the facts, the reseller condition, own use); a failed or blocked call is never screened out. Further if/then routing: the source modes, the confidentiality guard (`activity_mapping.guard`), which rows step ④ looks up (`precedents.search_units`). |
@@ -234,7 +236,7 @@ overlap is missed.
 
 | Lab 2 | In this app |
 |---|---|
-| ChromaDB (`PersistentClient`) with `text-embedding-3-large` | The same (`retrieval.py`, `build_index.py`, `corpus/chroma`); the evidence is a corpus of Commission merger decisions and the Market Definition Notice. |
+| ChromaDB (`PersistentClient`) with `text-embedding-3-large` | The same (`retrieval.py`, `tools/build_index.py`, `corpus/chroma`); the evidence is a corpus of Commission merger decisions and the Market Definition Notice. |
 | Chunking with metadata (`store_doc_in_chroma_db.py`) | Built for legal text (`ingest.py`, `build_corpus.py`, `retrieval.py`): one chunk per numbered paragraph, longer paragraphs split with semchunk (350 tokens); each chunk carries a context header (decision, section) and its footnotes; each decision is tagged with the levels of trade it concerns. |
 | The AI writes the search query (`ask_ai_with_retrieval`) | One AI call sorts the products to look up into types of product, in generic terms and with their level of trade (`schemas.QueryPlan`); code turns each type into two legal questions (`precedents.QUERY_FORMS`). |
 | Search beyond vector search (`home.py`, "additional features") | Hybrid retrieval: vector search plus BM25 keyword search, combined by reciprocal rank fusion, with a level-of-trade filter in the first attempt (`retrieval.Retriever.search`). |
@@ -263,7 +265,7 @@ file (never committed; it is in `.gitignore`) or the Secrets on Streamlit Cloud 
 | Setting | Effect |
 |---|---|
 | `DEV_MODE=1` with `APP_PASSWORD` and `OPENAI_API_KEY` | development: an app password instead of the user's key, the developer's key, cost counter, development tools |
-| `MODEL_PROFILE=dev` or `final` | the models per step (`ai_client.py`); default: `dev` with DEV_MODE on, `final` otherwise |
+| `MODEL_PROFILE=dev` or `final` | the models per step (`logic/ai_client.py`); default: `dev` with DEV_MODE on, `final` otherwise |
 | `USE_CACHE=1` | development only: reuse AI answers already paid for |
 | `CHECK_SOURCES=0` | skip opening the cited pages (default 1: every page is opened and checked) |
 | `SECOND_SEARCH=0` | one web search per company instead of two |
@@ -271,24 +273,50 @@ file (never committed; it is in `.gitignore`) or the Secrets on Streamlit Cloud 
 | `MODEL_FALLBACK` | a model to use if a model of the profile is not available |
 | `WEB_SEARCH_FEE` | USD per web search, for the cost shown (default 0.01) |
 
-After a push that changes any file other than `app.py`, reboot the app on Streamlit Cloud (Manage app → ⋮ → Reboot app).
+After a push that changes any file other than `app.py` (that is, anything in `steps/`, `ui/` or `logic/`), reboot the app
+on Streamlit Cloud (Manage app → ⋮ → Reboot app): Streamlit reloads `app.py` on every run, but the files it imports only
+when the app starts.
+
+## Where to find what
+
+`app.py` is only the entry point: it sets up the page, asks for the API key and shows the current step. Everything
+else is in four folders, each with a short README of its own:
+
+```
+app.py              entry point: page set-up, API key, which step to show
+steps/              the screens, one file per step (what the user sees and does)
+ui/                 building blocks shared by the steps (sidebar, style, sources, labels, decision reader)
+logic/              the workflow without the interface: AI calls, prompts, rules, search, Word document
+tools/              scripts that built and checked the decision database; not used by the running app
+corpus/             the decision database (paragraphs, ChromaDB index, report)
+static/             fonts and the official PDFs of the decisions
+test_results/       reports of the retrieval checks
+```
+
+| Looking for … | File |
+|---|---|
+| a step of the app | `steps/step1_companies.py`, `step2_activities.py`, `step3_assessment.py`, `step3_4_table.py` (the table of steps ③ and ④), `step4_search.py`, `step4_results.py`, `step5_summary.py` |
+| the AI instructions (prompts) and the fixed answer forms | `logic/schemas.py` |
+| every AI call: models, retries, cost, call log | `logic/ai_client.py` |
+| the if/then rules applied in code (levels of trade, resellers, own use, name removal) | `logic/rules.py` |
+| the research of a company (web searches, extraction, confidentiality guard) | `logic/activity_mapping.py`; the source check: `logic/sources.py` |
+| the comparison of step ③ (anonymisation, one pair per AI call) | `logic/comparison.py`; the labels and views of each row: `steps/step3_assessment.py` |
+| the search in the Commission's decisions (RAG loop with STOP conditions, quotation check) | `logic/precedents.py`, `logic/retrieval.py`; the results per row: `steps/step4_results.py` |
+| the Word document | content: `steps/step5_summary.py`; writing the file: `logic/export.py` |
+| the course's API Credentials module | `ui/api_key.py` |
+| the example inputs (test cases) | `logic/examples.py` |
+| adding a Commission decision | `ui/upload_box.py` (the box), `logic/uploads.py` (reading and embedding) |
 
 ## Files
 
+The role of each file is listed in the README of its folder: [`steps/`](steps/README.md), [`ui/`](ui/README.md),
+[`logic/`](logic/README.md), [`tools/`](tools/README.md). Besides these:
+
 | File | Role |
 |---|---|
-| `app.py` | the interface (Streamlit): steps ① to ⑤, the sidebar (save and open progress, legend, Commission decisions, run summary, API key) |
-| `api_key.py` | the course's API Credentials sidebar module (github.com/stoneman-mls/openai_credentials), run on every rerun, with a password field and the key never shown on the page |
-| `ai_client.py` | the one gate for every AI call: models per step, retries, rate limits, call log and cost |
-| `activity_mapping.py` | steps ① and ②: confidentiality guard, two web searches and one extraction per company, existing relationships |
-| `sources.py` | opens every cited page or PDF and checks the quoted passages; removes dead links |
-| `comparison.py` | step ③: anonymisation, embeddings, one anonymised pair per AI call |
-| `rules.py` | the sector-neutral rules in plain Python (answer lists, name removal, decision rule) |
-| `schemas.py` | the AI instructions and the fixed answer forms |
-| `precedents.py` | step ④: one search per target activity (types of product, hybrid retrieval, reflection, at most one rewrite), the citation and item checks |
-| `export.py` | the Word document (python-docx); the progress copy with the screen's data inside, and reading it back |
-| `examples.py` | the inputs of the example buttons, including the two typed descriptions of TC2 and TC3 |
-| `ingest.py`, `build_corpus.py`, `build_index.py`, `retrieval.py`, `corpus/` | the decision corpus: `corpus/paragraphs.json` (the 265 paragraphs with footnotes), `corpus/chroma/` (the ChromaDB index with the 266 chunks and their embeddings, used by step ④), `corpus/chunks.json` (the same chunks, readable, without vectors) and `corpus/corpus_report.md`. The decision PDFs that `build_corpus.py` reads (`corpus_src/`) are not in the repository; `build_corpus.py` lists where to download them |
+| `app.py` | the entry point (`streamlit run app.py`) |
+| `requirements.txt`, `packages.txt` | the Python packages; `packages.txt` installs `pdftotext` on Streamlit Cloud (for adding a decision as a PDF) |
+| `corpus/` | the decision corpus: `corpus/paragraphs.json` (the 265 paragraphs with footnotes), `corpus/chroma/` (the ChromaDB index with the 266 chunks and their embeddings, used by step ④), `corpus/chunks.json` (the same chunks, readable, without vectors) and `corpus/corpus_report.md`. The decision PDFs that `logic/build_corpus.py` reads (`corpus_src/`) are not in the repository; `logic/build_corpus.py` lists where to download them |
 | `static/decisions/` | the same official PDFs (© European Union; reuse authorised under Commission Decision 2011/833/EU), shown in the app's reader of a decision (sidebar of step ④, tab "Original Document") next to the paragraphs from the database |
-| `uploads.py`, `packages.txt` | a decision added by the lawyer for one screen: reading the PDF or pasted text, the case details, the paragraphs (with `ingest.py`, unchanged), the embeddings; `packages.txt` installs `pdftotext` on Streamlit Cloud |
-| `retrieval_check.py`, `no_rag_check.py`, `test_results/` | development checks of the retrieval (with and without context headers, query forms) and of the model without the corpus; `test_results/` holds the reports of the retrieval checks (`no_rag_check.py` writes its report there when it is run); not part of the app |
+| `static/fonts/` | the fonts of the app (Tinos, IBM Plex Sans), with their licences |
+| `test_results/` | the reports of the retrieval checks (`tools/`) |

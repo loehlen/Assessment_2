@@ -1,5 +1,5 @@
 """
-export.py - the Word document, the app's final output.
+logic/export.py - the Word document, the app's final output.
 
 The document is meant to be a fully usable work product for the lawyer: easy to edit in Word, with everything that
 points to the AI in an Annex that can be ignored.

@@ -1,5 +1,5 @@
 """
-precedents.py - step ④: the Commission's market definitions for the rows kept after step ③ (the app finds and
+logic/precedents.py - step ④: the Commission's market definitions for the rows kept after step ③ (the app finds and
 cites, the lawyer decides).
 
     search_units(target, results, overrides, confirmed_target)   which searches are needed: ONE per target activity,
@@ -29,8 +29,7 @@ import json
 import re
 import threading
 
-import rules
-import schemas
+from logic import rules, schemas
 
 MAX_ATTEMPTS = 2          # one rewrite of the queries
 MAX_TYPES = 16            # types of product per search: one small reflection each. A lower limit left whole
@@ -301,7 +300,7 @@ def cached_embed(ai):
 
 
 def ai_embed_model():
-    from ai_client import EMBED_MODEL
+    from logic.ai_client import EMBED_MODEL
     return EMBED_MODEL
 
 
