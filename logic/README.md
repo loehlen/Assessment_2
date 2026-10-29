@@ -11,9 +11,9 @@ tested) on its own.
 | `activity_mapping.py` | steps ① and ②: confidentiality guard, two web searches and one extraction per company, existing relationships |
 | `sources.py` | opens every cited page or PDF and checks the quoted passages; removes dead links |
 | `comparison.py` | step ③: anonymisation, embeddings, one anonymised pair of activities per AI call |
-| `precedents.py` | step ④: one search per target activity (types of product, hybrid retrieval, reflection, at most one rewrite with STOP conditions), the citation and item checks |
+| `precedents.py` | step ④: one search per target activity (types of product, hybrid retrieval, reflection, at most one rewrite with STOP conditions), the citation and item checks, and the level of trade of each market (`market_levels`, `level_fit`: a market counts for an activity only at its own level) |
 | `retrieval.py` | the decision corpus in ChromaDB and the hybrid search (vector + BM25) |
-| `ingest.py`, `build_corpus.py` | turning a decision into numbered paragraphs; `build_corpus.py` built `corpus/` from the official PDFs (`python -m logic.build_corpus`) and is also used when the lawyer adds a decision |
+| `ingest.py`, `build_corpus.py` | turning a decision into numbered paragraphs; `build_corpus.py` built `corpus/` from the official PDFs (`python -m logic.build_corpus`) and is also used when the lawyer adds a decision; its `MARKET_LEVELS` are the curated levels of trade at which each built-in decision defines its markets |
 | `uploads.py` | a decision added by the lawyer for one screen: reading the PDF or pasted text, the case details, the paragraphs, the embeddings |
 | `export.py` | the Word document (python-docx); the progress copy with the screen's data inside, and reading it back |
 | `examples.py` | the inputs of the example buttons, including the two typed descriptions of TC2 and TC3 |

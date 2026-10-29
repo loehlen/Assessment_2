@@ -23,9 +23,9 @@ from steps.step3_assessment import (assign_commission, BOTH_DIRECTIONS, current_
                                     name_ab, part_detail, portco_sentence, row_status, set_aside_text, view_of,
                                     weak_horizontal, word_list)
 from steps.step4_search import prec_plan, row_failed, row_view, search_gap, stale_units
-from steps.step4_results import (_rank, _side_text, commission_parts, commission_sentences, exact_match,
+from steps.step4_results import (_rank, _side_text, commission_parts, commission_sentences, ctx_entries, exact_match,
                                  label_of_heading, level_word, market_list, market_overview, market_overview_cited,
-                                 market_overview_plain, reseller_flags, SETTLED, uncovered_items)
+                                 market_overview_plain, SETTLED, uncovered_items)
 from ui.saved_screens import audit_json
 
 
@@ -206,7 +206,6 @@ def summary_reasons_h(r, rec, target, portco):
     if not parts or parts[1] is None or parts[1].get("error"):
         return []
     _, view, entries, _, _, verdict = parts
-    rs = reseller_flags(r, entries)
 
     def items(es, s):
         return word_list(list(dict.fromkeys(i for e in es if e.get(s) for i in e[s].get("items") or [])), 3)
@@ -222,11 +221,9 @@ def summary_reasons_h(r, rec, target, portco):
 
     def names(es, joiner=", "):
         return market_list(es, {}, False, joiner=joiner)
-    if rs["a"] or rs["b"]:
-        sides = [s for s in ("a", "b") if rs[s]]
-        who = " and ".join(f"{poss(target if s == 'a' else portco)} side is {level_word(r[s])}" for s in sides)
-        levels = " or ".join(dict.fromkeys(level_word(r[s]) for s in sides))
-        return [f"{lead()}{who}: the decisions define product markets, not a {levels} market"]
+    if verdict and verdict.get("levels_differ"):
+        return [f"{lead(entries)}different levels of trade, separate markets ({target}: "
+                f"{_side_text(entries, view, 'a', {}, False)}; {portco}: {_side_text(entries, view, 'b', {}, False)})"]
     if verdict and verdict.get("different"):
         out = [f"{lead(entries)}separate markets ({target}: {_side_text(entries, view, 'a', {}, False)}; "
                f"{portco}: {_side_text(entries, view, 'b', {}, False)})"]
@@ -261,7 +258,16 @@ def summary_reasons_h(r, rec, target, portco):
         out.append(f"{lead(unknown)}both fall in {names(unknown)}: no market definition in the paragraphs found")
     if general:
         out.append(f"{lead(general)}both fall in {names(general)} only through a general term, to be checked")
-    return out or [f"{lead()}no decision in the database places both in one market"]
+    if out:
+        return out
+    # no market of both: a side without a market at its own level of trade says so (e.g. a shop: the retail of the
+    # products it sells)
+    bare = [s for s in ("a", "b") if not any(e.get(s) for e in entries) and ctx_entries(view, s)]
+    if bare:
+        who = " and ".join(f"{poss(target if s == 'a' else portco)} side ({level_word(r[s])})" for s in bare)
+        return [f"{lead()}no decision in the database places both in one market; {who}: no precedent at that level "
+                "of trade"]
+    return [f"{lead()}no decision in the database places both in one market"]
 
 
 def _interleave(lists):

@@ -385,7 +385,9 @@ activity's product, as its description says. An item is what its activity's desc
 and is made from, not what a word in its name suggests. Generic words only: never a company, brand or place name. The search questions are built from
 your types in code.
 For each type give the level of trade at which its items are sold: {"; ".join(f"{k} = {v}" for k, v in VALUE_CHAIN_LEVELS.items())};
-or "any" if they are sold at several levels."""
+or "any" if they are sold at several levels. Items of an activity at the level "retail" or "wholesale / distribution"
+form types of their own (the retail or the wholesale of those products), never shared with items of other levels: a
+shop's market is not the market of the manufacturers whose products it sells."""
 
 
 class SearchQuery(BaseModel):
@@ -452,6 +454,15 @@ market:
 - reasons: the main reasons the paragraphs give for this market or for separating it from others (e.g. "price
   differences", "different end uses", "separate production lines"), a few words each, each with the id of the
   paragraph that gives it; [] if the paragraphs give none. Report only reasons the paragraphs state
+- level: the level of trade of the SELLERS in this market, as the paragraphs show it, in the terms of the list LEVELS
+  OF TRADE below. Judge who sells, not to whom: a market for the supply of a product by its producers to shops,
+  wholesalers or users is at the producers' level (e.g. "supply of garden furniture to retailers" is "finished
+  products", not "retail"); a market in which shops sell to consumers is "retail" (e.g. "retail sale of garden
+  furniture"); a market in which traders resell to businesses is "wholesale / distribution". "not stated" if the
+  paragraphs do not show who sells in this market
+- level_quote / level_paragraph: the passage that shows the level (e.g. which companies are active in the market and
+  as what, or who sells to whom), copied WORD FOR WORD from one paragraph of the list, and its id; "" and "" if level
+  is "not stated"
 placements: one entry for EVERY item id in the list:
 - item_id: copied from the list, e.g. "2.3"
 - market_ids: the market or markets for this item, or [] if no market in the paragraphs fits it. Each product
@@ -484,7 +495,12 @@ Rules:
   to consumers, unless the paragraphs say so. A market that groups several levels or products only applies if the
   paragraphs say so.
 - If decisions say different things about one market, keep them as separate markets and say so in the summaries.
-- A gap is an acceptable answer: if nothing fits an item, use []. A guess is not."""
+- A gap is an acceptable answer: if nothing fits an item, use []. A guess is not.
+LEVELS OF TRADE
+""" + "\n".join(f"- {k}: {v}" for k, v in VALUE_CHAIN_LEVELS.items())
+
+
+MarketLevel = Literal[tuple(VALUE_CHAIN_LEVELS) + ("not stated",)]
 
 
 class MarketReason(BaseModel):
@@ -508,6 +524,9 @@ class MarketFound(BaseModel):
     scope_quote: str = Field(description="The sentence saying what the market covers, word for word, or ''")
     scope_paragraph: str = Field(description="The id of the paragraph that contains scope_quote, or ''")
     reasons: list[MarketReason] = Field(description="The main reasons the paragraphs give, each with its paragraph")
+    level: MarketLevel = Field(description="The level of trade of the sellers in this market, or 'not stated'")
+    level_quote: str = Field(description="The passage showing the level, word for word, or ''")
+    level_paragraph: str = Field(description="The id of the paragraph that contains level_quote, or ''")
 
 
 class Placement(BaseModel):

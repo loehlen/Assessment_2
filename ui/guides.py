@@ -91,8 +91,11 @@ GUIDES = {
             "database, not: never defined by the Commission. A decision you find yourself can be added at the end of "
             "this step.",
             "Each decision describes the market at its time; the Commission is not bound by it (Notice (14)).",
-            "Shops and wholesalers: the decisions describe the products they sell, not their own retail or wholesale "
-            "market.",
+            "Levels of trade: a market counts for a company only at its own level (for a shop: the retail of the "
+            "products it sells; for a manufacturer: the supply of its products). A market at another level is named "
+            "as such, never counted as the company's own (Notice (14)). The level comes from our notes on the "
+            "decisions in the database, or, for a decision you add, from a passage of the decision checked word for "
+            "word; where neither shows it, the market is never an exact match.",
             "Product markets only: geography and market shares, which decide whether a market is “affected”, are not "
             "assessed."])]),
 }

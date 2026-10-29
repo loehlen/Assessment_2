@@ -166,9 +166,10 @@ Limits: Commission merger decisions only (case numbers "M.1234"); a scanned PDF 
 instead); the proposed paragraphs follow the decision's headings and the Commission's standard wording for a market definition
 ("the market definition can be left open", "constitutes a separate market", "forms part of a larger market"): a part
 on a further product that uses neither (e.g. under a heading that names only the product) is not proposed, so the
-ranges are worth a look before adding; a retail or wholesale market counts for a shop or wholesaler only if its name says so ("retail distribution of
-decorative coatings"): one named differently (e.g. "DIY stores") is still shown as "No precedent", and a
-manufacturers' market named "wholesale supply" counts for a wholesaler; an extract is only as complete as the lawyer's
+ranges are worth a look before adding; the level of trade of each market in an added decision (who sells to whom) is
+read by the AI and used only if a passage of the decision that shows it is found word for word; otherwise the market
+is never an exact match ("Possible" at most), because the app cannot tell whether it is a manufacturers' or a
+shops' market; an extract is only as complete as the lawyer's
 selection (it should include the Commission's own conclusion,
 not only the parties' submissions or a reference to an earlier decision); the decision is not tagged with levels of trade, so the level filter of the first search attempt never
 excludes it.
@@ -191,10 +192,15 @@ excludes it.
    the Word document stay as they are.
 4. **Market definitions**: one search per target activity in the database of Commission decisions (hybrid retrieval,
    one reflection per type of product, at most one rewrite); every quotation of the Commission is checked word for
-   word. Each result stands beside the label it belongs to. A shop's or wholesaler's own market is the retail or
-   wholesale of the products it sells; the decisions usually define markets for making and supplying the products,
-   so such a side counts as "No precedent", unless a decision defines a market at its own level (the AI placed its
-   products there as a precedent, and the market's name is a retail or wholesale market, checked in code). The lawyer
+   word. Each result stands beside the label it belongs to. **Levels of trade:** every market has a level (who
+   sells in it: manufacturers supplying shops and users, wholesalers, or shops selling to consumers), and a market
+   counts for a company only at the company's own level (Market Definition Notice (14)); a market for its products at
+   another level is named as such ("the products Hornbach sells fall in Decorative coatings (manufacturing)"), never
+   counted as its own. The rule is the same for every level, with no special case for shops. The level comes from
+   curated notes on the decisions in the database (`logic/build_corpus.py`, `MARKET_LEVELS`), or, for a decision the
+   lawyer adds, from a passage the AI quotes and the code finds word for word; where neither shows it, the market is
+   used but never as an exact match. A shop's or wholesaler's products are searched as the retail or wholesale
+   distribution of those products, never together with the manufacturers' products. The lawyer
    can add a decision the database does not hold ("Adding a Commission decision" above).
 5. **Summary**: the result of the screen, and the Word document (the lawyer's final choices in the main part, how
    the tool prepared them in an Annex). A short result first (which portfolio companies have potential overlaps, and

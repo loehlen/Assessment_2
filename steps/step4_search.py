@@ -170,6 +170,10 @@ def precedent_warnings(units):
     """Only what needs action (the search summary is in the saved progress file, not on the page)."""
     records = [ss.precedents[u["target_aid"]] for u in units if u["target_aid"] in ss.precedents]
     s = prec.summary(records)
+    if any(isinstance(rec, dict) and not rec.get("levels_read") for rec in records):
+        st.info("Some market definitions were looked up by an earlier version of the app, before each market had a "
+                "level of trade: markets of a decision you added are therefore shown as not an exact match. Press "
+                "“Update the market definitions” to look them up again.")
     if s["errors"]:
         st.warning("Some searches failed: " + "; ".join(esc(e) for e in s["errors"]) + ". Press “Update the market "
                    "definitions” to try them again.")
@@ -212,12 +216,18 @@ def precedent_rows():
         rec, view = row_view(r)
         if view is None:
             continue
+        def side(groups):
+            return [{"market": (g["market"] or {}).get("name"), "basis": g["basis"], "items": g["items"],
+                     "status": g.get("status"), "notes": g.get("notes") or {},
+                     "market_level": sorted(prec.market_levels(g["market"])) if g.get("market") else [],
+                     "level_not_known": bool(g.get("level_unknown"))} for g in groups]
         out[cmp.pair_id(r)] = {
             "target_activity": r["a"].get("product"), "portco": r["portco"], "portco_activity": r["b"].get("product"),
-            "target_side": [{"market": (g["market"] or {}).get("name"), "basis": g["basis"], "items": g["items"],
-                             "status": g.get("status"), "notes": g.get("notes") or {}} for g in view["a"]],
-            "portco_side": [{"market": (g["market"] or {}).get("name"), "basis": g["basis"], "items": g["items"],
-                             "status": g.get("status"), "notes": g.get("notes") or {}} for g in view["b"]],
+            "target_level": r["a"].get("value_chain_level"), "portco_level": r["b"].get("value_chain_level"),
+            "target_side": side(view["a"]), "portco_side": side(view["b"]),
+            # markets of the products at another level of trade: context, not the side's own market
+            "target_side_other_level": side(view.get("a_ctx") or []),
+            "portco_side_other_level": side(view.get("b_ctx") or []),
             "verdict": None if not view.get("verdict") else {
                 "both": [(g["market"] or {}).get("name") for g in view["verdict"]["both"]],
                 "possibly_both": [(g["market"] or {}).get("name") for g in view["verdict"].get("possibly", [])],
@@ -226,6 +236,7 @@ def precedent_rows():
                 "only_target": [(g["market"] or {}).get("name") for g in view["verdict"]["only_a"]],
                 "only_portco": [(g["market"] or {}).get("name") for g in view["verdict"]["only_b"]],
                 "different_markets_under_the_precedent": view["verdict"]["different"],
+                "separate_markets_at_different_levels": view["verdict"].get("levels_differ", False),
                 "left_open": view["verdict"]["left_open"],
                 "conclusion_not_in_paragraphs": view["verdict"].get("not_stated", False)},
             "search_failed_for": view.get("failed") or [],

@@ -22,9 +22,9 @@ OUTCOME_TIP = {
                     "state no conclusion): the overlap cannot be excluded.",
     "Not supported": "The Commission puts the products in separate markets: no horizontal overlap at product-market "
                      "level; check for a vertical relationship.",
-    "No precedent": "No decision in the database covers these products, or, for a shop or wholesaler, its own retail "
-                    "or wholesale market (the markets of the products it sells are named in the text): to be assessed "
-                    "under the Market Definition Notice.",
+    "No precedent": "No decision in the database covers these products at the company's level of trade (for a shop "
+                    "or wholesaler: the retail or wholesale of the products it sells; markets at another level are "
+                    "named in the text): to be assessed under the Market Definition Notice.",
     "Markets defined": "The decisions name a market for each side's products (defined, or left open). They do not "
                        "show a link between the two companies: that comes from the preliminary assessment (step ③).",
     "One side defined": "The decisions name a market for one side's products only (defined, or left open); the other "

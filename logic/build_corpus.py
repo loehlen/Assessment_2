@@ -27,22 +27,26 @@ SOURCES = [
      "decision": "Article 6(1)(b) in conjunction with Article 6(2), with commitments (Phase I)",
      "url": "https://ec.europa.eu/competition/mergers/cases/decisions/m5644_20100106_20212_en.pdf",
      "levels": ["finished products", "retail"],
+     "market_levels": ["finished products"],
      "ranges": [(12, 49), (92, 93), (117, 117), (135, 135)]},
     {"file": "M6872.pdf", "short": "Barry Callebaut / Petra Foods", "case": "M.6872", "title": "Barry Callebaut / Petra Foods (Cocoa Ingredients Division)",
      "date": "2013-06-06", "decision": "Article 6(1)(b) (Phase I)",
      "url": "https://ec.europa.eu/competition/mergers/cases/decisions/m6872_20130606_20310_3190791_EN.pdf",
      "levels": ["raw materials", "intermediate products"],
+     "market_levels": ["raw materials", "intermediate products"],
      "ranges": [(9, 37), (47, 47), (51, 58)]},
     {"file": "M7120.pdf", "short": "Ecom / Armajaro", "case": "M.7120", "title": "Ecom Agroindustrial / Armajaro Trading", "date": "2014-05-23",
      "decision": "Article 6(1)(b) (Phase I)",
      "url": "https://ec.europa.eu/competition/mergers/cases/decisions/m7120_1451_2.pdf",
      "levels": ["raw materials", "intermediate products"],
+     "market_levels": ["raw materials", "intermediate products"],
      # the coffee paragraphs (42)-(51) and (67) onwards are kept out on purpose, as a hold-out for testing
      "ranges": [(9, 41), (52, 66)]},
     {"file": "M7408.pdf", "short": "Cargill / ADM", "case": "M.7408", "title": "Cargill / ADM Chocolate Business", "date": "2015-07-17",
      "decision": "Article 8(2) with commitments (Phase II)",
      "url": "https://ec.europa.eu/competition/mergers/cases/decisions/m7408_2987_3.pdf",
      "levels": ["intermediate products"],
+     "market_levels": ["intermediate products"],
      "ranges": [(19, 81)]},
     {"file": "NOTICE.pdf", "short": "Market Definition Notice", "case": "Notice", "title": "Commission Notice on the definition of the relevant market "
      "(OJ C/2024/1645)", "date": "2024-02-22", "decision": "Market Definition Notice",
@@ -50,6 +54,13 @@ SOURCES = [
      "source_type": "Commission notice",
      "ranges": [(11, 75), (85, 93)]},
 ]
+
+# The levels of trade at which each built-in decision defines its markets (curated, checked against the decisions; used
+# by step ④, see precedents.market_levels). Not the same as "levels" above, which steers the search: M.5644 discusses
+# the retail level ((47)-(49)) but defines markets only for the manufacturers' supply to retailers and wholesalers
+# ((47): Kraft and Cadbury are active only upstream; (49): the retail level is not an affected market); its "travel
+# retail" market is the sale TO travel retailers ((39)).
+MARKET_LEVELS = {s["case"]: s["market_levels"] for s in SOURCES if s.get("market_levels")}
 
 
 def context_header(rec):

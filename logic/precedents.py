@@ -30,6 +30,7 @@ import re
 import threading
 
 from logic import rules, schemas
+from logic.build_corpus import MARKET_LEVELS
 
 MAX_ATTEMPTS = 2          # one rewrite of the queries
 MAX_TYPES = 16            # types of product per search: one small reflection each. A lower limit left whole
@@ -65,6 +66,13 @@ PARTLY = "defined, a further question left open"      # decided on one boundary,
 STATED = ("defined", "left open", PARTLY)
 FIT_ONE, FIT_RANGE, FIT_UNCLEAR = "one market", "range across these markets", "one of these, unclear which"
 FIT_SAME = "the same market in different decisions"     # one market, named differently in two decisions
+NOT_LEVEL = "not stated"
+# Levels of trade: a market's own level is the level of its SELLERS (a market for the supply of a product to shops is
+# at the producers' level; a market in which shops sell to consumers is at retail level). An activity's own market is a
+# market at its level of trade; a market for its products at another level is context, never its own market (Market
+# Definition Notice (14)). No sector knowledge and no word list: the level comes from the curated metadata of the
+# built-in decisions (build_corpus.MARKET_LEVELS) or from a passage of the decision verified word for word.
+LEVEL_SAME, LEVEL_OTHER, LEVEL_UNKNOWN = "same", "other", "unknown"
 
 
 # =============================================================== which searches are needed
@@ -154,6 +162,8 @@ def reusable(record, unit, retry_failed=True):
     if not record:
         return False
     if retry_failed and (record.get("error") or failed_ids(record)):    # a partly failed search runs again
+        return False
+    if retry_failed and not record.get("levels_read"):     # made before markets had a level of trade: runs again
         return False
     have = {tuple(x) for x in record.get("covered") or []}
     return set(needed(unit)) <= have or set(needed(unit, legacy=True)) <= have
@@ -366,7 +376,7 @@ def empty_record(unit, text="", index=None, error=""):
     return {"target_aid": unit["target_aid"], "target_product": unit.get("target_product", ""), "items_text": text,
             "index": {k: list(v) for k, v in (index or {}).items()}, "covered": [list(x) for x in needed(unit)],
             "rows": unit["rows"], "attempts": [], "markets": {}, "placements": {}, "rejected": [], "stop": error,
-            "error": error, "paragraphs": {}}
+            "error": error, "paragraphs": {}, "levels_read": True}
 
 
 class Progress:
@@ -473,6 +483,27 @@ def case_of(pid):
     return (pid or "").rpartition("-")[0]
 
 
+def market_levels(m):
+    """The levels of trade at which a market lies (a set; empty if not known). A built-in decision: its curated levels
+    (build_corpus.MARKET_LEVELS), narrowed to the level the AI read from a verified passage if that level is one of
+    them. A decision the lawyer added: the level the AI read from a passage verified word for word, else unknown."""
+    cases = {case_of(pid) for pid in (m or {}).get("product_paragraphs") or [] if not pid.startswith("Notice")}
+    read = (m or {}).get("level") if (m or {}).get("level_quote_found") else None
+    if cases and all(c in MARKET_LEVELS for c in cases):
+        curated = {lv for c in cases for lv in MARKET_LEVELS[c]}
+        return {read} if read in curated else curated
+    return {read} if read and read != NOT_LEVEL else set()
+
+
+def level_fit(m, activity_level):
+    """Whether a market is at the activity's level of trade: LEVEL_SAME, LEVEL_OTHER, or LEVEL_UNKNOWN (the market's
+    level is not known, or the activity's level is not one of the levels of trade)."""
+    levels = market_levels(m)
+    if not levels or activity_level not in rules.VALUE_CHAIN_LEVELS or activity_level == "other":
+        return LEVEL_UNKNOWN
+    return LEVEL_SAME if activity_level in levels else LEVEL_OTHER
+
+
 def separate_other_decision(m):
     """The decided and the left-open passage of one market must come from the same decision. The reflection sometimes
     combines a passage in which one decision defines a market with a passage in which a later decision leaves a
@@ -572,7 +603,7 @@ def assign_types(plan, index, unit, names):
             aid, item = index[iid]
             types.append({"products": rules.redact(item, names), "level": level_of.get(aid, "any"),
                           "item_ids": [iid], "extra": True})
-        return types
+        return split_by_level(types, index, level_of)
     product_of = {e["aid"]: e["activity"].get("product") or "" for e in unit["activities"]}
     by_activity = {}
     for iid in left:
@@ -580,7 +611,32 @@ def assign_types(plan, index, unit, names):
     for aid, ids in by_activity.items():
         words = rules.redact(product_of.get(aid) or index[ids[0]][1], names)
         types.append({"products": words, "level": level_of.get(aid, "any"), "item_ids": ids, "extra": True})
-    return types
+    return split_by_level(types, index, level_of)
+
+
+# a shop's or wholesaler's products are searched as the retail or wholesale of those products (legal terms, as the
+# Commission names such markets), never together with the same products made by manufacturers
+RESELLER_SEARCH = {"retail": "retail distribution of", "wholesale / distribution": "wholesale distribution of"}
+RESELLER_TERMS = re.compile(r"\b(?:retail|wholesal|distribut)", re.IGNORECASE)
+
+
+def split_by_level(types, index, level_of):
+    """Every type of product that holds items of a shop or wholesaler is split: those items form a type of their own,
+    at their level of trade, searched as the retail or wholesale distribution of the products. Code, after the query
+    step (which is asked to do the same), so that it holds whatever the query step answered."""
+    out = []
+    for t in types:
+        parts = {}
+        for iid in t["item_ids"]:
+            lv = level_of.get(index[iid][0])
+            parts.setdefault(lv if lv in RESELLER_SEARCH else "", []).append(iid)
+        for lv, ids in parts.items():
+            if not lv:
+                out.append(dict(t, item_ids=ids))
+                continue
+            words = t["products"] if RESELLER_TERMS.search(t["products"]) else f"{RESELLER_SEARCH[lv]} {t['products']}"
+            out.append(dict(t, products=words, level=lv, item_ids=ids))
+    return out
 
 
 def run_type(ai, t, unit, index, names, retriever):
@@ -734,6 +790,15 @@ def check(data, index, pool, paras):
                                 "paragraph": pid if pid in pool and paras.get(pid, {}).get("source_type")
                                 == SOURCE_DECISION else ""})
         markets[mid]["reasons"] = reasons
+        # the level of trade of the market's sellers: used only where a passage verified word for word shows it
+        level = m.get("level") or NOT_LEVEL
+        quote, found, where = check_quote(m.get("level_quote"), m.get("level_paragraph"), pool, paras)
+        markets[mid].update(level_as_found=level, level_quote=quote, level_paragraph=where, level_quote_found=found)
+        if level != NOT_LEVEL and not found:
+            rejected.append(f"{mid}: the level '{level}' rests on no passage found word for word in the paragraphs sent: "
+                            "shown as not stated")
+            level = NOT_LEVEL
+        markets[mid]["level"] = level
         # the label follows the passages the code found word for word; a label of the AI that no such passage
         # supports is not reported as the Commission's conclusion
         d, o = markets[mid]["decided_quote_found"], markets[mid]["open_quote_found"]
@@ -749,7 +814,8 @@ def check(data, index, pool, paras):
                             f"not from {case_of(markets[mid]['decided_paragraph'])}: shown as left open in that "
                             "decision (corrected)")
         extra = {markets[mid]["decided_paragraph"], markets[mid]["open_paragraph"], markets[mid]["scope_paragraph"],
-                 markets[mid].get("other_open_paragraph") or ""} | {r["paragraph"] for r in reasons}
+                 markets[mid].get("other_open_paragraph") or "", markets[mid]["level_paragraph"]} | \
+            {r["paragraph"] for r in reasons}
         markets[mid]["product_paragraphs"] = _sorted_ids(set(prod) | {x for x in extra if x})
     placements = {}
     for p in data.get("placements") or []:
@@ -808,9 +874,13 @@ def _para_view(p, paras, corpus):
 
 
 # =============================================================== what one row shows (code)
-def side_markets(record, aid, items, product_line=""):
-    """For one side of a row: [{market_id, market, basis, items, notes, status}], items grouped by the market(s) they
-    were placed in (an item placed in several markets appears in each).
+def side_markets(record, aid, items, product_line="", level=None):
+    """For one side of a row: [{market_id, market, basis, items, notes, status, other_level, level_unknown}], items
+    grouped by the market(s) they were placed in (an item placed in several markets appears in each).
+    level: the activity's level of trade. A market at another level is not the side's own market: its group has
+    other_level=True (context only), and an item placed only in such markets also counts as "none" (no precedent at its
+    level). A market whose level is not known stays the side's market, but never as an exact match (basis "analogy",
+    level_unknown=True).
     Each product belongs to ONE market, so an item in several markets only shows that the side is
     somewhere in them. status per market: "specific" if an item was placed in this market alone; "possibly" if only
     items that could be in one of several markets (unclear which) lead here; "general" if only a general term leads
@@ -835,6 +905,12 @@ def side_markets(record, aid, items, product_line=""):
             continue
         mids = [m for m in ids_of(p) if m in markets] or ["none"]
         basis = p["basis"] if p and mids != ["none"] else "none"
+        fits = {mid: level_fit(markets[mid], level) for mid in mids if mid != "none"}
+        if mids != ["none"] and all(f == LEVEL_OTHER for f in fits.values()):
+            g = groups.setdefault("none", {"market": None, "basis": set(), "items": [], "notes": {}, "kinds": set()})
+            g["basis"].add("none")
+            g["items"].append(item)
+            g["kinds"].add("specific")
         # older records have no "fit": their prompt allowed several markets only "where the item spans several
         # markets", i.e. a range
         fit = (p or {}).get("fit") or (FIT_RANGE if len(mids) > 1 else FIT_ONE)
@@ -849,20 +925,24 @@ def side_markets(record, aid, items, product_line=""):
         else:
             kind, note = "specific", ""
         for mid in mids:
-            g = groups.setdefault(mid, {"market": markets.get(mid), "basis": set(), "items": [], "notes": {},
-                                        "kinds": set()})
-            g["basis"].add(basis)
+            fit_level = fits.get(mid)
+            key = "ctx:" + mid if fit_level == LEVEL_OTHER else mid
+            g = groups.setdefault(key, {"market": markets.get(mid), "basis": set(), "items": [], "notes": {},
+                                        "kinds": set(), "mid": mid, "other_level": fit_level == LEVEL_OTHER,
+                                        "level_unknown": fit_level == LEVEL_UNKNOWN})
+            g["basis"].add("analogy" if fit_level == LEVEL_UNKNOWN and basis == "precedent" else basis)
             g["items"].append(item)
             g["kinds"].add(kind)
             if note:
                 g["notes"][item] = note
     out = []
-    for mid, g in groups.items():
+    for key, g in groups.items():
         basis = "precedent" if "precedent" in g["basis"] else "analogy" if "analogy" in g["basis"] else "none"
         status = next(k for k in ("specific", "possibly", "general") if k in g["kinds"])
-        out.append({"market_id": mid, "market": g["market"], "basis": basis, "items": g["items"], "notes": g["notes"],
-                    "status": status})
-    out.sort(key=lambda x: (x["market_id"] in ("none", "failed"), x["market_id"]))
+        out.append({"market_id": g.get("mid", key), "market": g["market"], "basis": basis, "items": g["items"],
+                    "notes": g["notes"], "status": status, "other_level": bool(g.get("other_level")),
+                    "level_unknown": bool(g.get("level_unknown"))})
+    out.sort(key=lambda x: (x["other_level"], x["market_id"] in ("none", "failed"), x["market_id"]))
     return out
 
 
@@ -872,12 +952,16 @@ def row_view(r, record, overrides, effective_status, dismissed_parts):
     items = row_items(r, overrides, effective_status, dismissed_parts)
     if items is None or not record:
         return None
+    levels = {"a": r["a"].get("value_chain_level"), "b": r["b"].get("value_chain_level")}
     if record.get("error") and not record.get("markets"):
-        return {"error": record["error"], "a": [], "b": [], "verdict": None, "unplaced": items["a"] + items["b"],
-                "failed": []}
-    a = side_markets(record, r["a"]["aid"], items["a"], r["a"].get("product", ""))
-    b = side_markets(record, r["b"]["aid"], items["b"], r["b"].get("product", ""))
-    view = {"error": "", "a": a, "b": b, "verdict": None,
+        return {"error": record["error"], "a": [], "b": [], "a_ctx": [], "b_ctx": [], "levels": levels,
+                "verdict": None, "unplaced": items["a"] + items["b"], "failed": []}
+    sides = {s: side_markets(record, r[s]["aid"], items[s], r[s].get("product", ""), levels[s]) for s in ("a", "b")}
+    a = [g for g in sides["a"] if not g["other_level"]]
+    b = [g for g in sides["b"] if not g["other_level"]]
+    # markets of a side's products at another level of trade: context, not the side's own market
+    view = {"error": "", "a": a, "b": b, "a_ctx": [g for g in sides["a"] if g["other_level"]],
+            "b_ctx": [g for g in sides["b"] if g["other_level"]], "levels": levels, "verdict": None,
             "unplaced": [i for g in a + b if g["market_id"] == "none" for i in g["items"]],
             "failed": [i for g in a + b if g["market_id"] == "failed" for i in g["items"]]}
     d = r["decision"]
@@ -911,6 +995,10 @@ def horizontal_verdict(record, r, items, a, b):
         return out
     ma, mb = by_key(a), by_key(b)
     shared = [k for k in ma if k in mb]
+    # two activities at different levels of trade, each with a market at its own level: separate markets at different
+    # levels (Market Definition Notice (14)), not two products the Commission split at the same level
+    la, lb = r["a"].get("value_chain_level"), r["b"].get("value_chain_level")
+    across = la != lb and all(x in rules.VALUE_CHAIN_LEVELS and x != "other" for x in (la, lb))
 
     def line(k):
         # a shared market counts as "precedent" only if it is a precedent for both sides (one side may be placed
@@ -929,7 +1017,8 @@ def horizontal_verdict(record, r, items, a, b):
         "only_a": [o["group"] for k, o in ma.items() if k not in mb],
         "only_b": [o["group"] for k, o in mb.items() if k not in ma],
         # the precedent puts the two companies' items into different markets: shown, never deleted
-        "different": bool(ma and mb and not shared and _same_call(record, r, items)),
+        "different": bool(ma and mb and not shared and not across and _same_call(record, r, items)),
+        "levels_differ": bool(ma and mb and not shared and across),
         "left_open": any((g["market"] or {}).get("conclusion") in ("left open", PARTLY) for g in a + b
                          if g["market"]),
         "not_stated": any((g["market"] or {}).get("conclusion") == NOT_STATED for g in a + b if g["market"]),

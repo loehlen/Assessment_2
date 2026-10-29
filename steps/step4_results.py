@@ -7,6 +7,7 @@ import re
 
 from logic import comparison as cmp
 from logic import precedents as prec
+from logic.rules import VALUE_CHAIN_LEVELS
 
 from ui.common import capital, h, he, he_lines, poss, ss
 from ui.labels import outcome_chip
@@ -27,6 +28,8 @@ def _merge_group(old, g):
     old["notes"].update(g.get("notes") or {})
     old["status"] = min(old.get("status", "specific"), g.get("status", "specific"), key=STATUS_RANK.get)
     old["basis"] = "precedent" if "precedent" in (old["basis"], g["basis"]) else "analogy"
+    old["other_level"] = bool(old.get("other_level")) and bool(g.get("other_level"))
+    old["level_unknown"] = bool(old.get("level_unknown")) or bool(g.get("level_unknown"))
     return old
 
 
@@ -112,14 +115,51 @@ def mname(name):
 
 
 def is_reseller(act):
-    """A shop or a wholesaler: its own market is the retail or wholesale of the products it sells. The Commission's
-    markets found for its products are markets for making and supplying them, so they describe what it sells, not its
-    own market."""
+    """A shop or a wholesaler: its own market is the retail or wholesale of the products it sells (only the wording
+    differs; the rule is the same for every level, see precedents.level_fit)."""
     return (act or {}).get("value_chain_level") in RESELLER_LEVELS
 
 
+LEVEL_WORD = {"raw materials": "raw materials", "intermediate products": "intermediate products",
+              "finished products": "manufacturing", "wholesale / distribution": "wholesale", "retail": "retail",
+              "services": "services", "other": "other activities"}
+
+
 def level_word(act):
-    return "wholesale" if (act or {}).get("value_chain_level") == "wholesale / distribution" else "retail"
+    """An activity's level of trade in a word (e.g. "manufacturing", "retail")."""
+    return LEVEL_WORD.get((act or {}).get("value_chain_level"), "its level")
+
+
+def levels_text(markets):
+    """The level(s) of trade of markets in words, e.g. "manufacturing" or "raw materials or intermediate products"."""
+    lv = [LEVEL_WORD.get(x, x) for x in VALUE_CHAIN_LEVELS if any(x in prec.market_levels(m) for m in markets)]
+    return " or ".join(lv) or "another level"
+
+
+def ctx_entries(view, side, only=None):
+    """The markets in which one side's products fall only at ANOTHER level of trade (context, never the side's own
+    market), each once, as entries like those of row_markets. only: the products to consider (e.g. those a vertical
+    link names)."""
+    out = {}
+    for g in view.get(f"{side}_ctx") or []:
+        if not g.get("market"):
+            continue
+        items = [i for i in g["items"] if i in only] if only else g["items"]
+        if not items:
+            continue
+        e = out.setdefault(prec._market_key(g["market"]["name"]), {"markets": [], "a": None, "b": None})
+        if g["market"] not in e["markets"]:
+            e["markets"].append(g["market"])
+        e[side] = _merge_group(e[side], dict(g, items=items))
+    return [{"market": _best(e["markets"]), "markets": e["markets"],
+             "paragraphs": {pid for m in e["markets"] for pid in m.get("product_paragraphs") or []},
+             "a": e["a"], "b": e["b"]} for e in out.values()]
+
+
+def context_text(ce, side, paras, html_out=True):
+    """"Decorative coatings (manufacturing)": the markets of ctx_entries with their level of trade."""
+    names = market_list(ce, paras, html_out, sides=(side,), marks=False)
+    return f"{names} ({levels_text([m for e in ce for m in e['markets']])})"
 
 
 def market_hover(m, paras, category=None):
@@ -163,21 +203,22 @@ def _items_html(g, market_name=""):
             out.append(f"{he(i)} <span class='or' title='{h(note)}'>(general term)</span>")
         else:
             out.append(he(i))
-    return ", ".join(out) + (NOT_EXACT if g["basis"] != "precedent" else "")
+    return ", ".join(out) + (NOT_EXACT if g["basis"] != "precedent" and not g.get("other_level") else "")
 
 
-NOT_EXACT_TIP = ("The Commission defined this market for the same product at another level of trade, or for a similar "
-                 "product, not for this product as sold here. Whether its reasoning carries over is for the lawyer to "
-                 "judge.")
+NOT_EXACT_TIP = ("The Commission defined this market for a similar product, not for this product as sold here, or the "
+                 "paragraphs found do not show at which level of trade the market lies. Whether its reasoning carries "
+                 "over is for the lawyer to judge.")
 NOT_EXACT = f" <span class='or' title='{h(NOT_EXACT_TIP)}'>(not an exact match)</span>"
 
 
-def market_list(found, paras, html_out=True, sides=("a", "b"), joiner=", "):
+def market_list(found, paras, html_out=True, sides=("a", "b"), joiner=", ", marks=True):
     """Markets as a list, each marked "not an exact match" where the products of the given side(s) were placed in it
-    although the decision defined it for the same product at another level of trade or for a similar product (basis
-    "analogy" in the AI's answer); if every market of the list is, the mark is given once at the end."""
+    although the decision defined it for a similar product, or its level of trade is not known (basis "analogy");
+    if every market of the list is, the mark is given once at the end. marks=False: no marks (markets at another level
+    of trade, which say so themselves)."""
     def analog(e):
-        return any(e.get(s) and e[s].get("basis") != "precedent" for s in sides)
+        return marks and any(e.get(s) and e[s].get("basis") != "precedent" for s in sides)
     # one market, one name: two decisions naming the same market slightly differently ("Cocoa cake/powder" and
     # "Cocoa cake/powder (standard and non-standard products)") are listed once, as in the market table
     seen, unique = set(), []
@@ -215,6 +256,10 @@ def _side_text(entries, view, side, paras, html_out=True):
     groups = view.get(side) or []
     if any(g["market_id"] == "failed" for g in groups):
         return "search failed"
+    ce = ctx_entries(view, side)
+    if ce:              # its products fall in markets at another level of trade only
+        lw = LEVEL_WORD.get((view.get("levels") or {}).get(side), "its level")
+        return f"no precedent at its level of trade ({lw}); at another level: {context_text(ce, side, paras, html_out)}"
     return "no precedent"
 
 
@@ -227,16 +272,14 @@ def exact_match(e):
     return all((e[s] or {}).get("basis") == "precedent" for s in ("a", "b") if e.get(s))
 
 
-def horizontal_outcome(entries, verdict, rs=None):
+def horizontal_outcome(entries, verdict):
     """What the Commission's view means for a horizontal row: Confirmed · Possible · Not excluded · Not supported ·
-    No precedent. The strongest result of the row counts.
+    No precedent. The strongest result of the row counts. entries: each side's markets at its OWN level of trade
+    (precedents.level_fit), so a shop's side counts only with a market at retail level.
     A category the Commission divided into separate markets is not a market: both products in it is
-    "Possible" (which segment is to be checked). A shop or wholesaler on either side: "No precedent" (its own market
-    is the retail or wholesale of the products, which the decisions found do not define), unless a decision defines a
-    market at its level (reseller_flags)."""
-    if rs and (rs.get("a") or rs.get("b")):
-        return "No precedent"
-    if verdict and verdict.get("different"):
+    "Possible" (which segment is to be checked). Two activities at different levels, each with a market at its own
+    level: "Not supported" (separate markets at different levels of trade)."""
+    if verdict and (verdict.get("different") or verdict.get("levels_differ")):
         return "Not supported"
     shared = [e for e in entries if e["a"] and e["b"] and not e.get("category")]
     in_category = [e for e in entries if e["a"] and e["b"] and e.get("category")]
@@ -252,11 +295,11 @@ def horizontal_outcome(entries, verdict, rs=None):
     return "No precedent"
 
 
-def vertical_outcome(entries, up, rs=None):
-    """The same for a vertical relationship; a shop's or wholesaler's side counts as no precedent unless a decision
-    defines a market at its level (see reseller_flags)."""
+def vertical_outcome(entries, up):
+    """The same for a vertical relationship: how many sides have a market at their own level of trade (a shop's
+    side only with a market at retail level)."""
     down = "b" if up == "a" else "a"
-    sides = sum(1 for s in (up, down) if any(e[s] for e in entries) and not (rs and rs.get(s)))
+    sides = sum(1 for s in (up, down) if any(e[s] for e in entries))
     return {2: "Markets defined", 1: "One side defined", 0: "No precedent"}[sides]
 
 
@@ -272,45 +315,23 @@ def _prefix(es, html_out=True, limit=3):
     return f"<i>{he(capital(text))}:</i> " if html_out else f"{capital(text)}{PREFIX_SEP}"
 
 
-def horizontal_sentences(entries, view, verdict, target, portco, paras, html_out=True, rs=None, acts=None):
+def horizontal_sentences(entries, view, verdict, target, portco, paras, html_out=True, acts=None):
     """The Commission's view of a horizontal row as bullets, in the terms of the Commission's decisions: one bullet
-    per group of products, a category divided into separate markets named as
-    such, and the level rule for shops and wholesalers. Market names only (hover: the Commission's sentence); the
-    paragraphs are cited once, in the market table above the rows. The products a bullet concerns are named only
-    when a row has several bullets."""
+    per group of products, a category divided into separate markets named as such, and the level of trade of each
+    side (a market counts for a side only at its own level; markets at another level are named as such). Market names
+    only (hover: the Commission's sentence); the paragraphs are cited once, in the market table above the rows. The
+    products a bullet concerns are named only when a row has several bullets."""
     T, P = (he(target), he(portco)) if html_out else (target, portco)
+    acts = acts or {}
+    n14 = (para_ref('Notice-14', {}, seen=False) if html_out else "(Market Definition Notice (14))")
 
     def names(es, joiner=", "):
         return market_list(es, paras, html_out, joiner=joiner)
-    if rs and (rs.get("a") or rs.get("b")):
-        acts = acts or {}
-        if rs.get("a") and rs.get("b"):
-            la, lb = level_word(acts.get("a")), level_word(acts.get("b"))
-            if la == lb:
-                text = (f"no decision in the database covers the {la} of these products: to be assessed under the "
-                        "Market Definition Notice")
-            else:           # retail v wholesale are different levels of trade
-                text = (f"different levels of trade ({T}: {la}; {P}: {lb}), often different markets; whether both "
-                        f"compete for the same customers is to be checked; no decision in the database covers the {la} "
-                        f"or {lb} of these products: to be assessed under the Market Definition Notice")
-            sold = [e for e in entries if e["a"] or e["b"]]
-            if sold:
-                text += f"; the products sold fall in {names(sold)}"
-            return [text]
-        side = "a" if rs.get("a") else "b"
-        who = T if side == "a" else P
-        lw = level_word(acts.get(side))
-        if html_out:        # the screen: one line, the full explanation on hover (the Word document has it in full)
-            name = target if side == "a" else portco
-            tip = (f"{poss(name)} side is {lw}: the decisions define the markets of the products, not the {lw} market. "
-                   "Markets can differ at different levels of the supply chain (Market Definition Notice (14)); "
-                   "whether both compete for the same customers is to be checked (Market Definition Notice (25)).")
-            return [f"<span class='hov' title='{h(tip)}'>{poss(who)} side is {lw}: the decisions define product markets, not a {lw} market</span> "
-                    f"{para_ref('Notice-14', {}, seen=False)} {para_ref('Notice-25', {}, seen=False)}"]
-        n14, n25 = "(Market Definition Notice (14))", "(Market Definition Notice (25))"
-        return [f"{poss(who)} side is {lw}: the decisions define the markets of the products, not the {lw} market. "
-                f"Markets can differ at different levels of the supply chain {n14}; whether both compete for the same "
-                f"customers is to be checked {n25}"]
+    if verdict and verdict.get("levels_differ"):
+        la, lb = level_word(acts.get("a")), level_word(acts.get("b"))
+        return [f"different levels of trade ({T}: {la}; {P}: {lb}): {T}: {_side_text(entries, view, 'a', paras, html_out)}"
+                f"; {P}: {_side_text(entries, view, 'b', paras, html_out)}: separate markets at different levels of "
+                f"trade {n14}; no horizontal overlap at product-market level; check for a vertical relationship"]
     if verdict and verdict.get("different"):
         return [f"the products fall in separate markets ({T}: {_side_text(entries, view, 'a', paras, html_out)}; "
                 f"{P}: {_side_text(entries, view, 'b', paras, html_out)}): no horizontal overlap at product-market "
@@ -354,26 +375,39 @@ def horizontal_sentences(entries, view, verdict, target, portco, paras, html_out
     else:
         out = [text for _, text in out]
     if not out:
-        if any(e["a"] or e["b"] for e in entries):
-            out.append(f"no decision in the database places both companies' products in one market ({T}: "
-                       f"{_side_text(entries, view, 'a', paras, html_out)}; {P}: "
-                       f"{_side_text(entries, view, 'b', paras, html_out)}): to be assessed under the Market "
-                       "Definition Notice")
+        ctx = {sd: ctx_entries(view, sd) for sd in ("a", "b")}
+        own = any(e["a"] or e["b"] for e in entries)
+        same_level = (view.get("levels") or {}).get("a") == (view.get("levels") or {}).get("b")
+        if not own and ctx["a"] and ctx["b"] and same_level:
+            # e.g. two shops: nothing at their level; the markets of the products they sell, once
+            lw = level_word(acts.get("a"))
+            text = (f"no decision in the database covers the {lw} of these products: to be assessed under the Market "
+                    f"Definition Notice; at another level of trade, the products fall in "
+                    f"{context_text(ctx['a'] + ctx['b'], 'a', paras, html_out)}")
+        elif own or ctx["a"] or ctx["b"]:
+            text = (f"no decision in the database places both companies' products in one market at their level of "
+                    f"trade ({T}: {_side_text(entries, view, 'a', paras, html_out)}; {P}: "
+                    f"{_side_text(entries, view, 'b', paras, html_out)}): to be assessed under the Market "
+                    "Definition Notice")
         else:
-            out.append("no decision in the database covers these products: to be assessed under the Market Definition "
-                       "Notice")
+            text = "no decision in the database covers these products: to be assessed under the Market Definition Notice"
+        if ctx["a"] or ctx["b"]:
+            text += f"; markets can differ at different levels of the supply chain {n14}"
+        out.append(text)
     return out
 
 
-def vertical_sentence(entries, view, up, target, portco, paras, html_out=True, rs=None, acts=None):
+def vertical_sentence(entries, view, up, target, portco, paras, html_out=True, acts=None, link_only=None):
     """The market of each side's products as two bullets: the possible supplier first, then the possible customer
-    (the roles come from step ③; the decisions define the markets, not the link). A shop's or wholesaler's side is the
-    retail or wholesale of the products it sells (no precedent); the markets of those products are named as what it
-    sells."""
+    (the roles come from step ③; the decisions define the markets, not the link). Each side's market at its own level
+    of trade; where it has none, the markets its products fall in at another level are named as such (for a shop or
+    wholesaler: what it sells). link_only: {side: products the link names} for those markets."""
     down = "b" if up == "a" else "a"
     who = {"a": he(target) if html_out else target, "b": he(portco) if html_out else portco}
     acts = acts or {}
-    if not any(e["a"] or e["b"] for e in entries):
+    link_only = link_only or {}
+    if not any(e["a"] or e["b"] for e in entries) and not any(ctx_entries(view, s, only=link_only.get(s))
+                                                             for s in ("a", "b")):
         return ["no decision in the database covers either side: to be assessed under the Market Definition Notice"]
 
     def ms(found, s):
@@ -384,12 +418,19 @@ def vertical_sentence(entries, view, up, target, portco, paras, html_out=True, r
     def side(s, level, role):
         found = [e for e in entries if e[s]]
         head = f"{who[s]} (possible {role})" if role else who[s]
-        if rs and rs.get(s):
-            text = f"{head}: no precedent for the {level_word(acts.get(s))} of these products"
-            return text + (f"; the products {who[s]} sells fall in {ms(found, s)}" if found else "")
         if found:
             return f"{head}: {ms(found, s)}"
-        return f"{head}: {_side_text(entries, view, s, paras, html_out)}"
+        ce = ctx_entries(view, s, only=link_only.get(s))
+        if is_reseller(acts.get(s)):
+            text = f"{head}: no precedent for the {level_word(acts.get(s))} of these products"
+            return text + (f"; the products {who[s]} sells fall in {context_text(ce, s, paras, html_out)}"
+                           if ce else "")
+        if ce:
+            return (f"{head}: no precedent at its level of trade ({level_word(acts.get(s))}); at another level, its "
+                    f"products fall in {context_text(ce, s, paras, html_out)}")
+        # only the products the link names (the side's other products may fall in markets at another level)
+        failed = any(g["market_id"] == "failed" for g in view.get(s) or [])
+        return f"{head}: {'search failed' if failed else 'no precedent'}"
     if up == "both":                   # links in both directions: each side's market once, without a role
         return [side("a", "", ""), side("b", "", "")]
     return [side(up, "upstream", "supplier"), side(down, "downstream", "customer")]
@@ -464,7 +505,8 @@ def market_overview():
                 settled.setdefault(m["decided_paragraph"], set()).add(mname(m["name"]))
         for side, company, act in (("a", target, r["a"]), ("b", r["portco"], r["b"])):
             aname = short_name(act)
-            for g in view[side]:
+            # its own markets, then the markets its products fall in at another level of trade (marked as such)
+            for g in view[side] + (view.get(f"{side}_ctx") or []):
                 if g["market_id"] in ("none", "failed") or not g.get("market"):
                     store = failed if g["market_id"] == "failed" else none
                     lst = store.setdefault(company, {}).setdefault(aname, [])
@@ -476,7 +518,7 @@ def market_overview():
                 acts = e["sides"].setdefault(company, {})
                 acts[aname] = _merge_group(acts.get(aname), g)
     placed = {(c, a, i) for e in lines.values() for c, acts in e["sides"].items() for a, g in acts.items()
-              for i in g["items"]}
+              if not g.get("other_level") for i in g["items"]}
     for store in (none, failed):          # placed in a market by another search: not "no precedent"
         for c in list(store):
             for a in list(store[c]):
@@ -513,8 +555,12 @@ def market_overview():
                 m = _best([x for x, _ in ms])
                 pids = next(p_ for x, p_ in ms if x is m)
                 decisions.append((case, m, status, pids))
-        has_t = target in e["sides"]
-        has_p = any(c != target for c in e["sides"])
+        # the group follows the companies whose OWN market it is; a market at another level for every company
+        # concerned is listed by the companies concerned
+        own = {c for c, acts in e["sides"].items() if any(not g.get("other_level") for g in acts.values())}
+        concerned = own or set(e["sides"])
+        has_t = target in concerned
+        has_p = any(c != target for c in concerned)
         out.append({"name": mname(best["name"]), "market": best, "decisions": decisions, "sides": e["sides"],
                     "group": "both" if has_t and has_p else ("target" if has_t else "portco")})
     order = [k for k, _ in MARKET_GROUPS]
@@ -544,7 +590,14 @@ def _items_short(g, name):
         text += f" <span class='hov' title='{h(', '.join(rest))}'>and {len(rest)} more</span>"
     if g.get("status") == "possibly":
         text += " <span class='or'>possibly</span>"
+    if g.get("other_level"):
+        text += f" <span class='or' title='{h(OTHER_LEVEL_TIP)}'>(at another level of trade)</span>"
     return text
+
+
+OTHER_LEVEL_TIP = ("The decision defines this market at another level of trade than this company's activity (e.g. the "
+                   "manufacturers' market for products a shop sells): it describes the products, not the company's own "
+                   "market (Market Definition Notice (14)).")
 
 
 def market_overview_html(ov):
@@ -606,7 +659,8 @@ def market_overview_plain(ov):
 
     def items(g):
         text = ", ".join(g["items"])
-        return text + (" (possibly)" if g.get("status") == "possibly" else "")
+        return (text + (" (possibly)" if g.get("status") == "possibly" else "")
+                + (" (at another level of trade)" if g.get("other_level") else ""))
 
     def rows(sides, own, store=False):
         out = []
@@ -644,41 +698,6 @@ def market_overview_cited(ov):
                 if n.isdigit():
                     cited.setdefault(c, set()).add(int(n))
     return cited
-
-
-# A shop's or wholesaler's own market is the retail or wholesale of the products it sells. The decisions usually define
-# markets for making and supplying the products, so such a side counts as "No precedent", unless a decision defines a
-# market at its own level of trade (e.g. "retail distribution of decorative coatings" in a decision the lawyer added).
-# Both conditions, so that a manufacturers' market is never taken for a retail one (e.g. a chocolate shop placed in
-# "Tablets"; "travel retail" in M.5644 (39) means sales TO travel retailers): (1) the AI placed the side's products there as a precedent, i.e. a market defined at this level of trade;
-# (2) the market's name in the Commission's words is a retail or wholesale market, checked in code. Legal vocabulary
-# only, no sector knowledge.
-LEVEL_MARKET = {"retail": re.compile(r"\bretail(?:ing)?\b", re.IGNORECASE),
-                "wholesale": re.compile(r"\bwholesal(?:e|ing)\b", re.IGNORECASE)}
-CHANNEL_ONLY = re.compile(r"\b(?:to|for|through|via)\s+(?:the\s+)?(?:travel\s+)?(?:retail|wholesal)\w*|\btravel\s+retail",
-                          re.IGNORECASE)
-
-
-def level_market(market, level):
-    """Whether a market's name (as the AI found it, or as shown) names a market at this level of trade, not a sales
-    channel of the manufacturers ("supply to retailers", "travel retail")."""
-    names = [n for n in ((market or {}).get("name_as_found"), (market or {}).get("name")) if n]
-    return any(LEVEL_MARKET[level].search(n) and not CHANNEL_ONLY.search(n) for n in names)
-
-
-def reseller_flags(r, entries=None):
-    """{"a": bool, "b": bool}: the side is a shop or wholesaler without a market defined at its own level among the
-    row's markets (entries of row_markets)."""
-    out = {}
-    for s in ("a", "b"):
-        flag = is_reseller(r[s])
-        if flag and entries:
-            lw = level_word(r[s])
-            if any(e.get(s) and e[s].get("basis") == "precedent" and level_market(e.get("market"), lw)
-                   for e in entries):
-                flag = False
-        out[s] = flag
-    return out
 
 
 def commission_heading(label):
@@ -761,24 +780,26 @@ def commission_sentences(r, target, portco, html_out=True):
         return []
     rec, view, entries, h_on, ups, verdict = parts
     paras = (rec or {}).get("paragraphs") or {}
-    rs, acts = reseller_flags(r, entries), {"a": r["a"], "b": r["b"]}
+    acts = {"a": r["a"], "b": r["b"]}
     out = []
     if h_on:
-        outcome = horizontal_outcome(entries, verdict, rs)
-        bullets = horizontal_sentences(entries, view, verdict, target, portco, paras, html_out, rs, acts)
+        outcome = horizontal_outcome(entries, verdict)
+        bullets = horizontal_sentences(entries, view, verdict, target, portco, paras, html_out, acts)
         if outcome == "Not supported":
             bullets += uncovered_sentences(r, entries, target, portco, html_out)
         out.append(("horizontal", bullets, outcome))
     if len(ups) > 1:                   # supply in both directions: each side's market once
         le = link_entries(entries, r, "both")
-        out.append((BOTH_DIRECTIONS, vertical_sentence(le, view, "both", target, portco, paras, html_out, rs,
-                                                       acts), vertical_outcome(le, ups[0], rs)))
+        out.append((BOTH_DIRECTIONS, vertical_sentence(le, view, "both", target, portco, paras, html_out, acts,
+                                                       link_items(r, "both")), vertical_outcome(le, ups[0])))
     for up in ups if len(ups) == 1 else []:
         u, d = (target, portco) if up == "a" else (portco, target)
         le = link_entries(entries, r, up)
-        out.append((f"vertical, {u} → {d}", vertical_sentence(le, view, up, target, portco, paras, html_out, rs,
-                                                               acts), vertical_outcome(le, up, rs)))
-    if len(out) > 1 and all(o == "No precedent" for _, _, o in out) and not any(rs.values()):
+        out.append((f"vertical, {u} → {d}", vertical_sentence(le, view, up, target, portco, paras, html_out, acts,
+                                                               link_items(r, up)), vertical_outcome(le, up)))
+    # rows where nothing is found on any label: one line, unless a side's products fall in markets at another level
+    # of trade (named per label)
+    if len(out) > 1 and all(o == "No precedent" for _, _, o in out) and not (view.get("a_ctx") or view.get("b_ctx")):
         out = [("", ["no decision in the database covers these products: "
                      "to be assessed under the Market Definition Notice"], "No precedent")]
     if not out:          # unclear, or added back without a label: where each side's products fall

@@ -47,8 +47,9 @@ KEY = [("Confirmed", "both products fall in a market the Commission defined"),
                     "exact match for one of them"),
        ("Not excluded", "the Commission left the market definition open"),
        ("Not supported", "the Commission puts the products in separate markets"),
-       ("No precedent", "no decision in the database covers the products (or, for a shop or wholesaler, its own retail "
-                        "or wholesale market; the markets of the products it sells are named)"),
+       ("No precedent", "no decision in the database covers the products at the company's level of trade (for a shop or "
+                        "wholesaler: the retail or wholesale of the products it sells; markets at another level are "
+                        "named)"),
        ("Markets defined / One side defined", "vertical rows: the decisions name a market for both sides' products / "
                                               "for one side's only (defined or left open); not the link between the "
                                               "two companies")]
@@ -68,9 +69,9 @@ HOW = [
     ("Commission market definitions", "The products of each row were searched in a database of Commission decisions "
                                       "and the Market Definition Notice. The Commission's sentences were quoted word "
                                       "for word and checked against the decisions. A decision outside the database is "
-                                      "not found; “No precedent” does not mean that there is no market. For a shop or "
-                                      "a wholesaler, the decisions describe the markets of the products it sells, not "
-                                      "its own retail or wholesale market."),
+                                      "not found; “No precedent” does not mean that there is no market. A market counts "
+                                      "for a company only at its own level of trade (for a shop: the retail of the "
+                                      "products it sells); a market at another level is named as such."),
     ("Existing relationships", "Found by the app's code, by matching the names of the other companies in each "
                                "company's own research, never by asking the AI about two companies together; the "
                                "nature of the relationship is not assessed."),
