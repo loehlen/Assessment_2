@@ -3,7 +3,7 @@
 **A first-pass EU merger control overlap screen, built the way a competition lawyer actually does it, and built so
 that the lawyer stays in charge.** (LAWS90286 · Assignment 2)
 
-**Deployed app:** (https://assignment2test-a6t5ipzcjxrf6wjtii7ajx.streamlit.app/)
+**Deployed app:** https://assignment2test-a6t5ipzcjxrf6wjtii7ajx.streamlit.app/
 
 Before almost every acquisition, someone on the deal team has to answer one question: *where does the target meet
 the businesses the buyer already owns?* For a private equity fund these are its portfolio companies; for a company
