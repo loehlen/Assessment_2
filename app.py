@@ -26,8 +26,9 @@ Settings (.env locally, Secrets on Streamlit Cloud):
     MODEL_PROFILE=dev | final                      the models per step (logic/ai_client.py); default: dev with
                                                    DEV_MODE on, final with DEV_MODE off (the submitted version)
     USE_CACHE=1                                    development only: reuse calls already paid for
-With DEV_MODE off (the submitted version) the user enters their own OpenAI key in the course's API Credentials sidebar
-module (ui/api_key.py); it is kept for the session only.
+With DEV_MODE off (the submitted version) the user enters their own OpenAI key in the course's API Credentials module
+(ui/api_key.py) on the first screen; from step ① on, the module is folded in the sidebar. The key is kept for the
+session only.
 """
 import streamlit as st
 
@@ -35,7 +36,7 @@ from logic import ai_client
 
 from ui.theme import APP_CSS
 from ui.common import go_to, ss
-from ui.credentials import credentials, key_sidebar, make_ai
+from ui.credentials import credentials, make_ai
 from ui.sidebar import sidebar_panel
 from steps.start_page import LANDING_FOOT, landing_html, landing_page
 from steps.step1_companies import run_mapping, stage_companies
@@ -113,8 +114,7 @@ step = ss.get("step", 1)
 # session, before anything is entered; a saved screen that is opened skips it, and
 # "Start over" leads straight to step ①.
 if not ss.get("started") and step == 1 and not ss.get("companies"):
-    key_sidebar()                  # the only thing in the sidebar on the start page
-    landing_page()                 # draws the title itself, in its left column
+    landing_page()                 # no sidebar on the start page: the page has the full width                 # draws the title itself, in its left column
     st.stop()
 st.title("EU Overlap Screen")
 with st.expander("How This Tool Works"):

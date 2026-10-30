@@ -1,6 +1,7 @@
 """
 ui/credentials.py - the first screen: the user's own OpenAI API key, entered in the course's API Credentials
-module (ui/api_key.py); in development, an app password and the developer's key instead.
+module (ui/api_key.py), shown in the middle of the page; in development, an app password and the developer's key
+instead.
 """
 import openai
 import streamlit as st
@@ -35,21 +36,24 @@ def gate_page(lead_html):
 
 def credentials():
     """The OpenAI key for this session.
-    Submitted version (DEV_MODE off): the user's own key, entered in the course's API Credentials sidebar module
-    (ui/api_key.py); until then the page only says where to enter it. Afterwards the module stays at the end of the
-    sidebar, folded, so the key can be changed.
+    Submitted version (DEV_MODE off): the user's own key, entered in the course's API Credentials module
+    (ui/api_key.py), drawn on the first screen in the middle of the page. From step ① on, the module stays at the end
+    of the sidebar, folded, so the key can be changed.
     Development (DEV_MODE), or PASSWORD_ONLY (the submitted version, but with the password): an app password on the
     first screen, then the developer's key from .env or Secrets.
     The key is kept for the session only (never stored)."""
     if not USES_PASSWORD:
         if ss.get("openai_api_key"):
             return ss.openai_api_key
-        if api_key.api_key_input(check=key_problem):          # entered just now: start with the module folded
+        mid = gate_page("")
+        with mid:
+            entered = api_key.api_key_input(check=key_problem, box=st.container(), title=False, primary=True,
+                                            stretch=True, enter=True)
+            st.markdown("<div class='gate-note'>Your own OpenAI API key, used only for the calls of this session and "
+                        "not stored. A screen of one of the examples costs about USD 0.50–1 in API fees. You can "
+                        "change the key later in the sidebar, under “API Key Input”.</div>", unsafe_allow_html=True)
+        if entered:                      # the start page follows; the module waits folded in the sidebar
             st.rerun()
-        gate_page("<div class='gate-key'>To start, enter your OpenAI API key in the sidebar under <b>API Key "
-                  "Input</b> and click <b>Update API Key</b>.<br><span>The key is used only for the calls of this "
-                  "session and is not stored. A screen of one of the examples costs about USD 0.50–1 in API fees. "
-                  "On a small screen, open the sidebar with the arrow at the top left.</span></div>")
         st.stop()
     if ss.get("auth_key"):
         return ss.auth_key
