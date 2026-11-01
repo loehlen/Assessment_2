@@ -1,6 +1,6 @@
 """
-ui/saved_screens.py - continuing a saved screen ("Save progress" Word document, or an audit log), and the audit
-log itself: every AI call with what it was sent and returned.
+ui/saved_screens.py - continuing a saved screen ("Save progress" Word document), and the screen's data that such a
+document carries inside it (the audit log): every AI call with what it was sent and returned.
 """
 import copy
 import json
@@ -23,9 +23,9 @@ from steps.step3_assessment import activities_hash, current_overrides, has_added
 from steps.step4_search import precedent_rows
 
 
-# Useful e.g. for a lawyer who is only interested in step ④. Restores the screen from an audit log downloaded from this
-# app (steps ①–② from a file saved before the comparison; ①–③, and ④ if the file has it, from a later one), without any
-# AI call. The file stays with the lawyer; the app stores nothing.
+# Useful e.g. for a lawyer who is only interested in step ④. Restores the screen from the data inside a "Save progress"
+# Word document (steps ①–② from a file saved before the comparison; ①–③, and ④ if the file has it, from a later one),
+# without any AI call. The file stays with the lawyer; the app stores nothing.
 AUDIT_REQUIRED = ("companies", "stage_1_2_activity_mapping")
 
 
@@ -39,7 +39,7 @@ def check_audit(data):
     """The problems that stop a file from being loaded (empty list = it can be loaded). A file saved in step ② has no
     comparison yet ("stage_2_confirmed_activities" is empty) and continues in step ②."""
     if not isinstance(data, dict):
-        return ["the file is not an audit log of this app"]
+        return ["the file holds no screen saved with this app"]
     missing = [k for k in AUDIT_REQUIRED if k not in data]
     if missing:
         return [f"the file has no {', '.join(missing)} (a progress file saved with this app is needed)"]
@@ -152,25 +152,21 @@ def load_audit(data):
 
 def loader_box():
     """'Open saved progress' in the sidebar."""
-    st.caption("Continues a screen from a Word document saved with “Save progress” (or an audit log, .json): "
-               "companies, activities, the assessment and step ④, with your views, notes and edits, without any AI "
-               "call. The current screen is replaced. The file stays with you; the app stores nothing.")
-    up = st.file_uploader("Progress file (.docx or .json)", type=["docx", "json"], key="audit_upload",
-                          label_visibility="collapsed")
+    st.caption("Continues a screen from a Word document saved with “Save progress”: companies, activities, the "
+               "assessment and step ④, with your views, notes and edits, without any AI call. The current screen is "
+               "replaced. The file stays with you; the app stores nothing.")
+    up = st.file_uploader("Progress file (.docx)", type=["docx"], key="audit_upload", label_visibility="collapsed")
     if up is None:
         return
     blob = up.getvalue()
     try:
-        if up.name.lower().endswith(".docx"):
-            data = export.read_progress(blob)
-            if data is None:
-                st.error("This Word document holds no screen data. Only a document saved with “Save progress” can be "
-                         "opened again (“Download the Word document” saves it without the data).")
-                return
-        else:
-            data = json.loads(blob.decode("utf-8"))
+        data = export.read_progress(blob)
     except ValueError as e:          # also UnicodeDecodeError and json.JSONDecodeError
         st.error(f"The file could not be read: {e}")
+        return
+    if data is None:
+        st.error("This Word document holds no screen data. Only a document saved with “Save progress” can be "
+                 "opened again (“Download the Word document” saves it without the data).")
         return
     problems = check_audit(data)
     if problems:

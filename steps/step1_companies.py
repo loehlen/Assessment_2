@@ -191,7 +191,7 @@ def send_key(name, found):
     return "send_" + hashlib.sha1((name + "|" + "|".join(sorted(found))).encode()).hexdigest()[:12]
 
 
-SEND_ANYWAY = "Send anyway (my responsibility; recorded in the audit log)"
+SEND_ANYWAY = "Send anyway (my responsibility; recorded in the progress file)"
 
 
 def typed_warning(name, found, what="The description of"):

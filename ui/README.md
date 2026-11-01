@@ -15,5 +15,5 @@ Display code used by more than one step. Nothing here calls the AI.
 | `decisions.py` | the Commission decisions in the database and those the lawyer added: paragraphs, case numbers, titles, references with the text on hover |
 | `decision_reader.py` | the decisions used in a screen (sidebar) and the reader that opens one inside the app |
 | `upload_box.py` | "Add a Commission decision" at the end of step ④ (the reading itself is in `logic/uploads.py`) |
-| `saved_screens.py` | opening a saved screen ("Save progress" Word document or audit log) and building the audit log |
-| `sidebar.py` | the sidebar: start over, save progress, the Word document, the legend, the decisions used, the run summary, the API key; in development a deployment check |
+| `saved_screens.py` | opening a saved screen ("Save progress" Word document) and building the screen data (audit log) it carries |
+| `sidebar.py` | the sidebar: start over, save progress, the Word document, the legend, the decisions used, the API key; in development the costs and a deployment check |

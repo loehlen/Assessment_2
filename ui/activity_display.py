@@ -198,7 +198,7 @@ def source_markers(a, company, checks=None):
         style = "text-decoration:none;font-size:0.85em"       # one style; the hover says the kind
         href = (c or {}).get("link") or s.get("url", "")
         if not str(href).lower().startswith(("http://", "https://")):
-            href = ""                    # only web links (a loaded audit log could carry anything)
+            href = ""                    # only web links (a loaded progress file could carry anything)
         out.append(f"<a href='{html.escape(href, quote=True)}' target='_blank' title='{tip}' "
                    f"style='{style}'>[{n}]{mark}</a>")
     if a.get("no_available_source") and not out:

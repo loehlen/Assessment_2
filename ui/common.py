@@ -176,7 +176,7 @@ def run_summary():
     if waits:                            # the key's rate limit is waited out, never failed
         text += f" · waited {plural(waits, 'time')} for the API key's rate limit"
     lf = ss.get("loaded_from")
-    if lf:                               # steps ①–③ restored from a saved audit log (their calls were paid then)
+    if lf:                               # steps ①–③ restored from a progress file (their calls were paid then)
         before = lf.get("calls_before") or {}
         # counted like the run itself (embedding requests apart from AI calls)
         text += (f" · plus, before loading: {call_count(ss.get('loaded_calls') or [])}, USD "

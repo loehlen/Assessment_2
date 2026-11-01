@@ -1,146 +1,107 @@
 # EU Overlap Screen
 
-**A first-pass EU merger control overlap screen, built the way a competition lawyer actually does it, and built so
-that the lawyer stays in charge.** (LAWS90286 · Assignment 2)
+**A preliminary European Union merger control overlap screen** (LAWS90286 · Assignment 2)
 
-**Deployed app:** https://eu-merger-overlap-screen.streamlit.app/
+Deployed app: https://eu-merger-overlap-screen.streamlit.app/
 
-Before almost every merger or acquisition, someone on the deal team has to check whether the target and the acquirer
-(for a private equity fund, including its portfolio companies) are competitors, or supplier and customer. The app
-researches every company on public sources, compares every activity of the target with every activity of each
-portfolio company, looks up how the European Commission defined the markets in its decisions, and hands the lawyer a
-summary and a Word document to work with.
+Before almost every merger or acquisition, someone on the deal team has to check whether the target and the acquirer (for a private equity fund, each of its portfolio companies) are competitors, or supplier and customer. That means analysing what each company does and whether those activities fall in the same market, where the European Commission's earlier market definitions can be decisive. The app researches every company in public sources, compares every activity of the target with every activity of each portfolio company, looks up how the Commission defined the markets, and hands the lawyer a summary and a Word document.
 
-It is a working document for a lawyer to check, not a legal conclusion. Product markets only: geography and market
-shares are not assessed.
+It is a preliminary screen, not a legal conclusion: hard cases need judgment, and that judgment stays with the lawyer. Product markets only: geography and market shares are not assessed.
 
 ---
 
 ## Why this tool exists
 
-As a legal trainee in a competition law team I prepared many of these screens. The work is necessary: once two parties
-are competitors, or supplier and customer, sensitive information may only be exchanged through a clean team, documents
-must be redacted, and the overlaps decide how much the Commission needs to see. It is also very time-consuming and
-repetitive, as it requires reading through sometimes confusing corporate websites, sorting each company's activities
-and comparing them pair by pair, then finding the Commission's market definitions, all multiplied by every portfolio
-company.
+Once two parties are competitors, or supplier and customer, sensitive information may only be exchanged through a clean team, documents must be redacted, and the overlaps decide how much the Commission needs to see. As a legal trainee in a competition law team I prepared many of these screens. The task is time-consuming and repetitive: reading often confusing corporate websites, sorting each company's activities, comparing them pair by pair and finding the Commission's market definitions, all multiplied by every portfolio company.
 
 | | By hand | With the app |
 |---|---|---|
-| Research, comparison, market definitions | about 5–8 hours per screen, depending on the number of portfolio companies and activities and on how much information is available (my experience) | a few minutes of processing (TC1: about 4–5) |
+| Research, comparison, market definitions | about 5–8 hours per screen, depending on the companies and the information available (my experience) | a few minutes of processing (TC1: about 4–5 minutes) |
 | The lawyer's own work | all of it | checking and deciding: about an hour if thorough |
 | Cost | trainee hours | about USD 0.50–1 in API fees per screen |
-| Same care for the fifth company as for the first | varies with time pressure | yes: the same steps for every company and every pair |
-
-The saving does not come from skipping the lawyer's judgment. It comes from doing the searching, sorting and
-looking-up for them, and presenting every result so that it can be checked in seconds.
+| Same care for the fifth company as for the first | varies with time pressure | yes, the same steps for every company and every pair |
 
 ## How it works
 
 | Step | What the app does |
 |---|---|
-| ① Companies | the target and up to five portfolio companies; per company: web search, the lawyer's own description, or both |
-| ② Activities | two web searches and one extraction per company, each company in its own calls; opens every cited page and checks every quotation |
-| ③ Preliminary assessment | compares every target activity with every portfolio activity, one anonymised pair per AI call; legal conditions applied in code |
-| ④ Market definitions | searches a database of Commission decisions (RAG with a reflection loop); quotes the Commission and checks every quotation word for word |
+| ① Companies | the target and up to five portfolio companies, each researched by web search, by the lawyer's own description, or both |
+| ② Activities | two web searches (for a company researched on the web) and one extraction per company, each company in its own calls; the app opens every cited page and checks every quotation |
+| ③ Preliminary assessment | compares every target activity with every portfolio activity, one anonymised pair per AI call, with the legal conditions applied in code |
+| ④ Market definitions | searches a database of Commission decisions (RAG with a reflection loop), quotes the Commission and checks every quotation word for word |
 | ⑤ Summary | one page with the result per portfolio company, and the Word document |
+
+## Reading the results
+
+- **Horizontal**: the two companies offer products that may compete, i.e. may fall in the same market.
+- **Vertical**: one company's product may be an input for the other, or be resold by it (supplier and customer).
+- **Level of trade**: the stage at which a company sells, e.g. manufacturing an input, manufacturing a finished product, or retail. A Commission market only counts for a company at its own level of trade (Market Definition Notice 2024, para 14).
+
+**Step ③** labels each pair *potential horizontal* (red) or *potential vertical* (yellow), tags labels it considers less likely (e.g. across levels of trade), and marks pairs the public sources cannot settle *Unclear: please check*. With **Your view**, the lawyer can set any label to *Likely*, *Unlikely*, *Dismiss* or *Ask the company* (which becomes an Open Point in the summary and the Word document).
+
+**Step ④** gives each label one of these results:
+
+| Result | Meaning |
+|---|---|
+| **Confirmed** | both sides' products fall in the same market the Commission defined, on the decision's own terms |
+| **Possible** | both sides' products may fall in the same market depending on the product format, or the Commission's market is not an exact match for one side: to be checked |
+| **Not excluded** | both sides' products fall in a market whose definition the Commission left open (or the paragraphs found state no conclusion), so the overlap cannot be excluded |
+| **Not supported** | the Commission puts the products in separate markets |
+| **No precedent** | no decision in the database covers the product at the company's level of trade. This does not mean that none exists: the lawyer can add one (TC3) |
+| **Markets defined** · **One side defined** | for a vertical label: the decisions name a market for both sides' products, or for one side only |
 
 ---
 
 ## Designed around the lawyer
 
-Every feature was designed to save the lawyer time, while making every piece of information verifiable.
+### The tool proposes, the lawyer decides
 
-### The tool assists; the lawyer decides
-
-- **The tool proposes, with its basis; the lawyer decides, and the decision is recorded.** The lawyer corrects, adds
-  or deletes activities in step ②; "Your view" sits on every label, "Edit" on every row; a lawyer who thinks a
-  vertical link is really horizontal adds the label and dismisses the tool's one. The summary and the Word document
-  follow the lawyer's choices, never the other way round.
-- **The Word document is the lawyer's work product, not an AI report.** Times New Roman, editable as usual, only the
-  lawyer's final choices in the main part; how the tool prepared them, including what the AI did, is in an Annex, so
-  the AI's part stays on record without cluttering the work product.
-- **Gaps are results.** "Unclear: please check", "No precedent" and "Ask the company" are openly shown. A label set to
-  "Ask the company" becomes an Open Point in the summary and the Word document. The app never forces a decision onto a
-  product it does not fit.
-- **Junior prepares, senior reads.** Steps ①–④ are where the work is done and checked; step ⑤ and page 1 of the Word
-  document are short enough for a supervising lawyer to read on their own, with every line traceable to the step that
-  found it and with enough reasoning to make a quick judgment.
+- **Every decision is the lawyer's, and it is recorded.** Activities can be corrected, added or deleted in step ②. "Your view" sits on every label and "Edit" on every row, so a lawyer who thinks a vertical link is really horizontal can add that label and dismiss the tool's. The summary and the Word document follow the lawyer's choices, never the other way round.
+- **The Word document is a work product, not an AI report.** It is editable, set in Times New Roman like a final work product, and its main part shows only the lawyer's final choices. How the tool prepared them, including what the AI did, is in an Annex.
+- **Gaps are results.** "Unclear: please check", "No precedent" and "Ask the company" are shown openly. The app never forces a decision onto a product it does not fit.
+- **Junior prepares, senior reads.** Steps ①–④ are where the work is done and checked. Step ⑤ and page 1 of the Word document are short enough for a supervising lawyer to read on their own, with every line traceable to the step that found it.
 
 ### Generous on purpose, quick to dismiss
 
-A missed overlap costs far more than a false one (the information exchange, the clean team, the filing). So the screen
-compares *every* pair and keeps doubtful links, but makes them cheap to deal with: less likely labels (for example
-across levels of trade) are tagged and their details folded, a dismissal is one click, and companies with no overlap
-at all stay openable with the reasons rather than disappearing. Nothing is deleted; it is only folded.
+A missed overlap costs far more than a false one (the information exchange, the clean team, the filing). So the screen compares every pair and keeps doubtful links, but makes them quick to deal with: less likely labels are tagged and their details folded, a pair is dismissed in one click, and companies with no overlap can still be opened with the reasons. The summary is the main result and justifies the generous earlier steps, because the lawyer can check and adjust every one of them.
 
 ### Validation: every point can be checked
 
-- **Source marks as levels of trust:** ✔ quotation found word for word on the page · ≈ probably right · ○ not checked
-  · ⚠ check before relying on it. The lawyer opens only the sources that need it. The app opens every cited page
-  itself. A page that no longer exists is removed as a source; an activity left without any source stays in the
-  list, flagged "⚠ no available source: verify, or ask the company". A page that refuses automated visitors cannot
-  be checked and is marked ○.
-- **The Commission is quoted, not paraphrased.** Every sentence the app attributes to a decision is checked word for
-  word against the decision; a paragraph counts only if the search actually returned it, so the AI cannot cite a
-  decision from memory. A label no verified passage supports reads "not stated in these paragraphs".
-- **Claim only what the law supports.** "Confirmed" only for an exact match on the decision's own terms; "not an
-  exact match" where the decision defines the market for a similar product or at another level of trade, so whether
-  it carries over is for the lawyer; a market counts for a company only at its own level of trade (Market Definition
-  Notice (14)); the app's rules of thumb cite the paragraph they rest on. "Affected market" is never used, because it
-  depends on market shares the tool does not assess.
-- **Inspectable evidence.** The decision reader opens each decision inside the app, with the paragraphs the screen
-  used highlighted, next to the official PDF. The audit log records every AI call with what it was sent and returned.
+- **Source marks as levels of trust:** ✔ quotation found word for word on the page · ≈ probably right · ○ not checked · ⚠ check before relying on it, so the lawyer sees at a glance where a double-check is worth it. The app opens every cited page itself: dead pages are removed as sources, an activity left without one is flagged "⚠ no available source: verify, or ask the company", and pages that refuse automated visitors are marked ○.
+- **The Commission is quoted, not paraphrased.** Every sentence attributed to a decision is checked word for word, and a paragraph only counts if the search actually returned it, so the AI cannot cite a decision from memory. A label that no verified passage supports reads "not stated in these paragraphs".
+- **Claim only what the law supports.** "Confirmed" requires an exact match on the decision's own terms, and the app's rules of thumb cite the paragraph they rest on. "Affected market" is never used, because it depends on market shares, which the tool does not assess.
+- **Inspectable evidence.** The decision reader opens each decision inside the app, with the paragraphs the screen used highlighted, next to the official PDF.
 
 ### Confidentiality by design
 
-Taken from practice: you never ask an AI tool "are A and B competitors?" about a live deal.
+A planned deal is usually highly confidential, especially if a listed company is involved, so lawyers are usually not allowed to describe it to an AI. Therefore:
 
-- **No AI call ever sees two company names together, or the planned deal.** Each company is researched in its own
-  call; the comparison sees anonymised descriptions, one pair at a time; names are re-attached in code.
-- **A guard in code checks every prompt before it is sent.** Text the lawyer types that names another company of the
-  screen triggers a warning; sending it anyway is the lawyer's recorded decision.
-- **An existing relationship** between two companies (TC2) is found by the code in each company's separate research,
-  never by asking the AI about both.
-- **The app stores nothing.** "Save progress" downloads a file to the lawyer's own computer; the clean Word download
-  carries none of the hidden data.
+- **No prompt the app builds ever puts two companies of the screen, or the planned deal, together.** Each company is researched in its own call. The comparison sees only anonymised descriptions, one pair at a time, and the names are put back in code.
+- **Typed text is checked before it is sent.** If it names another company of the screen, the app shows a warning. Sending it anyway is the lawyer's recorded decision (TC2).
+- **An existing relationship between two companies**, a strong indicator of an overlap or vertical link, is found by the code in each company's separate research, never by asking the AI about both (TC2).
+- **The app stores nothing.** "Save progress" downloads everything needed to resume the screen to the lawyer's own computer. The clean Word download carries none of it.
 
 ### Reliability: the code runs the process, the AI answers narrow questions
 
-- **A fixed pipeline.** The code sets the order of the steps, builds every prompt and decides every result; the AI
-  never chooses the next step. Each AI call answers one small question in a fixed form (Structured Outputs), so the
-  code can check and branch on it.
-- **One pair per call.** It makes the results repetitive (the summary groups them), but the AI makes fewer mistakes
-  comparing two activities than twenty, and no call sees more than it needs.
-- **Rules that hold in every sector live in code; sector knowledge does not.** There is no product list or
-  relatedness table in the code, which is why the same app works for paints (TC3). Legal definitions are built into
-  the answer forms (for example levels of trade defined by the buyer's use, Vertical Guidelines para 287).
-- **An error never removes anything.** A failed or blocked call never screens a pair out; a failed search is shown as
-  failed, never as "No precedent".
+- **A fixed pipeline.** The code sets the order of the steps, builds every prompt and decides every result; the AI never chooses the next step. Each call answers one small question in a fixed form (Structured Outputs), so the code can check it and act on it.
+- **One pair per call.** This serves both confidentiality and reliability, since the AI makes fewer mistakes when it only compares two activities. The summary groups the results for a quick overview.
+- **Rules that hold in every sector live in code; sector knowledge does not.** There is no product list or relatedness table in the code, which is why the same app works for different sectors (TC3). Legal definitions are built into the answer forms, e.g. levels of trade defined by the buyer's use (Vertical Guidelines para 287).
+- **An error never removes anything.** A failed or blocked call never screens a pair out, and a failed search is shown as failed, never as "No precedent".
 
 ### A calm screen, with more on demand
 
-A screen involves a lot of information, which the lawyer, or anyone using the app, has to work through. The main aim
-of the design was therefore to present it in a structure that is easy to understand and work with. Nothing necessary
-is cut: a lawyer under time pressure can work with the conclusion, and the detail is always one gesture away:
-
-- **Hover** for the quotation behind each source mark, the Commission's paragraph behind every reference such as
-  [M.5644 (24)], the Notice's paragraph behind a rule, every product of an activity ("+6 more"), and the full sentence
-  behind a shortened one.
-- **Folded, never hidden:** "How this step works" on every step, "Why?" with the reasoning on every row, the market
-  table in step ④, the profile and sources of each company, the companies without an overlap.
-- **Colour carries meaning only:** red for horizontal, yellow for vertical; one calm ink-and-ivory theme; the landing
-  page explains why overlaps matter before asking for any input.
+The task involves a lot of information. A lawyer under time pressure can work with the conclusion, while every detail stays one hover or click away. Hovering shows the quotation behind each source mark, the Commission's paragraph behind each reference such as [M.5644 (24)], and every product of an activity ("+6 more"). The guide box at the start of steps ②–④ can be folded; "Why?" (the reasoning on every row), the market table, each company's profile and sources, and the companies without an overlap are folded, never hidden.
 
 ---
 
-## The three test cases
+## How to run
 
-On the first screen, enter your own OpenAI API key and click **Update API Key** (the course's API Credentials module,
-`ui/api_key.py`; the key is used only for your session and is not stored; from step ① on, the module sits folded at
-the end of the sidebar under **API Key Input**, so the key can be changed). On the start page click **Start now**.
-In step ① either type the inputs below, or click the test case's button under **Try an Example**, which fills in the
-same editable fields.
+1. Open the deployed app, enter your own OpenAI API key on the first screen and click **Update API Key** (the course's API Credentials module, `ui/api_key.py`). The key is only used for your session and is not stored. From step ① on, it can be changed under **API Key Input** at the end of the sidebar.
+2. Click **Start now**.
+3. In step ①, click the test case's button under **Try an Example**, which fills in the editable fields, or type in the inputs below.
+4. Work through the steps. Steps ②–④ each open with a short guide box (how the step works, how to read it, its limits), which you can fold.
+
+A screen costs about USD 0.50–1 on your key. TC1 takes about 4–5 minutes of processing; TC2 makes the fewest AI calls and TC3 the most.
 
 | Company | Website | Other names | Used in |
 |---|---|---|---|
@@ -154,148 +115,112 @@ same editable fields.
 | Sto | sto.com | Sto SE & Co. KGaA | portfolio, TC3 |
 | Henkel | henkel.com | Henkel AG & Co. KGaA | portfolio, TC3 |
 
-The companies are real; the portfolios are hypothetical and no real transaction is implied. FRoSTA (frozen food) is
-the control in TC1 and TC2: it has no real overlap with either target.
+The companies are real, but the portfolios are hypothetical and no real transaction is implied.
 
-**In every test case:** ① **Find activities** → ② check the activities, **Compare activities** → ③ the preliminary
-assessment, **Find Commission market definitions** → ④ the market definitions, **Go to the summary** → ⑤ the summary,
-**Download the Word document**. Each test case names one input to try, so you can see the output follow the lawyer.
+---
+
+## The three test cases
+
+Each test case covers a situation the others do not. Together they show both kinds of relationship and a company with none; a Commission precedent for both sides, for one side only, and for neither until the lawyer adds one; and all three ways of researching a company.
+
+| | TC1 · Lindt & Sprüngli | TC2 · Planet A Foods | TC3 · Brillux |
+|---|---|---|---|
+| **Why chosen** | the standard case: well-documented companies in markets the Commission has defined | the hard case: a new product (a cocoa-free alternative to chocolate) and a client's own description | another sector, with no decision in the built-in database |
+| **Commission precedent** | for both sides | for one side only | none, until the lawyer adds M.4779 |
+| **Research** | web search | web search; web search plus the lawyer's description; the lawyer's description only | web search |
+| **What you do** | downgrade or dismiss a label | confirm a confidentiality warning; mark a label "Ask the company" | upload a Commission decision |
+| **What it illustrates** | the full pipeline, checked sources and verified Commission quotations | the lawyer's own knowledge in the research, the confidentiality guard, and honest gaps instead of forced answers | that the app holds no sector knowledge, and that a decision added in a minute turns "No precedent" into the Commission's own market |
+
+FRoSTA (frozen food) is the control in TC1 and TC2: it has no real overlap with either target.
+
+### What to expect from any run
+
+- **The core results are found reliably.** The overlaps and vertical relationships listed under *Core results* appear across runs.
+- **The activity split varies slightly.** Web search and AI answers vary, so a company may be split into slightly different activities from run to run, and the wording differs.
+- **The app finds more than the core results, on purpose.** Because a missed overlap costs far more than a false one, the screen also keeps doubtful pairs, many tagged less likely. These are not errors but are left for the lawyer to check and dismiss. Step ⑤ shows the result once the lawyer has done so.
 
 ### TC1 · Lindt & Sprüngli: the Commission has defined the markets
 
-- **Input:** every company by **web search**.
-- **Shows:** the full pipeline on well-documented companies, with a precedent for both sides.
-- **Expected:**
-  - Ritter Sport: a **horizontal** overlap in chocolate confectionery; in step ④ the Commission's separate markets for
-    countlines, tablets and pralines (M.5644 Kraft Foods / Cadbury), "Confirmed" where both sides have products in the
-    same one. A **vertical** link from Lindt's chocolate to Ritter Sport's own shops (resale); M.5644 defines
-    manufacturers' markets, so the shops get "no precedent for the retail …" and the markets their products fall in
-    are named as such, not counted as the shops' own.
-  - Barry Callebaut: a **vertical** link (cocoa products and industrial chocolate as inputs for Lindt), with the
-    Commission's markets for industrial chocolate and semi-finished cocoa products (M.6872, M.7408; in some runs also
-    M.7120).
-  - FRoSTA: no real overlap.
-- **Your input to try:** in step ③, set a label tagged *less likely* (for example Barry Callebaut's cocoa products as
-  an input for Lindt's shops) to **Unlikely**: it is shown in full and listed in the summary with your view. Set it to
-  **Dismiss** instead: it leaves the summary; a row whose labels are all dismissed also leaves the main part of the
-  Word document, and the Annex still lists it among the pairs compared.
-- **Performs well:** a lot of checked sources (✔), the overlap with Ritter Sport and the Commission's sentences, each
-  verified word for word.
-- **Known limitations:** generous by design, so some unlikely pairs are left for you to dismiss (for example links
-  with a training service); the split into activities varies between runs; what a company does not publish (Lindt's
-  travel retail or business-to-business sales) can be missing.
+**Why this case:** the baseline. Well-documented companies and defined chocolate markets show the whole pipeline working as intended.
 
-### TC2 · Planet A Foods: a new product, a precedent for only one side, three ways of researching
+**Input:** every company by web search.
 
-- **Input:** target Planet A Foods (ChoViva, a cocoa-free alternative to chocolate), researched on the web. The
-  portfolio shows the three source modes side by side: **FRoSTA** by web search; **Barry Callebaut** by **both** (web
-  search plus the lawyer's description of its ChoViva partnership and its cocoa products); **Ritter Sport** by **my
-  description** only (the description a client would give of its own company; no web search). Both descriptions are
-  filled in by the button (`logic/examples.py`).
-- **Your input (required, step ①):** Barry Callebaut's description names the target, so the app shows a
-  confidentiality warning: the AI would see both names in one call. Tick **Send anyway** (the lawyer's decision,
-  recorded in the progress file), then **Find activities**.
-- **Shows:** the lawyer adding what they know to the research; the confidentiality guard; an **existing
-  relationship** found by the code in each company's separate research; a company described only by the lawyer (fast
-  and cheap; its sources are marked "your description"); and how the app behaves where the Commission has defined
-  only one side's market, or none.
-- **Expected:**
-  - Barry Callebaut: the existing relationship (ChoViva); a **vertical** link (Barry Callebaut distributes ChoViva to
-    food manufacturers); its cocoa butter and cocoa powder against Planet A Foods' cocoa-butter alternative and cocoa
-    powder replacer: **horizontal**. In step ④ the Commission has defined markets for Barry Callebaut's products
-    (compound chocolate, cocoa butter, cocoa powder), which fit Planet A Foods' new products only as **"not an exact
-    match"**: the result is at most **Possible**, and for the powder replacer sometimes **Not supported**, with the
-    product named as having no precedent.
-  - Ritter Sport (from the lawyer's description, every fact sourced to "your description"): ChoViva, the cocoa
-    powder replacer and the cocoa-butter alternative as possible inputs for Ritter Sport's chocolate bars
-    (**vertical**), with the Commission's markets for both sides (Countlines and Tablets for Ritter Sport; Planet A
-    Foods' products only as "not an exact match"); no horizontal overlap; the CacaoVida drinks do not meet.
-  - FRoSTA: no real overlap (fats as an input for frozen food may be kept for you to dismiss).
-- **Your input to try:** in step ③, set a label the public sources cannot settle to **Ask the company** and add a
-  note: for example Planet A Foods' cocoa-butter alternative against Barry Callebaut's cocoa butter (the product is
-  still in development and its customers are not stated). It appears under **Open Points** in step ⑤ and in the Word
-  document.
-- **Performs well:** the partnership and the relationship shown with their sources; step ④ says which side has a
-  precedent and which does not, instead of forcing a chocolate decision onto a new product.
-- **Known limitations:** a new product has no precedent, so whether it competes with chocolate stays the lawyer's
-  question; Planet A Foods splits into two to four activities between runs; in some runs one product's description
-  colours the placement of another ("Why?" and the hover show what each placement rests on). A typed description has
-  no web sources: the app can only check that each fact comes from the text the lawyer typed.
+**Core results (found reliably):**
+
+- **Ritter Sport: horizontal overlap in chocolate confectionery.** In step ④ the Commission's separate markets for countlines (single-portion bars), tablets and pralines (M.5644 Kraft Foods / Cadbury) read "Confirmed" where both companies have products in the same one.
+- **Ritter Sport: vertical link through its own shops**, which resell chocolate and could buy Lindt's. M.5644 only defines manufacturers' markets, so the shops get "No precedent" for retail. The app names the market their products belong to, but does not treat it as the shops' own, because a market only counts for a company at its own level of trade.
+- **Barry Callebaut: vertical link.** Its cocoa products and industrial chocolate are inputs for Lindt, with the Commission's markets for industrial chocolate and semi-finished cocoa products (M.6872, M.7408, in some runs also M.7120).
+- **FRoSTA: no real overlap.**
+
+**Also expect:** further pairs for you to dismiss, such as links with a training service, and less likely labels such as Barry Callebaut's cocoa products as an input for Lindt's shops.
+
+**Try this:** in step ③, set that less likely label to *Unlikely*: it is then shown in full and listed in the summary with your view. Set it to *Dismiss* instead, and it leaves the summary. A row whose labels are all dismissed also leaves the main part of the Word document, while the Annex still lists it among the pairs compared.
+
+**Known limitations:** what a company does not publish (Lindt's travel retail or business-to-business sales) can be missing.
+
+### TC2 · Planet A Foods: a new product, a precedent for one side only, three ways of researching
+
+**Why this case:** the situation where an AI is most tempted to overclaim. Planet A Foods makes ChoViva, a cocoa-free alternative to chocolate, on which there is no Commission decision, and the app says so instead of forcing a chocolate decision onto it. The case also shows the three ways of researching side by side, and the confidentiality guard at work.
+
+**Input:** target Planet A Foods by web search. FRoSTA by web search, Barry Callebaut by both (web search plus the lawyer's description of its ChoViva partnership and cocoa products), and Ritter Sport by the lawyer's description only, as a client would describe its own company. Both descriptions are filled in by the button (`logic/examples.py`).
+
+**Required input (step ①):** Barry Callebaut's description names the target, so the app warns that the AI would see both names in one call. Tick **Send anyway** (the lawyer's decision, recorded in the progress file), then click **Find activities**.
+
+**Core results (found reliably):**
+
+- **Barry Callebaut: the existing relationship** (the ChoViva partnership), found by the code in each company's separate research, and **a vertical link**, since Barry Callebaut distributes ChoViva to food manufacturers.
+- **Barry Callebaut: horizontal overlap** between its cocoa butter and cocoa powder and Planet A Foods' cocoa-butter alternative and cocoa powder replacer. The Commission has defined markets for Barry Callebaut's products (compound chocolate, cocoa butter, cocoa powder), but they fit Planet A Foods' new products only as "not an exact match". The result is therefore at most *Possible*, and for the powder replacer sometimes *Not supported*, with the product named as having no precedent.
+- **Ritter Sport: vertical link**, every fact sourced to "your description". ChoViva, the cocoa powder replacer and the cocoa-butter alternative are possible inputs for Ritter Sport's chocolate bars, with Countlines and Tablets for Ritter Sport and Planet A Foods' products only as "not an exact match". The CacaoVida drinks do not meet.
+- **FRoSTA: no real overlap.**
+
+**Also expect:** Planet A Foods split into two to four activities depending on the run; fats as an input for frozen food, kept for you to dismiss. No horizontal overlap is expected with Ritter Sport. If a run proposes one between ChoViva and the chocolate bars, whether a cocoa-free alternative competes with chocolate is exactly the question the app leaves to the lawyer.
+
+**Try this:** in step ③, set a label the public sources cannot settle to *Ask the company* and add a note, for example Planet A Foods' cocoa-butter alternative against Barry Callebaut's cocoa butter (the product is still in development and its customers are not stated). It then appears under Open Points in step ⑤ and in the Word document.
+
+**Known limitations:** in some runs, the way one product is described influences how another is classified, for example a second product placed at the same level of trade as the first without its own source saying so. "Why?" and the hover show what each classification rests on, so this is quick to spot. A company described only by the lawyer has no web sources: the app can check that each fact comes from the lawyer's text, but not whether the text itself is right.
 
 ### TC3 · Brillux: another sector, and a decision the lawyer adds
 
-- **Input:** target Brillux (paints, facade insulation systems, industrial coatings); portfolio Hornbach (DIY stores
-  and a builders' merchant), Sto (facade systems and coatings) and Henkel (adhesives); every company by **web
-  search**. Artefact: `test_files/M4779_Akzo_Nobel_ICI.pdf`, the Commission's decision in M.4779 Akzo Nobel / ICI
-  (2007) as published
-  ([original on the Commission's website](https://ec.europa.eu/competition/mergers/cases/decisions/m4779_20071213_20212_en.pdf)).
-- **Shows:** that the app contains no knowledge of one sector: the same code screens building materials. The
-  built-in database holds no decision of this sector, so the lawyer adds one.
-- **Your input (step ③ or ④):** first click **Find Commission market definitions** without a decision: every row reads
-  **No precedent**, with one warning that no decision in the database fits, which does not mean that none exists. Then
-  open **Add a Commission Decision or Extract** under the table, upload the PDF: the app reads the case number, title
-  and date and proposes the paragraphs on market definition (**11–19, 42–49**). Click **Add M.4779 to this screen**,
-  then **Update the market definitions**.
-- **Expected:**
-  - Sto: a **horizontal** overlap in decorative paints, **Confirmed: Decorative coatings** (M.4779 (11)–(15)), each
-    sentence marked "added by you"; Brillux's woodstains in the woodcare segment (left open, (15)); the two facade
-    insulation systems **horizontal** but **No precedent**, because M.4779 does not cover them.
-  - Hornbach: a **vertical** link (Hornbach resells paints). Its DIY stores get "no precedent for the retail …", with
-    the market their products fall in named at the manufacturers' level; its builders' merchant gets the
-    distribution market of (43)–(45), left open by the Commission.
-  - Henkel: industrial coatings against Brillux's industrial coatings (**horizontal**), and adhesives where the
-    search finds Brillux's.
-- **Performs well:** a decision added in a minute changes "No precedent" into the Commission's own market, with every
-  quotation checked; the market table gives the lawyer the Commission's own terms ("decorative coatings", "RMI
-  products for the home") to search further in a legal database.
-- **Known limitations:** the web search varies most here: Henkel's facade systems (Ceresit), and with them a further
-  overlap, were found in only one of four runs; side lines such as a training guesthouse can bring theoretical
-  vertical links (mark them "not relevant" in step ②); whether a store chain is classed as retail decides between a
-  resale link and a horizontal label, so it is worth a look in step ②. Quotations are checked against the uploaded
-  text, not the official version. Only Commission merger decisions with a text layer can be added (a scanned PDF:
-  paste the text instead), and the proposed paragraphs follow the decision's headings and the Commission's usual
-  wording, so they are worth a glance.
+**Why this case:** proof that the app is not built around chocolate. The same code screens building materials, and since the database holds no decision of this sector, the lawyer adds one, as in practice. The market table then also gives the lawyer the Commission's own terms ("decorative coatings", "RMI products for the home") to search a legal database.
+
+**Input:** target Brillux (paints, facade insulation systems, industrial coatings); portfolio Hornbach (DIY stores and a builders' merchant), Sto (facade systems and coatings) and Henkel (adhesives); every company by web search.
+
+**Test file:** `test_files/M4779_Akzo_Nobel_ICI.pdf`, the Commission's decision in M.4779 Akzo Nobel / ICI (2007) as published.
+
+**Required input (step ③ or ④):** first click **Find Commission market definitions** without a decision. Every row reads *No precedent*, with one warning that no decision in the database fits, which does not mean that none exists. Then open **Add a Commission Decision or Extract** under the table and upload the PDF. The app reads the case number, title and date and proposes the paragraphs on market definition (11–19, 42–49). Click **Add M.4779 to this screen**, then **Update the market definitions**.
+
+**Core results (found reliably):**
+
+- **Sto: horizontal overlap in decorative paints**, *Confirmed* after the upload: Decorative coatings (M.4779 (11)–(15)), each sentence marked "added by you". Brillux's woodstains fall in the woodcare segment, which the Commission left open ((15)). The facade insulation systems are also horizontal, but *No precedent*, because M.4779 does not cover them.
+- **Hornbach: vertical link**, since Hornbach resells paints. Its DIY stores get "No precedent" for retail, with the market their products fall in named at the manufacturers' level. Its builders' merchant gets the distribution market of (43)–(45), which the Commission left open.
+- **Henkel: horizontal overlap** between the two companies' industrial coatings.
+
+**Also expect:** adhesives against Brillux's adhesives where the search finds them. Side lines such as a training guesthouse can bring theoretical vertical links (mark them "not relevant" in step ②).
+
+**Known limitations:** Henkel's facade systems (Ceresit), and with them a further overlap, were found in only one of four runs. Whether a store chain is classed as retail decides between a resale link and a horizontal label, so it is worth a look in step ②. Quotations are checked against the uploaded text, not the official version. Only Commission merger decisions with a text layer can be added (for a scanned PDF, paste the text instead), and the proposed paragraphs follow the decision's headings and the Commission's usual wording.
 
 ### More to try (not one of the three test cases)
 
-**More · Koa** (cocoa fruit products) is a case with no precedent at all: step ④ shows "No precedent" and leaves the
-market to the lawyer under the Market Definition Notice rather than forcing a chocolate decision onto cocoa fruit.
-`static/decisions/m7120_1451_2.pdf` (M.7120 Ecom / Armajaro) can be added in any screen: its coffee paragraphs
-(42)–(51) were left out of the database on purpose, so it shows the app adding only what the database does not hold.
+**Koa (cocoa fruit products):** click **More · Koa** under Try an Example. With no precedent at all, step ④ shows *No precedent* and leaves the market to the lawyer under the Market Definition Notice, rather than forcing a chocolate decision onto cocoa fruit.
 
 ---
 
 ## AI techniques used
 
-A run makes from about 100 (TC2) to several hundred (TC3) AI calls: per company two web searches and one extraction;
-one comparison per pair of activities; in step ④ one call that sorts the products into types and one reflection per
-type and attempt. Embedding requests are counted separately; they are not AI answers.
+A run makes from about 100 (TC2) to several hundred (TC3) AI calls: two web searches and one extraction per company, one comparison per pair of activities, and in step ④ one call that sorts the products into types and one reflection per type and attempt. Embedding requests are not counted.
 
 | Class technique | In this app |
 |---|---|
-| **Lab 1** · problem decomposition, fixed questions, one call per element | five steps; per activity fixed questions (level of trade, direct customers, end users), per pair the product relation and vertical links; one call per anonymised pair (`logic/comparison.py`) |
-| **Lab 1** · constrained answers and if/then logic | Structured Outputs with fixed answer lists (`logic/schemas.py`); `rules.decide()` combines the AI's answer with checks in code (reseller, own use, input and resale signals); the confidentiality guard; which rows step ④ looks up. Unlike Lab 1, no stop at the first negative answer: a screen must compare every pair |
-| **Lab 2** · ChromaDB, chunking with metadata | `text-embedding-3-large`; one chunk per numbered paragraph with a context header (decision, section) and its footnotes; each decision tagged with the levels of trade of its markets (`logic/ingest.py`, `build_corpus.py`) |
-| **Lab 2** · retrieval beyond vector search | hybrid: vector search plus BM25, combined by reciprocal rank fusion, with a level-of-trade filter (`logic/retrieval.py`); retrieval checks in `test_results/` |
-| **Lab 2** · loop with reflection and STOP conditions | `precedents.run_type()`: retrieval → reflection → at most one rewritten query; AI STOP, code STOP (nothing new found), hard STOP (two attempts); every attempt recorded |
-| **Lab 2** · grounding | in code: a cited paragraph counts only if retrieved; every quotation checked word for word; the same for company websites (`logic/sources.py`) |
-| **Lab 2** · pause for the user, report | human checkpoints in steps ② and ③; "Save progress" / "Open saved progress"; the Word document (`logic/export.py`) |
+| Lab 1 · problem decomposition, fixed questions, one call per element | five steps, fixed questions per activity (level of trade, direct customers, end users) and per pair (product relation, vertical links), one call per anonymised pair (`logic/comparison.py`) |
+| Lab 1 · constrained answers and if/then logic | Structured Outputs with fixed answer lists (`logic/schemas.py`). `rules.decide()` combines the AI's answer with checks in code (reseller, own use, input and resale signals); also the confidentiality guard and which rows step ④ looks up. Unlike Lab 1, there is no stop at the first negative answer, because a screen must compare every pair |
+| Lab 2 · ChromaDB, chunking with metadata | text-embedding-3-large, one chunk per numbered paragraph with a context header (decision, section) and its footnotes, each decision tagged with the levels of trade of its markets (`logic/ingest.py`, `build_corpus.py`) |
+| Lab 2 · retrieval beyond vector search | hybrid search: vector search plus BM25, combined by reciprocal rank fusion, with a level-of-trade filter (`logic/retrieval.py`); retrieval checks in `test_results/` |
+| Lab 2 · loop with reflection and STOP conditions | `precedents.run_type()`: retrieval → reflection → at most one rewritten query. AI STOP, code STOP (nothing new found), hard STOP (two attempts); every attempt is recorded |
+| Lab 2 · grounding | in code: a cited paragraph only counts if it was retrieved, and every quotation is checked word for word; the same for company websites (`logic/sources.py`) |
+| Lab 2 · pause for the user, report | human checkpoints in steps ② and ③, "Save progress" and "Open saved progress", the Word document (`logic/export.py`) |
 
 ---
 
 ## Where to find what
 
-```
-app.py        entry point: page set-up, API key, which step to show
-steps/        one file per screen (what the user sees and does)
-ui/           shared building blocks: sidebar, theme, source marks, labels, decision reader, upload box
-logic/        the workflow without the interface: AI calls, prompts and answer forms (schemas.py), rules, search,
-              Word document
-tools/        scripts that built and checked the decision database (not used by the running app)
-corpus/       the decision database: paragraphs, ChromaDB index, report
-static/       fonts and the official PDFs of the built-in decisions (© European Union, Decision 2011/833/EU)
-test_files/   the decision to add in TC3
-test_results/ reports of the retrieval checks
-```
-
-Each folder has a short README listing its files.
+`app.py` is the entry point. Each code folder (`steps/`, `ui/`, `logic/`, `tools/`) has a short README listing its files; `corpus/corpus_report.md` describes the decision database. `static/` holds the fonts and the official PDFs of the decisions, `test_files/` the decision added in TC3, and `test_results/` the retrieval checks. The official PDFs in `static/` are © European Union (Decision 2011/833/EU).

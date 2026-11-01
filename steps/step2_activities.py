@@ -111,7 +111,7 @@ def edit_activity(company, idx):
     a = copy.deepcopy(acts[idx]) if idx is not None else new_activity()
     start = form_values(a)
     k = f"ea_{ss.acts_version}_{company}_{idx}_"
-    st.caption(f"{company} · {'new activity' if idx is None else 'changes are kept for this screen and recorded in the audit log'}")
+    st.caption(f"{company} · {'new activity' if idx is None else 'changes are kept for this screen and recorded in the progress file'}")
     name = st.text_input("Activity", value=start["product"], key=k + "name",
                          help="What the business area offers (product or service), in generic words; who buys it goes under "
                               "“Direct customers”, not into the name; no company or brand names")
@@ -156,7 +156,7 @@ def edit_activity(company, idx):
     if found:      # the lawyer's own text; the name is removed before the comparison, the rest is sent
         st.warning(f"This text names {words_list(found)}, another company in this screen. Company names are removed "
                    "before the comparison, but the rest of the text is sent. Change the text, or save it anyway.")
-        anyway = st.checkbox("Save anyway (my responsibility; recorded in the audit log)", key=k + "anyway")
+        anyway = st.checkbox("Save anyway (my responsibility; recorded in the progress file)", key=k + "anyway")
     b1, b2, b3 = st.columns(3)
     if b1.button("Save", type="primary", key=k + "save"):
         problems = []

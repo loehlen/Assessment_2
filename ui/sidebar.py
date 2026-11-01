@@ -1,6 +1,6 @@
 """
 ui/sidebar.py - the sidebar: start over, save progress, the Word document, the legend of the current step, the
-Commission decisions used, the run summary and the API key; in development also a deployment check.
+Commission decisions used and the API key; in development also the costs and a deployment check.
 """
 import time
 
@@ -11,13 +11,13 @@ from logic import activity_mapping as am
 from logic import ai_client
 from logic import export
 
-from ui.common import call_count, DEV_MODE, esc, h, now_local, plural, PROFILE, run_summary, ss, stage_cost, USE_CACHE
+from ui.common import call_count, DEV_MODE, esc, h, plural, PROFILE, ss, stage_cost, USE_CACHE
 from ui.credentials import key_sidebar
 from ui.working_screen import reset_all
 from ui.labels import dots_html, outcome_chip, OUTCOME_TIP
 from steps.step5_summary import (DOCX_MIME, pending_warning, progress_bytes, progress_model, progress_name,
                                  report_model, summary_ready, word_name)
-from ui.saved_screens import audit_json, audit_snapshot, loader_box
+from ui.saved_screens import audit_snapshot, loader_box
 from ui.decision_reader import decision_entries, decision_reader, notice_reader
 
 
@@ -134,7 +134,7 @@ def legend_html(step):
 
 
 def sidebar_panel(ai, step):
-    """The sidebar for everyone: the key, the actions for this screen, the legend and the run summary;
+    """The sidebar for everyone: the actions for this screen, the legend, the decisions used and the key;
     the development tools collapsed at the end, in development only."""
     with st.sidebar:
         st.markdown("**This Screen**")
@@ -176,15 +176,6 @@ def sidebar_panel(ai, step):
                     for case, label, tip in entries:
                         if st.button(label, key=f"read_{case}", type="tertiary"):
                             (notice_reader if case == "Notice" else decision_reader)(case, tip)
-        if ss.get("stage_logs") or ss.get("loaded_from"):
-            with st.expander("About This Run"):
-                st.caption(run_summary())
-                if snap is not None:
-                    st.download_button("Audit log (.json)", data=lambda: audit_json(snap), mime="application/json",
-                                       on_click="ignore", file_name=f"overlap_audit_{now_local():%Y%m%d-%H%M}.json",
-                                       help="The full record of this screen: every AI call with what it was sent "
-                                            "and returned, the sources, the checks and your changes. The same data "
-                                            "as in a progress copy; “Open saved progress” opens it too.")
         if DEV_MODE:
             dev_sidebar(ai)
     key_sidebar()                  # the course's API key module, folded at the end (submitted version)
