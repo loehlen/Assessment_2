@@ -453,7 +453,10 @@ def docx_bytes(model, progress=None, note=""):
         _font(p.add_run(line), 11)
     _para(doc, f"Under each activity of {target} (in bold), the portfolio company's activities it meets, each with the "
                "Commission's result and, where set, the reviewing lawyer's view; below it, which products meet and what "
-               "the Commission's decisions say about them.", 9.5, italic=True, color=GREY, before=3, after=4)
+               "the Commission's decisions say about them. The strongest results come first: the reviewing lawyer's "
+               "view (likely before unlikely), then the Commission's result (Confirmed before Possible, Not excluded, "
+               "No precedent and Not supported; Markets defined before One side defined). The order shows how strongly "
+               "a relationship is supported, not how serious it is.", 9.5, italic=True, color=GREY, before=3, after=4)
     t = doc.add_table(rows=1, cols=3)
     _borders(t)
     _margins(t)

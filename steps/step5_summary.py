@@ -690,7 +690,10 @@ def stage_summary(ai):
     st.markdown(overview_html(model), unsafe_allow_html=True)
     st.caption(f"How to read: under each activity of {esc(model['target'])} (in bold), the portfolio company's "
                "activities it meets, each with the Commission's result and, once set, your view. Below it, in grey, "
-               "which products meet and what the Commission's decisions say about them.")
+               "which products meet and what the Commission's decisions say about them. The strongest results come "
+               "first: your view (likely before unlikely), then the Commission's result (Confirmed before Possible, "
+               "Not excluded, No precedent and Not supported; Markets defined before One side defined). The order "
+               "shows how strongly a relationship is supported, not how serious it is.")
     st.markdown(summary_html(model), unsafe_allow_html=True)
     st.caption("Activities joined by “;” each have the relationship shown, with the same result and view. Less "
                "likely labels are counted on one line; set a view on one in step ③ to list it here.")
