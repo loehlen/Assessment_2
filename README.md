@@ -131,13 +131,13 @@ Each test case covers a situation the others do not. Together they show both kin
 | **What you do** | downgrade or dismiss a label | confirm a confidentiality warning; mark a label "Ask the company" | upload a Commission decision |
 | **What it illustrates** | the full pipeline, checked sources and verified Commission quotations | the lawyer's own knowledge in the research, the confidentiality guard, and honest gaps instead of forced answers | that the app holds no sector knowledge, and that a decision added in a minute turns "No precedent" into the Commission's own market |
 
-FRoSTA (frozen food) is the control in TC1 and TC2: it has no real overlap with either target.
+FRoSTA (frozen food) is the control in TC1 and TC2: it has no real overlap with either target. Depending on the run, the app still proposes none to a few generic vertical links (chocolate ingredients or fats as an input for frozen food), which the lawyer is expected to dismiss.
 
 ### What to expect from any run
 
 - **The core results are found reliably.** The overlaps and vertical relationships listed under *Core results* appear across runs.
 - **The activity split varies slightly.** Web search and AI answers vary, so a company may be split into slightly different activities from run to run, and the wording differs.
-- **The app finds more than the core results, on purpose.** Because a missed overlap costs far more than a false one, the screen also keeps doubtful pairs, many tagged less likely. These are not errors but are left for the lawyer to check and dismiss. Step ⑤ shows the result once the lawyer has done so.
+- **The app finds more than the core results, on purpose.** Because a missed overlap costs far more than a false one, the screen also keeps doubtful pairs, many tagged less likely. These are not errors but are left for the lawyer to check and dismiss. In the final test runs a screen showed about 15–30 labels (TC3 about 17, TC2 about 25, TC1 about 30), most of them *No precedent*, *One side defined* or less likely, against the three or four core results per test case below. Step ⑤ shows the result once the lawyer has dismissed what does not hold.
 
 ### TC1 · Lindt & Sprüngli: the Commission has defined the markets
 
@@ -147,12 +147,13 @@ FRoSTA (frozen food) is the control in TC1 and TC2: it has no real overlap with 
 
 **Core results (found reliably):**
 
-- **Ritter Sport: horizontal overlap in chocolate confectionery.** In step ④ the Commission's separate markets for countlines (single-portion bars), tablets and pralines (M.5644 Kraft Foods / Cadbury) read "Confirmed" where both companies have products in the same one.
-- **Ritter Sport: vertical link through its own shops**, which resell chocolate and could buy Lindt's. M.5644 only defines manufacturers' markets, so the shops get "No precedent" for retail. The app names the market their products belong to, but does not treat it as the shops' own, because a market only counts for a company at its own level of trade.
-- **Barry Callebaut: vertical link.** Its cocoa products and industrial chocolate are inputs for Lindt, with the Commission's markets for industrial chocolate and semi-finished cocoa products (M.6872, M.7408, in some runs also M.7120).
-- **FRoSTA: no real overlap.**
+- **Ritter Sport: horizontal overlap in chocolate confectionery.** In step ④ the Commission's separate markets for countlines (single-portion bars), tablets and pralines (M.5644 Kraft Foods / Cadbury) give *Confirmed* where both companies have products in the same one (e.g. pralines) and *Possible* where it depends on the product format (bars: countlines or tablets); chocolate confectionery as a whole was left open.
+- **Ritter Sport: vertical links through the shops, both ways.** Ritter Sport's own shops could resell Lindt's chocolate, and Lindt's own shops could resell Ritter Sport's (*One side defined*). Both companies also run their own shops, which gives a horizontal label at retail level. M.5644 only defines manufacturers' markets, so the shops get "No precedent" for retail. The app names the market their products belong to, but does not treat it as the shops' own, because a market only counts for a company at its own level of trade.
+- **Barry Callebaut: vertical link.** Its cocoa products and industrial chocolate are inputs for Lindt, with the Commission's markets for industrial chocolate and semi-finished cocoa products (*Markets defined*; M.6872, M.7408, in some runs also M.7120).
+- **Barry Callebaut: horizontal overlap in ingredients.** Lindt also sells ingredients to professional customers (Ghirardelli: cocoa powders, chocolate chips), which meet Barry Callebaut's cocoa powder and inclusions. The result varies between runs: *Confirmed* (cocoa powder), *Possible* (chips against inclusions, industrial chocolate "not an exact match") or *No precedent*.
+- **FRoSTA: no real overlap** (in some runs one or two generic vertical links, see above).
 
-**Also expect:** further pairs for you to dismiss, such as links with a training service, and less likely labels such as Barry Callebaut's cocoa products as an input for Lindt's shops.
+**Also expect:** further pairs for you to dismiss, such as links with Barry Callebaut's chocolate training courses or Ritter Sport's chocolate workshops, and less likely labels such as Barry Callebaut's cocoa products as an input for Lindt's shops.
 
 **Try this:** in step ③, set that less likely label to *Unlikely*: it is then shown in full and listed in the summary with your view. Set it to *Dismiss* instead, and it leaves the summary. A row whose labels are all dismissed also leaves the main part of the Word document, while the Annex still lists it among the pairs compared.
 
@@ -169,11 +170,12 @@ FRoSTA (frozen food) is the control in TC1 and TC2: it has no real overlap with 
 **Core results (found reliably):**
 
 - **Barry Callebaut: the existing relationship** (the ChoViva partnership), found by the code in each company's separate research, and **a vertical link**, since Barry Callebaut distributes ChoViva to food manufacturers.
+- **Barry Callebaut: horizontal overlap with its own cocoa-free alternatives.** Barry Callebaut, ChoViva's distributor, also offers non-cocoa alternatives of its own: ChoViva against them is *Possible* (Chocolate compound, "not an exact match"). This is the relationship a lawyer should look at first, and why the existing relationship matters.
 - **Barry Callebaut: horizontal overlap** between its cocoa butter and cocoa powder and Planet A Foods' cocoa-butter alternative and cocoa powder replacer. The Commission has defined markets for Barry Callebaut's products (compound chocolate, cocoa butter, cocoa powder), but they fit Planet A Foods' new products only as "not an exact match". The result is therefore at most *Possible*, and for the powder replacer sometimes *Not supported*, with the product named as having no precedent.
 - **Ritter Sport: vertical link**, every fact sourced to "your description". ChoViva, the cocoa powder replacer and the cocoa-butter alternative are possible inputs for Ritter Sport's chocolate bars, with Countlines and Tablets for Ritter Sport and Planet A Foods' products only as "not an exact match". The CacaoVida drinks do not meet.
-- **FRoSTA: no real overlap.**
+- **FRoSTA: no real overlap** (depending on the run, none to five generic vertical links, see above).
 
-**Also expect:** Planet A Foods split into two to four activities depending on the run; fats as an input for frozen food, kept for you to dismiss. No horizontal overlap is expected with Ritter Sport. If a run proposes one between ChoViva and the chocolate bars, whether a cocoa-free alternative competes with chocolate is exactly the question the app leaves to the lawyer.
+**Also expect:** Planet A Foods split into two to four activities depending on the run; further horizontal labels with Barry Callebaut that read *No precedent* (e.g. ChoViva against cocoa ingredients, Planet A Foods' specialty fats against cocoa butter), and less likely ones across levels of trade; Planet A Foods' ingredients and fats as an input for frozen food, kept for you to dismiss. No horizontal overlap is expected with Ritter Sport. If a run proposes one between ChoViva and the chocolate bars, whether a cocoa-free alternative competes with chocolate is exactly the question the app leaves to the lawyer.
 
 **Try this:** in step ③, set a label the public sources cannot settle to *Ask the company* and add a note, for example Planet A Foods' cocoa-butter alternative against Barry Callebaut's cocoa butter (the product is still in development and its customers are not stated). It then appears under Open Points in step ⑤ and in the Word document.
 
@@ -191,11 +193,11 @@ FRoSTA (frozen food) is the control in TC1 and TC2: it has no real overlap with 
 
 **Core results (found reliably):**
 
-- **Sto: horizontal overlap in decorative paints**, *Confirmed* after the upload: Decorative coatings (M.4779 (11)–(15)), each sentence marked "added by you". Brillux's woodstains fall in the woodcare segment, which the Commission left open ((15)). The facade insulation systems are also horizontal, but *No precedent*, because M.4779 does not cover them.
-- **Hornbach: vertical link**, since Hornbach resells paints. Its DIY stores get "No precedent" for retail, with the market their products fall in named at the manufacturers' level. Its builders' merchant gets the distribution market of (43)–(45), which the Commission left open.
-- **Henkel: horizontal overlap** between the two companies' industrial coatings.
+- **Sto: horizontal overlap in decorative paints**, *Confirmed* after the upload for exterior and interior paints: Decorative coatings (M.4779 (11)–(15)), each sentence marked "added by you". The facade insulation systems are also horizontal: *No precedent*, or *Possible* where the row compares facade paints with Sto's facade finishes (Decorative coatings, "not an exact match"). Further horizontal labels with *No precedent*: floor coatings, project consulting and training. Brillux's facade paints are also a possible input for Sto's facade finishes (vertical).
+- **Hornbach: vertical link**, since Hornbach resells paints. Its DIY stores get *One side defined*: Brillux's side in Decorative coatings and, for woodstains, the woodcare segment, which the Commission left open ((15)); "no precedent" for Hornbach's retail, with the market its products fall in named at the manufacturers' level. Paints against Hornbach's DIY range also give two less likely horizontal labels (manufacturing v retail), which the summary names separately ("only less likely ones with Hornbach").
+- **Henkel: horizontal overlap** between the two companies' industrial coatings, *No precedent* (M.4779 covers decorative coatings only).
 
-**Also expect:** adhesives against Brillux's adhesives where the search finds them. Side lines such as a training guesthouse can bring theoretical vertical links (mark them "not relevant" in step ②).
+**Also expect:** training against Henkel's training courses; adhesives against Brillux's adhesives where the search finds them; Hornbach's builders' merchant as a reseller of Brillux's tools; side lines such as Brillux's Academy guesthouse or Hornbach's management of its retail properties can bring theoretical vertical links (mark them "not relevant" in step ②). The distribution market of M.4779 (43)–(45) is named for the builders' merchant only on some of its rows, so it is not a core result.
 
 **Known limitations:** Henkel's facade systems (Ceresit), and with them a further overlap, were found in only one of four runs. Whether a store chain is classed as retail decides between a resale link and a horizontal label, so it is worth a look in step ②. Quotations are checked against the uploaded text, not the official version. Only Commission merger decisions with a text layer can be added (for a scanned PDF, paste the text instead), and the proposed paragraphs follow the decision's headings and the Commission's usual wording.
 
@@ -207,7 +209,7 @@ FRoSTA (frozen food) is the control in TC1 and TC2: it has no real overlap with 
 
 ## AI techniques used
 
-A run makes from about 100 (TC2) to several hundred (TC3) AI calls: two web searches and one extraction per company, one comparison per pair of activities, and in step ④ one call that sorts the products into types and one reflection per type and attempt. Embedding requests are not counted.
+A run makes from about 100 (TC1, TC2) to about 200–350 (TC3) AI calls: two web searches and one extraction per company, one comparison per pair of activities, and in step ④ one call that sorts the products into types and one reflection per type and attempt. Embedding requests are not counted.
 
 | Class technique | In this app |
 |---|---|

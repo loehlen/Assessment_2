@@ -13,7 +13,7 @@ from logic import export
 from logic import precedents as prec
 from logic import rules
 
-from ui.common import capital, esc, he, long_date, now_local, plural, poss, run_summary, ss
+from ui.common import capital, esc, he, long_date, now_local, plural, poss, run_summary, ss, words_list
 from ui.labels import outcome_chip, OUTCOME_CLASS
 from ui.decisions import added_case, corpus_paragraphs, decision_years
 from ui.activity_display import (CUSTOMER_TEXT, display_order, display_title, profile_of, relationship_rows,
@@ -360,21 +360,27 @@ def overview_lines(target, summary, rels):
     """The result in two or three sentences, above the summary table: which portfolio companies have what."""
     names = [s["portco"] for s in summary]
     n = len(names)
-    with_h = [s["portco"] for s in summary if s["count_h"] or s["less_h"]]
-    with_v = [s["portco"] for s in summary if s["count_v"] or s["less_v"]]
-    none = [p for p in names if p not in with_h and p not in with_v]
+    # a company whose only labels of a kind are "less likely" is named apart, as its own cell in the table says
+    with_h = [s["portco"] for s in summary if s["count_h"]]
+    with_v = [s["portco"] for s in summary if s["count_v"]]
+    less_h = [s["portco"] for s in summary if s["less_h"] and not s["count_h"]]
+    less_v = [s["portco"] for s in summary if s["less_v"] and not s["count_v"]]
+    none = [p for p in names if p not in with_h + with_v + less_h + less_v]
 
     def who(ps, first):
         if n == 1:
             return ps[0]
         return (f"{len(ps)} of {n} portfolio companies" if first else str(len(ps))) + f" ({', '.join(ps)})"
-    out = []
-    if with_h:
-        out.append(f"Potential horizontal overlaps with {who(with_h, True)}.")
-    if with_v:
-        out.append(f"Potential vertical relationships with {who(with_v, not with_h)}.")
+
+    def sentence(kind, main, less, first):
+        if main:
+            return (f"Potential {kind} with {who(main, first)}"
+                    + (f"; only less likely ones with {words_list(less)}." if less else "."))
+        return f"Only less likely potential {kind}, with {words_list(less)}." if less else ""
+    out = [x for x in (sentence("horizontal overlaps", with_h, less_h, True),
+                       sentence("vertical relationships", with_v, less_v, not (with_h or less_h))) if x]
     if none:
-        out.append(f"None found with {', '.join(none)}." if with_h or with_v else
+        out.append(f"None found with {', '.join(none)}." if out else
                    ("None found." if n == 1 else f"None found with any of the {n} portfolio companies."))
     return {"text": " ".join(out),
             "relationships": [f"{target} and {rel['portco']}: the public sources of each name the other (Annex C)."
