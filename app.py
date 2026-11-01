@@ -77,22 +77,29 @@ def do_work(ai, job):
 # =============================================================== navigation
 STEPS = {1: "Companies", 2: "Activities", 3: "Preliminary Assessment", 4: "Market Definitions", 5: "Summary"}
 SCROLL_TOP = """<script>
-const d = window.parent.document;
-for (const s of ['[data-testid="stMain"]', 'section.stMain', 'section.main', '[data-testid="stAppViewContainer"]']) {
-  const e = d.querySelector(s); if (e) { e.scrollTo({top: 0}); }
+function toTop() {
+  const d = window.parent.document;
+  for (const s of ['[data-testid="stMain"]', 'section.stMain', 'section.main', '[data-testid="stAppViewContainer"]']) {
+    const e = d.querySelector(s); if (e) { e.scrollTo({top: 0}); }
+  }
+  window.parent.scrollTo(0, 0);
 }
-window.parent.scrollTo(0, 0);
+toTop();
+setTimeout(toTop, 300);    // once more when the new step has been drawn, in case the old page was still showing
 </script>"""
 
 
 def scroll_to_top_on_new_step(step):
     """Streamlit keeps the scroll position when the screen changes, so a new step would open in the middle of the
-    page. A small script jumps to the top once per change of step."""
+    page. A small script jumps to the top once per change of step. Each script carries a number: an identical
+    element in the same place is kept by the browser rather than drawn again, so its script would not run a second
+    time (e.g. when the summary is opened from the bottom of step ④ without anything else changing in between)."""
     slot = st.empty()          # always one element here, so that everything below keeps its position
     if ss.get("_shown_step") != step:
         ss._shown_step = step
-        with slot:
-            st.iframe(SCROLL_TOP, height=1)      # our own constant script, never user input
+        ss._scroll_n = ss.get("_scroll_n", 0) + 1
+        with slot:          # our own constant script, never user input
+            st.iframe(SCROLL_TOP + f"<!-- {ss._scroll_n} -->", height=1)
 
 
 def progress_nav(step):

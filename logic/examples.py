@@ -35,10 +35,12 @@ PORTFOLIO = ["Ritter Sport", "Barry Callebaut", "FRoSTA"]
 # step ① shows the confidentiality warning; the lawyer decides with "Send anyway".
 BARRY_CALLEBAUT_ADDED = (
     "Since November 2025, Barry Callebaut has had a commercial partnership with Planet A Foods for ChoViva, a "
-    "cocoa-free alternative to chocolate made from oats and sunflower seeds. Since May 2026, Barry Callebaut has been "
-    "the exclusive distributor of ChoViva to food manufacturers in the United States, for use in coatings, fillings, "
-    "snacks, bakery products and confectionery. Barry Callebaut also processes cocoa beans into cocoa liquor, cocoa "
-    "butter and cocoa powder, which it sells to food manufacturers.")
+    "cocoa-free alternative to chocolate made from oats and sunflower seeds. Barry Callebaut does not make ChoViva "
+    "itself. Planet A Foods makes it. Since May 2026, Barry Callebaut has been the exclusive distributor of ChoViva to "
+    "food manufacturers in the United States. As a wholesaler, it buys ChoViva from Planet A Foods and resells it to "
+    "these manufacturers for use in coatings, fillings, snacks, bakery products and confectionery. Barry Callebaut "
+    "also processes cocoa beans into cocoa liquor, cocoa butter and cocoa powder, which it sells to food "
+    "manufacturers.")
 
 # TC2 and Koa, "my description": how the client would describe its own portfolio company; no web search for it.
 RITTER_SPORT_DESCRIBED = (
