@@ -6,7 +6,7 @@ Deployed app: https://eu-merger-overlap-screen.streamlit.app/
 
 Before almost every merger or acquisition, the deal team has to check whether the target and the acquirer (for a private equity fund, each of its portfolio companies) are competitors, or supplier and customer. If they are, sensitive information may only be exchanged through a clean team, documents must be redacted, and the overlaps decide how much the Commission needs to see. As a legal trainee in a competition law team I prepared many of these screens. The work is time-consuming and repetitive. It requires reading confusing corporate websites, sorting each company's activities, comparing them pair by pair and finding the Commission's market definitions, all multiplied by every portfolio company.
 
-The app does this groundwork. It researches every company in public sources, compares every activity of the target with every activity of each portfolio company, looks up how the Commission defined the markets, and hands the lawyer a summary and a Word document. It is a preliminary screen, not a legal conclusion. Hard cases need judgment, and that judgment stays with the lawyer. The app covers product markets only, not geography or market shares.
+The app does this groundwork. It researches every company in public sources, compares every activity of the target with every activity of each portfolio company, looks up how the Commission defined the markets, and hands the lawyer a summary and a Word document. What it produces is a preliminary screen, so the legal conclusion, and the judgment that hard cases need, stay with the lawyer. The app only covers product markets. It does not look at geography or market shares.
 
 | | By hand | With the app |
 |---|---|---|
@@ -50,43 +50,45 @@ The app does this groundwork. It researches every company in public sources, com
 
 ## Designed around the lawyer
 
-### The tool proposes, the lawyer decides
+### What the lawyer decides
 
-- **Every decision is the lawyer's, and it is recorded.** Activities can be corrected, added or deleted in step ②, and "Your view" and "Edit" sit on every label and row. A lawyer who thinks a vertical link is really horizontal can add that label and dismiss the tool's. The summary and the Word document follow the lawyer's choices.
-- **The Word document is a work product, not an AI report.** It is editable, set in Times New Roman, and its main part shows only the lawyer's final choices. How the tool prepared them, including what the AI did, is in an Annex.
-- **Gaps are results.** "Unclear: please check", "No precedent" and "Ask the company" are shown openly, never forced into a decision.
-- **Junior prepares, senior reads.** Steps ①–④ are where the work is done and checked. Step ⑤ and page 1 of the Word document are short enough for a supervising lawyer to read on their own, and every line traces back to the step that found it.
+Every decision stays with the lawyer and is recorded.
 
-### Generous on purpose, quick to dismiss
+- In step ②, **activities** can be corrected, added or deleted, and **"Your view"** and **"Edit"** sit on every label and row. A lawyer who thinks a vertical link is really horizontal can add that label and dismiss the tool's. The summary and the Word document follow the lawyer's choices.
+- The **Word document** is the lawyer's own work product rather than an AI report. It is editable, set in Times New Roman, and its main part only shows the lawyer's final choices. How the tool prepared them, including what the AI did, is in an **Annex**.
+- **Gaps** such as "Unclear: please check", "No precedent" and "Ask the company" are shown openly, and the app does not force them into a decision.
+- The app is designed for the usual **division of work** in a team. Steps ①–④ are where the work is done and checked, typically by a junior lawyer. Step ⑤ and page 1 of the Word document are short enough for a **supervising lawyer** to read on their own, and every line there traces back to the step that found it.
 
-A missed overlap costs far more than a false one, because of the information exchange, the clean team and the filing. So the screen keeps doubtful links but makes them quick to handle: less likely labels are tagged and folded, a pair is dismissed in one click, and companies with no overlap can still be opened with the reasons. The summary is the main result, and the lawyer can check and adjust every step behind it.
+### Why the screen keeps doubtful links
 
-### Every point can be checked
+A **missed overlap costs far more than a false one**, because of the information exchange, the clean team and the filing. So the screen keeps doubtful links, but they are quick to handle: less likely labels are tagged and folded, a pair can be dismissed in one click, and companies with no overlap can still be opened with the reasons. The **summary is the main result**, and the lawyer can check and adjust every step behind it.
 
-- **Source marks show how far to trust a source.** ✔ means the quotation was found word for word on the page, ≈ probably right, ○ not checked, and ⚠ check before relying on it. The app opens every cited page itself, removes dead pages as sources (an activity left without one is flagged "⚠ no available source: verify, or ask the company") and marks pages that refuse automated visitors ○.
-- **The Commission is quoted, not paraphrased.** Every quotation is checked word for word, and a paragraph only counts if the search actually returned it, so the AI cannot cite a decision from memory. A label no verified passage supports reads "not stated in these paragraphs".
-- **The app claims only what the law supports.** "Confirmed" requires an exact match on the decision's own terms, rules of thumb cite the paragraph they rest on, and "affected market" is never used, because it depends on market shares.
-- **The evidence can be inspected.** Each decision opens inside the app, with the paragraphs the screen used highlighted, next to the official PDF.
+### How the results can be checked
 
-### Confidentiality by design
+- **Source marks** show how far to trust a source. ✔ means the quotation was found word for word on the page, ≈ probably right, ○ not checked, and ⚠ check before relying on it. The app opens every cited page itself and removes dead pages as sources. An activity left without a source is flagged "⚠ no available source: verify, or ask the company", and pages that refuse automated visitors are marked ○.
+- The app **quotes the Commission** instead of paraphrasing it. Every quotation is checked word for word, and a paragraph only counts if the search actually returned it, so the AI cannot cite a decision from memory. If no verified passage supports a label, it reads "not stated in these paragraphs".
+- The app only **claims what the law supports**. "Confirmed" requires an exact match on the decision's own terms, rules of thumb cite the paragraph they rest on, and the app never uses "affected market", because that depends on market shares.
+- Each **decision opens inside the app**, with the paragraphs the screen used highlighted, next to the official PDF.
 
-A planned deal is usually highly confidential, especially if a listed company is involved, so lawyers are usually not allowed to describe it to an AI.
+### Confidentiality
 
-- **No prompt the app builds puts two companies of the screen, or the planned deal, together.** Each company is researched in its own call, the comparison sees only anonymised descriptions one pair at a time, and the names are put back in code.
-- **Typed text naming another company of the screen triggers a warning.** Sending it anyway is the lawyer's recorded decision (TC2).
-- **An existing relationship between two companies**, a strong indicator of an overlap or vertical link, is found by code in each company's separate research, never by asking the AI about both (TC2).
-- **The app stores nothing.** "Save progress" downloads what is needed to resume the screen to the lawyer's own computer. The clean Word download carries none of it.
+A planned deal is usually highly confidential, especially if a listed company is involved, so lawyers are usually not allowed to describe it to an AI. The app is built around that:
 
-### The code runs the process, the AI answers narrow questions
+- **No prompt** the app builds puts two companies of the screen, or the planned deal, together. Each company is researched in its own call, the comparison sees only **anonymised descriptions** one pair at a time, and the names are put back in code.
+- If **typed text** names another company of the screen, the app shows a warning. Sending it anyway is the lawyer's recorded decision (TC2).
+- An **existing relationship** between two companies is a strong indicator of an overlap or vertical link. The code finds it in each company's separate research and never asks the AI about both (TC2).
+- The app **stores nothing**. "Save progress" downloads what is needed to resume the screen to the lawyer's own computer, and the clean Word download carries none of it.
 
-- **A fixed pipeline.** The code sets the order of the steps, builds every prompt and decides every result. Each AI call answers one small question in a fixed form (Structured Outputs), which the code checks and acts on.
-- **One pair per call**, for confidentiality and reliability, since the AI makes fewer mistakes comparing only two activities. The summary then groups the results.
-- **Rules that hold in every sector live in code, sector knowledge does not.** There is no product list or relatedness table, so the same app works for other sectors (TC3). Legal definitions are built into the answer forms, for example levels of trade defined by the buyer's use (Vertical Guidelines para 287).
-- **An error never removes anything.** A failed or blocked call never screens a pair out, and a failed search is shown as failed, never as "No precedent".
+### What the code does and what the AI does
 
-### A calm screen, with more on demand
+- The **code runs the process** and the AI answers narrow questions. The code sets the order of the steps, builds every prompt and decides every result. Each AI call answers one small question in a fixed form (**Structured Outputs**), which the code checks and acts on.
+- The comparison sends **one pair per call**, for confidentiality and reliability, since the AI makes fewer mistakes comparing only two activities. The summary then groups the results.
+- **Rules that hold in every sector** are in the code, sector knowledge is not. There is no product list or relatedness table, so the same app works for other sectors (TC3). **Legal definitions** are built into the answer forms, for example levels of trade defined by the buyer's use (Vertical Guidelines para 287).
+- An **error never removes anything**. A failed or blocked call never screens a pair out, and a failed search is shown as failed, never as "No precedent".
 
-An overlap screen inherently involves a lot of information. The app lets a lawyer under time pressure work with the conclusion, while every detail stays one hover or click away. Hovering shows the quotation behind each source mark, the Commission's paragraph behind each reference such as [M.5644 (24)], and every product of an activity ("+6 more"). Guide boxes, "Why?" (the reasoning on every row), the market table, company profiles and sources, and companies without an overlap are folded, never hidden.
+### Layout
+
+An overlap screen involves a lot of information. The app lets a lawyer under time pressure work with the conclusion, with every detail a hover or click away. Hovering shows the quotation behind each source mark, the Commission's paragraph behind each reference such as [M.5644 (24)], and every product of an activity ("+6 more"). Guide boxes, "Why?" (the reasoning on every row), the market table, company profiles and sources, and companies without an overlap are folded, but can always be opened.
 
 ---
 
@@ -117,7 +119,7 @@ The companies are real, but the portfolios are hypothetical and no real transact
 
 ## The three test cases
 
-Each test case covers a situation the others do not. Together they show both kinds of relationship and a company with none, a Commission precedent for both sides, for one side only, and for neither until the lawyer adds one, and all three ways of researching a company. The portfolios were chosen to show how companies can overlap, including hard cases that need a lawyer's judgment, so each screen has more going on than a typical one. In a real fund, many portfolio companies have nothing to do with the target, and the app shows them as "None found", with the reasons one click away.
+Each test case covers a situation the others do not. Together they show both kinds of relationship and a control company with no real overlap, a Commission precedent for both sides, for one side only, and for neither until the lawyer adds one, and all three ways of researching a company. The portfolios were chosen to show how companies can overlap, including hard cases that need a lawyer's judgment, so each screen has more going on than a typical one. In a real fund, many portfolio companies have nothing to do with the target, and the app shows them as "None found", with the reasons one click away.
 
 | | TC1 · Lindt & Sprüngli | TC2 · Planet A Foods | TC3 · Brillux |
 |---|---|---|---|
@@ -128,13 +130,13 @@ Each test case covers a situation the others do not. Together they show both kin
 | **What it illustrates** | the full pipeline, checked sources and verified Commission quotations | the lawyer's own knowledge in the research, the confidentiality guard, and honest gaps instead of forced answers | that the app holds no sector knowledge, and that a decision added in a minute turns "No precedent" into the Commission's own market |
 | **Limits it shows** | smaller lines can vary between runs | new products are left to the lawyer; typed descriptions are checked for source, not truth | the database does not cover every sector; uploads are checked against their own text |
 
-FRoSTA (frozen food) is the control in TC1 and TC2, and no overlap is expected with either target. Some runs still propose a few generic vertical links (chocolate ingredients or fats as an input for frozen food), which the lawyer is expected to dismiss. Some show nothing at all.
+FRoSTA (frozen food) is the control in TC1 and TC2, and no real overlap is expected with either target. It is deliberately from the same broad sector, so some runs keep a few doubtful vertical links (chocolate ingredients or fats as an input for frozen food), which the lawyer is expected to dismiss. Some show nothing at all.
 
 ### What to expect from any run
 
-**Reliable at the core, slightly variable at the edges.** A company's main, well-documented activities are found in every run, and so is any overlap or vertical relationship they lead to. The research starts, as a lawyer's would, from each company's own website. It then widens to annual reports, brand and product pages, and what a first look easily misses, such as smaller brands, sales to other businesses, own shops and side lines, so it usually finds more than a lawyer under time pressure would. At the edges, though, results can differ between runs, because web search and AI answers are not identical each time. A page found in one run can be missed in the next, or a smaller product line can be described differently, which can change the result of a row. This is the trade-off of a preliminary screen, and why the lawyer still verifies: every activity is sourced and can be edited or added in step ②, and every label can be changed in step ③.
+A company's main, well-documented activities are found in every run, and so is any overlap or vertical relationship they lead to. The research starts, as a lawyer's would, from each company's own website. It then widens to annual reports, brand and product pages, and what a first look easily misses, such as smaller brands, sales to other businesses, own shops and side lines, so it usually finds more than a lawyer under time pressure would. At the edges, though, results can differ between runs, because web search and AI answers are not identical each time. A page found in one run can be missed in the next, or a smaller product line can be described differently, which can change the result of a row. This is the trade-off of a preliminary screen, and why the lawyer still verifies: every activity is sourced and can be edited or added in step ②, and every label can be changed in step ③.
 
-**Expected relationships** lists every overlap and vertical relationship a competition lawyer would expect, and says where one rests on a less prominent product line. Because the app compares activity by activity, one relationship can appear in several rows, with different wording or a different split into activities, and the result can vary within the range given. Step ④ classifies the products of each row separately, so the same product can be placed in a market on one row and in none on another. **Also on the screen** lists the extra labels by type. A screen typically shows about 15–30 labels, most of them *No precedent*, *One side defined* or less likely: not errors, but doubtful pairs kept for the lawyer to dismiss or further investigate. Until they are dismissed, they also count in the step ⑤ summary.
+**Expected relationships** lists every overlap and vertical relationship a competition lawyer would expect, and says where one rests on a less prominent product line. Because the app compares activity by activity, one relationship can appear in several rows, with different wording or a different split into activities, and the result can vary within the range given. Step ④ classifies the products of each row separately, so the same product can be placed in a market on one row and in none on another. **Also on the screen** lists the extra labels by type. A screen typically shows about 15–30 labels, most of them *No precedent*, *One side defined* or less likely: doubtful pairs kept on purpose for the lawyer to dismiss or investigate further. Until they are dismissed, they also count in the step ⑤ summary.
 
 ### TC1 · Lindt & Sprüngli
 
