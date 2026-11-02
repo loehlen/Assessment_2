@@ -82,7 +82,7 @@ A planned deal is usually highly confidential, especially if a listed company is
 ### What the code does and what the AI does
 
 - The **code runs the process** and the AI answers narrow questions. The code sets the order of the steps, builds every prompt and decides every result. Each AI call answers one small question in a fixed form (**Structured Outputs**), which the code checks and acts on.
-- The comparison sends **one pair per call**, for confidentiality and reliability, since the AI makes fewer mistakes comparing only two activities. The summary then groups the results.
+- The comparison sends **one pair per call**, for confidentiality and reliability, since the AI makes fewer mistakes comparing only two activities. It is also how the law works: real competitors usually overlap in several activities, and each market is assessed separately, since the parties' market shares can be high in one and low in another. The summary then groups the results.
 - **Rules that hold in every sector** are in the code, sector knowledge is not. There is no product list or relatedness table, so the same app works for other sectors (TC3). **Legal definitions** are built into the answer forms, for example levels of trade defined by the buyer's use (Vertical Guidelines para 287).
 - An **error never removes anything**. A failed or blocked call never screens a pair out, and a failed search is shown as failed, never as "No precedent".
 
@@ -200,7 +200,7 @@ A company's main, well-documented activities are found in every run, and so is a
 
 ## AI techniques used
 
-A run makes from about 100 (TC1, TC2) to about 140–350 (TC3) AI calls: two web searches and one extraction per company, one comparison per pair of activities, and in step ④ one call that sorts the products into types and one reflection per type and attempt. Embedding requests are not counted.
+A run makes from about 100 (TC1, TC2) to about 140–350 (TC3, depending on whether step ④ runs once or twice) AI calls: two web searches and one extraction per company, one comparison per pair of activities, and in step ④ one call that sorts the products into types and one reflection per type and attempt. Embedding requests are not counted.
 
 | Class technique | In this app |
 |---|---|
